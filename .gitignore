@@ -1,0 +1,5 @@
+/target
+/dist
+# 本机工具链路径（参考 .cargo/config.example.toml）
+/.cargo/config.toml
+*.log
