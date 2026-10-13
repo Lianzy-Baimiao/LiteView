@@ -30,6 +30,8 @@ pub enum Notice {
     Pasted(Box<crate::decode::Decoded>),
     Removed(PathBuf),
     Saved(PathBuf),
+    /// 另一个实例发来的「打开这个文件」
+    Remote(crate::single::Request),
 }
 
 pub(crate) struct Current {
@@ -121,6 +123,13 @@ pub fn run() -> eframe::Result {
         }
         return Ok(());
     }
+    // 单实例：交给已经开着的窗口
+    if settings.single_instance
+        && let Some(p) = &args.path
+        && crate::single::send(&crate::single::request(p, args.edit, args.mosaic))
+    {
+        return Ok(());
+    }
     // 先开始解码第一张图，与创建窗口、初始化显卡同时进行
     let mut loader = Loader::new(2, decode_options(&settings), settings.cache_mb as usize * 1048576);
     if let Some(p) = &args.path {
@@ -209,6 +218,13 @@ impl App {
         if let Some(p) = args.path {
             app.open_path(p, ctx);
         }
+        if app.settings.single_instance {
+            let (tx, ctx2) = (app.tx.clone(), ctx.clone());
+            crate::single::serve(move |r| {
+                let _ = tx.send(Notice::Remote(r));
+                ctx2.request_repaint();
+            });
+        }
         // 首次启动询问一次是否设为默认看图软件
         #[cfg(windows)]
         if app.settings.ask_default_app && !crate::platform::assoc::is_registered() {
@@ -224,6 +240,11 @@ impl App {
                 Notice::OpenPath(p) => self.open_path(p, ctx),
                 Notice::Pasted(d) => self.show_pasted(*d),
                 Notice::Removed(p) => self.loader.forget(&p),
+                Notice::Remote(r) => {
+                    self.open_path(r.path, ctx);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                }
                 Notice::Saved(p) => {
                     self.loader.forget(&p);
                     self.show_toast(crate::i18n::tr().saved.to_owned());

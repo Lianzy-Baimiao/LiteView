@@ -16,6 +16,7 @@ pub mod natsort;
 pub mod platform;
 pub mod save;
 pub mod settings;
+pub mod single;
 pub mod ui;
 pub mod viewer;
 

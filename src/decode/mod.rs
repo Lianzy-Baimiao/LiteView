@@ -3,6 +3,7 @@
 //! 解码器内部出错（panic）只影响这一张图。
 
 mod anim;
+mod extra;
 mod raster;
 pub mod sniff;
 #[cfg(windows)]
@@ -156,6 +157,11 @@ fn decode_kind(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error
             }
             raster::decode(data, f, opts).or_else(|e| system(data, kind).map_err(|_| e))
         }
+        Kind::Svg => extra::svg(data),
+        Kind::Jxl => extra::jxl(data, opts),
+        Kind::Psd => extra::psd(data).or_else(|e| system(data, kind).map_err(|_| e)),
+        // RAW：先用内嵌的 JPEG 预览（快、各平台都能看），没有时交给系统解码
+        Kind::Raw => extra::raw_preview(data, opts).or_else(|_| system(data, kind)),
         _ => system(data, kind),
     }
 }

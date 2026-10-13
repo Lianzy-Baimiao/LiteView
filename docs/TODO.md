@@ -3,11 +3,13 @@
 > 最后更新：2026-10-14。完成一项就在后面写上版本号。
 
 ## 进行中（M2 动图与格式）
-- [ ] 单实例、监听文件夹变化、导出动图当前帧
+- [x] 单实例：双击新图片在原窗口打开（Windows 命名管道 / Unix 套接字，本机实测 124 ms 交接）
+- [ ] 监听文件夹变化、导出动图当前帧
 - [x] Windows 文件关联：只写 HKCU（ProgID、OpenWithProgids、RegisteredApplications 能力声明），「设为默认看图软件」打开系统默认应用（Win11 22H2 起直接到本软件页面），标出当前默认的格式，取消关联后注册表恢复原样（本机实测），资源管理器右键「用 LiteView 编辑 / 打码」，首次启动询问一次，`--register` / `--unregister`
 
 ## 下一步
-- [ ] M2：SVG（resvg）、JPEG XL（jxl-oxide）、RAW 内嵌预览、PSD 合并图；WIC 解出来的图按 EXIF 转正（要真实 HEIC / RAW 样本验证）
+- [x] SVG（resvg，长边 2048 像素，带文字时才加载系统字体）、JPEG XL（jxl-oxide，含动画）、RAW 内嵌的最大 JPEG 预览（按 RAW 的方向转正，没有预览时交给 WIC）、PSD 合并图（8 位 RGB / 灰度，PackBits）
+- [ ] WIC 解出来的 HEIC 按 EXIF 转正（要真实 HEIC 样本验证）
 - [ ] M2：Linux / macOS 打包
 - [ ] M3：编辑框架（选择、裁剪、调整大小、旋转翻转、撤销重做、保存 / 另存为 / 复制）+ 打码（马赛克 / 模糊，画笔 / 框选）
 - [ ] M4：铅笔、刷子、橡皮擦、颜料桶、取色器、文字、形状、颜色
