@@ -47,6 +47,66 @@ fn number(ui: &mut Ui, value: &mut u32, range: std::ops::RangeInclusive<f32>) {
     ui.label(RichText::new(value.to_string()).size(13.0));
 }
 
+/// 文件关联页：按组勾选扩展名，「设为默认看图软件」= 注册 + 打开系统默认应用；返回轻提示
+#[cfg(windows)]
+fn assoc_page(ui: &mut Ui, s: &mut Settings) -> Option<String> {
+    use crate::platform::assoc;
+    let t = tr();
+    let p = theme::palette(ui.ctx());
+    let registered = assoc::is_registered();
+    ui.label(RichText::new(if registered { t.a_registered } else { t.a_not_registered }).color(p.text_weak));
+    ui.add_space(10.0);
+    for (group, name) in assoc::GROUPS.iter().zip(t.a_groups.split('|')) {
+        ui.label(RichText::new(name).size(12.0).color(p.text_weak));
+        ui.horizontal_wrapped(|ui| {
+            for ext in group.iter() {
+                let mut on = s.assoc_exts.iter().any(|e| e == ext);
+                let label = if registered && assoc::is_default(ext) { format!(".{ext}{}", t.a_is_default) } else { format!(".{ext}") };
+                if widgets::checkbox(ui, &mut on, &label).changed() {
+                    if on {
+                        s.assoc_exts.push(ext.to_string());
+                    } else {
+                        s.assoc_exts.retain(|e| e != ext);
+                    }
+                }
+                ui.add_space(10.0);
+            }
+        });
+        ui.add_space(6.0);
+    }
+    ui.horizontal(|ui| {
+        if ui.link(t.a_select_all).clicked() {
+            s.assoc_exts = assoc::all_exts();
+        }
+        if ui.link(t.a_restore).clicked() {
+            s.assoc_exts = assoc::default_exts();
+        }
+    });
+    ui.add_space(12.0);
+    ui.label(RichText::new(t.a_note).color(p.text_weak).size(12.0));
+    ui.add_space(10.0);
+    let mut msg = None;
+    ui.horizontal(|ui| {
+        if widgets::accent_button(ui, t.a_set_default, false).clicked() {
+            match assoc::register(&s.assoc_exts) {
+                Ok(()) => assoc::open_default_apps(),
+                Err(e) => msg = Some(fill(t.failed, &[&e])),
+            }
+        }
+        if registered && widgets::plain_button(ui, t.a_unregister).clicked() {
+            assoc::unregister();
+            msg = Some(t.a_removed.to_owned());
+        }
+    });
+    msg
+}
+
+#[cfg(not(windows))]
+fn assoc_page(ui: &mut Ui, _s: &mut Settings) -> Option<String> {
+    ui.label(RichText::new(tr().a_windows_only).color(theme::palette(ui.ctx()).text_weak));
+    None
+}
+
 impl App {
     pub(crate) fn settings_ui(&mut self, ctx: &egui::Context) {
         let Some(page) = self.settings_page else { return };
@@ -98,6 +158,7 @@ impl App {
 
     fn settings_page_ui(&mut self, ui: &mut Ui, page: Page) {
         let t = tr();
+        let mut toast = None;
         let s = &mut self.settings;
         ui.label(RichText::new(match page {
             Page::General => t.s_general,
@@ -148,7 +209,9 @@ impl App {
                 s.jpeg_quality = q as u8;
             }
             Page::Assoc => {
-                ui.label(RichText::new(t.s_coming).color(theme::palette(ui.ctx()).text_weak));
+                if let Some(m) = assoc_page(ui, s) {
+                    toast = Some(m);
+                }
             }
             Page::About => {
                 let p = theme::palette(ui.ctx());
@@ -167,6 +230,13 @@ impl App {
                     }
                 });
             }
+        }
+        self.settings_toast(toast);
+    }
+
+    fn settings_toast(&mut self, toast: Option<String>) {
+        if let Some(m) = toast {
+            self.show_toast(m);
         }
     }
 

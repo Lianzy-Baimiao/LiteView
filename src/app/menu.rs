@@ -97,10 +97,11 @@ impl App {
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(20)).corner_radius(egui::CornerRadius::same(8));
         let modal = egui::Modal::new(egui::Id::new("dialog")).frame(frame).show(ctx, |ui| {
             ui.set_width(380.0);
-            let (title, body, primary, secondary, danger) = match d {
-                Dialog::Delete { forever: true, .. } => (t.delete_title, t.delete_body_forever, t.delete_forever_btn, None, true),
-                Dialog::Delete { .. } => (t.delete_title, trash_body(), t.delete_btn, None, true),
-                Dialog::SaveRotation { .. } => (t.rotate_save_title, t.rotate_save_body, t.save, Some(t.dont_save), false),
+            let (title, body, primary, secondary, danger, cancel) = match d {
+                Dialog::Delete { forever: true, .. } => (t.delete_title, t.delete_body_forever, t.delete_forever_btn, None, true, t.cancel),
+                Dialog::Delete { .. } => (t.delete_title, trash_body(), t.delete_btn, None, true, t.cancel),
+                Dialog::SaveRotation { .. } => (t.rotate_save_title, t.rotate_save_body, t.save, Some(t.dont_save), false, t.cancel),
+                Dialog::AskDefault => (t.ask_title, t.ask_body, t.a_set_default, Some(t.ask_never), false, t.ask_later),
             };
             ui.label(RichText::new(title).size(16.0).color(p.text));
             ui.add_space(6.0);
@@ -122,7 +123,7 @@ impl App {
                 {
                     choice = Some(Choice::Secondary);
                 }
-                if widgets::plain_button(ui, t.cancel).clicked() {
+                if widgets::plain_button(ui, cancel).clicked() {
                     choice = Some(Choice::Cancel);
                 }
             });
@@ -149,6 +150,19 @@ impl App {
                 self.resume(after, ctx);
             }
             (Dialog::SaveRotation { after }, Choice::Secondary) => self.resume(after, ctx),
+            (Dialog::AskDefault, Choice::Primary) => {
+                self.settings.ask_default_app = false;
+                #[cfg(windows)]
+                match crate::platform::assoc::register(&self.settings.assoc_exts) {
+                    Ok(()) => crate::platform::assoc::open_default_apps(),
+                    Err(e) => self.show_toast(crate::i18n::fill(t.failed, &[&e])),
+                }
+                self.settings.save();
+            }
+            (Dialog::AskDefault, Choice::Secondary) => {
+                self.settings.ask_default_app = false;
+                self.settings.save();
+            }
         }
     }
 }

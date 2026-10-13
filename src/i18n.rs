@@ -193,6 +193,25 @@ strings! {
     i_taken: "拍摄时间", "Taken";
     i_gps: "GPS 位置", "GPS location";
     i_gps_show: "显示 GPS 位置", "Show GPS location";
+    // 文件关联
+    assoc_desc: "轻量看图：看图、编辑、打码", "Lightweight image viewer with editing and redaction";
+    ctx_edit_with: "用 LiteView 编辑", "Edit with LiteView";
+    ctx_mosaic_with: "用 LiteView 打码", "Redact with LiteView";
+    a_registered: "已注册为可以打开图片的程序。", "LiteView is registered as an image viewer.";
+    a_not_registered: "还没有注册。不点下面的按钮，LiteView 不会写注册表。", "Not registered. LiteView never writes to the registry unless you click below.";
+    a_note: "Windows 不允许程序自己改默认应用：点「设为默认看图软件」后，在打开的系统设置里选 LiteView。", "Windows doesn't let apps change defaults themselves: after clicking “Set as default”, choose LiteView in the Settings page that opens.";
+    a_groups: "常用|更多格式|专业|相机 RAW", "Common|More|Professional|Camera RAW";
+    a_set_default: "设为默认看图软件", "Set as default viewer";
+    a_unregister: "取消关联", "Remove associations";
+    a_select_all: "全选", "Select all";
+    a_restore: "恢复默认", "Reset";
+    a_is_default: "（当前默认）", " (default)";
+    a_windows_only: "文件关联目前只支持 Windows。", "File associations are Windows-only for now.";
+    a_removed: "已取消关联", "Associations removed";
+    ask_title: "设为默认看图软件？", "Make LiteView your default image viewer?";
+    ask_body: "以后双击图片就用 LiteView 打开。", "Images will open in LiteView when you double-click them.";
+    ask_later: "以后再说", "Later";
+    ask_never: "不再询问", "Don't ask again";
 }
 
 #[cfg(test)]

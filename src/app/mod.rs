@@ -66,6 +66,8 @@ pub(crate) enum After {
 pub(crate) enum Dialog {
     Delete { path: PathBuf, forever: bool, dont_ask: bool },
     SaveRotation { after: After },
+    /// 首次启动：设为默认看图软件？
+    AskDefault,
 }
 
 pub struct App {
@@ -109,6 +111,16 @@ pub fn run() -> eframe::Result {
     let args = crate::cli::parse(std::env::args_os().skip(1));
     let settings = Settings::load();
     crate::i18n::set_language(settings.language);
+    // 给安装程序用：注册 / 删除文件关联后退出
+    #[cfg(windows)]
+    if args.register || args.unregister {
+        if args.unregister {
+            crate::platform::assoc::unregister();
+        } else if let Err(e) = crate::platform::assoc::register(&settings.assoc_exts) {
+            log::warn!("注册文件关联失败：{e}");
+        }
+        return Ok(());
+    }
     // 先开始解码第一张图，与创建窗口、初始化显卡同时进行
     let mut loader = Loader::new(2, decode_options(&settings), settings.cache_mb as usize * 1048576);
     if let Some(p) = &args.path {
@@ -196,6 +208,11 @@ impl App {
         };
         if let Some(p) = args.path {
             app.open_path(p, ctx);
+        }
+        // 首次启动询问一次是否设为默认看图软件
+        #[cfg(windows)]
+        if app.settings.ask_default_app && !crate::platform::assoc::is_registered() {
+            app.dialog = Some(Dialog::AskDefault);
         }
         app
     }

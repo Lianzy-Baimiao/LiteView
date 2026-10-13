@@ -100,6 +100,8 @@ pub struct Settings {
     pub confirm_overwrite: bool,
     pub jpeg_quality: u8,
     pub window: WindowState,
+    /// 文件关联要注册的扩展名
+    pub assoc_exts: Vec<String>,
 }
 
 impl Default for Settings {
@@ -129,6 +131,7 @@ impl Default for Settings {
             confirm_overwrite: true,
             jpeg_quality: 90,
             window: WindowState::default(),
+            assoc_exts: crate::platform::assoc::default_exts(),
         }
     }
 }

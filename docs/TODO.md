@@ -4,7 +4,7 @@
 
 ## 进行中（M2 动图与格式）
 - [ ] 单实例、监听文件夹变化、导出动图当前帧
-- [ ] Windows 文件关联（注册 / 设为默认 / 取消）、资源管理器右键
+- [x] Windows 文件关联：只写 HKCU（ProgID、OpenWithProgids、RegisteredApplications 能力声明），「设为默认看图软件」打开系统默认应用（Win11 22H2 起直接到本软件页面），标出当前默认的格式，取消关联后注册表恢复原样（本机实测），资源管理器右键「用 LiteView 编辑 / 打码」，首次启动询问一次，`--register` / `--unregister`
 
 ## 下一步
 - [ ] M2：SVG（resvg）、JPEG XL（jxl-oxide）、RAW 内嵌预览、PSD 合并图；WIC 解出来的图按 EXIF 转正（要真实 HEIC / RAW 样本验证）
