@@ -52,6 +52,10 @@ impl App {
                 ui.close();
                 self.save_as();
             }
+            if item(ui, t.rename, "F2".into(), has_file) {
+                ui.close();
+                self.start_rename();
+            }
             if item(ui, super::canvas::folder_label(), String::new(), has_file) {
                 if let Some(cur) = &self.cur {
                     crate::platform::show_in_folder(&cur.path);
@@ -69,6 +73,15 @@ impl App {
             if ui.add_enabled(has_file, del).clicked() {
                 ui.close();
                 self.request_delete(false);
+            }
+            ui.separator();
+            if item(ui, t.info, "I".into(), has_img) {
+                ui.close();
+                self.info_open = true;
+            }
+            if item(ui, t.settings, format!("{c},"), true) {
+                ui.close();
+                self.settings_page = Some(Default::default());
             }
         });
     }

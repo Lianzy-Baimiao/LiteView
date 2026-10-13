@@ -10,7 +10,17 @@ impl App {
         if let Some(p) = dropped {
             self.open_path(p, ctx);
         }
-        if self.dialog.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || ctx.egui_wants_keyboard_input() {
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::I)) {
+            self.info_open = !self.info_open;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::F2)) {
+            self.start_rename();
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Comma)) {
+            self.settings_page = Some(Default::default());
             return;
         }
         let (cmd, shift, none) = (Modifiers::COMMAND, Modifiers::SHIFT, Modifiers::NONE);
@@ -78,7 +88,9 @@ impl App {
             self.save_rotation();
         }
         if k(none, Key::Escape) && !ctx.any_popup_open() {
-            if self.fullscreen {
+            if self.info_open {
+                self.info_open = false;
+            } else if self.fullscreen {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(false));
             } else {
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);

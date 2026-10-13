@@ -128,6 +128,13 @@ impl Loader {
         self.cache.get(path).map(|e| e.result.clone())
     }
 
+    /// 放进已解码好的结果（改名后沿用）
+    pub fn insert(&mut self, path: &Path, result: Loaded) {
+        let bytes = result.as_ref().map_or(0, |d| d.bytes());
+        self.tick += 1;
+        self.cache.insert(path.to_path_buf(), Entry { result, bytes, used: self.tick });
+    }
+
     /// 文件变了或被删了：丢掉缓存
     pub fn forget(&mut self, path: &Path) {
         self.cache.remove(path);

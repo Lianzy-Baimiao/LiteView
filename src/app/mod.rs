@@ -4,8 +4,10 @@
 mod actions;
 mod canvas;
 mod chrome;
+mod info;
 mod input;
 mod menu;
+mod settings_ui;
 mod state;
 
 use std::path::PathBuf;
@@ -94,6 +96,12 @@ pub struct App {
     pub(crate) ctx: egui::Context,
     /// 浮动工具栏的位置（鼠标在上面时不淡出）
     pub(crate) bar_rect: egui::Rect,
+    /// 设置窗口开着时是哪一页
+    pub(crate) settings_page: Option<settings_ui::Page>,
+    pub(crate) info_open: bool,
+    pub(crate) info: Option<info::InfoCache>,
+    pub(crate) show_gps: bool,
+    pub(crate) rename: Option<info::Rename>,
 }
 
 pub fn run() -> eframe::Result {
@@ -180,6 +188,11 @@ impl App {
             script: crate::devtools::Script::from_env(),
             ctx: ctx.clone(),
             bar_rect: egui::Rect::NOTHING,
+            settings_page: None,
+            info_open: false,
+            info: None,
+            show_gps: false,
+            rename: None,
         };
         if let Some(p) = args.path {
             app.open_path(p, ctx);
@@ -277,7 +290,10 @@ impl eframe::App for App {
         self.canvas_ui(ui);
         self.keyboard(&ctx);
         self.chrome(&ctx);
+        self.info_panel(&ctx);
         self.dialogs(&ctx);
+        self.settings_ui(&ctx);
+        self.rename_ui(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.needs_rotation_prompt() {
             ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
             self.dialog = Some(Dialog::SaveRotation { after: After::Close });

@@ -99,6 +99,31 @@ pub fn checkbox(ui: &mut Ui, value: &mut bool, text: &str) -> Response {
     resp
 }
 
+/// 滑块：细轨道 + 圆点，强调色表示已选部分；返回是否改变
+pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>, width: f32) -> Response {
+    let p = palette(ui.ctx());
+    let (rect, mut resp) = ui.allocate_exact_size(vec2(width, 24.0), Sense::click_and_drag());
+    let (lo, hi) = (*range.start(), *range.end());
+    let track = egui::Rect::from_center_size(rect.center(), vec2(rect.width() - 14.0, 4.0));
+    if let Some(pos) = resp.interact_pointer_pos()
+        && (resp.dragged() || resp.clicked())
+    {
+        let f = ((pos.x - track.left()) / track.width()).clamp(0.0, 1.0);
+        let v = (lo + f * (hi - lo)).round();
+        if v != *value {
+            *value = v;
+            resp.mark_changed();
+        }
+    }
+    let f = ((*value - lo) / (hi - lo)).clamp(0.0, 1.0);
+    let x = track.left() + f * track.width();
+    ui.painter().rect_filled(track, CornerRadius::same(2), p.divider);
+    ui.painter().rect_filled(egui::Rect::from_min_max(track.min, egui::pos2(x, track.max.y)), CornerRadius::same(2), p.accent);
+    let r = if resp.hovered() || resp.dragged() { 8.0 } else { 7.0 };
+    ui.painter().circle(egui::pos2(x, rect.center().y), r, p.surface, Stroke::new(2.0, p.accent));
+    resp
+}
+
 /// 分段按钮：返回新选中的序号
 pub fn segmented(ui: &mut Ui, items: &[&str], selected: usize) -> Option<usize> {
     let p = palette(ui.ctx());

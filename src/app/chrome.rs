@@ -115,6 +115,9 @@ impl App {
         if del.clicked() {
             self.request_delete(false);
         }
+        if widgets::icon_button_ex(ui, Icon::Info, t.info, "I", has, self.info_open, None).clicked() {
+            self.info_open = !self.info_open;
+        }
     }
 
     fn anim_contents(&mut self, ui: &mut egui::Ui) {
