@@ -1,0 +1,59 @@
+[package]
+name = "liteview"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.95"
+description = "LiteView 轻量看图：看图、编辑、打码"
+license = "MIT"
+repository = "https://github.com/Lianzy-Baimiao/LiteView"
+build = "build.rs"
+
+[[bin]]
+name = "LiteView"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland", "x11"] }
+egui = "=0.36.2"
+image = { version = "=0.25.10", default-features = false, features = ["rayon", "bmp", "dds", "exr", "ff", "gif", "hdr", "ico", "jpeg", "png", "pnm", "qoi", "tga", "tiff", "webp"] }
+resvg = { version = "=0.48.1", default-features = false, features = ["text", "system-fonts", "memmap-fonts"] }
+rayon = "=1.12.0"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+log = "=0.4.34"
+memmap2 = "=0.9.11"
+arboard = { version = "=3.6.1", default-features = false, features = ["image-data"] }
+rfd = "=0.17.2"
+trash = { version = "=5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
+sys-locale = "=0.3.2"
+raw-window-handle = "=0.6.2"
+pollster = "=0.4.0"
+
+[target.'cfg(windows)'.dependencies.windows]
+version = "=0.62.2"
+features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dwm",
+    "Win32_Graphics_Imaging",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Com",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_SystemInformation",
+    "Win32_System_Threading",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+]
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true

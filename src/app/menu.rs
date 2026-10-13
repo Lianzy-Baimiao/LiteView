@@ -1,0 +1,145 @@
+//! 右键菜单（PRD 6.5）与确认框（只用在不可撤销的操作上，按钮写清动作）。
+
+use egui::RichText;
+
+use super::{App, Dialog};
+use crate::i18n::tr;
+use crate::ui::{theme, widgets};
+
+enum Choice {
+    Primary,
+    Secondary,
+    Cancel,
+}
+
+impl App {
+    pub(crate) fn context_menu(&mut self, resp: &egui::Response) {
+        resp.context_menu(|ui| {
+            ui.set_min_width(230.0);
+            let t = tr();
+            let p = theme::palette(ui.ctx());
+            let has_img = self.decoded().is_some();
+            let has_file = self.cur.as_ref().is_some_and(|c| !c.clipboard);
+            let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
+            let item = |ui: &mut egui::Ui, text: &str, sc: String, on: bool| ui.add_enabled(on, egui::Button::new(text).shortcut_text(sc)).clicked();
+            if item(ui, t.copy_image, format!("{c}C"), has_img) {
+                self.copy_image();
+                ui.close();
+            }
+            if item(ui, t.copy_path, format!("{c}Shift+C"), has_file) {
+                self.copy_path(ui.ctx());
+                ui.close();
+            }
+            ui.separator();
+            if item(ui, t.rotate_cw, format!("{c}R"), has_img) {
+                self.rotate(true);
+                ui.close();
+            }
+            if item(ui, t.rotate_ccw, format!("{c}Shift+R"), has_img) {
+                self.rotate(false);
+                ui.close();
+            }
+            if item(ui, t.flip_h, String::new(), has_img) {
+                self.view.xf.flip_h = !self.view.xf.flip_h;
+                ui.close();
+            }
+            if item(ui, t.flip_v, String::new(), has_img) {
+                self.view.xf.flip_v = !self.view.xf.flip_v;
+                ui.close();
+            }
+            ui.separator();
+            if item(ui, t.save_as, format!("{c}Shift+S"), has_img) {
+                ui.close();
+                self.save_as();
+            }
+            if item(ui, super::canvas::folder_label(), String::new(), has_file) {
+                if let Some(cur) = &self.cur {
+                    crate::platform::show_in_folder(&cur.path);
+                }
+                ui.close();
+            }
+            if crate::platform::has_open_with() && item(ui, t.open_with, String::new(), has_file) {
+                if let Some(cur) = &self.cur {
+                    crate::platform::open_with(&cur.path);
+                }
+                ui.close();
+            }
+            ui.separator();
+            let del = egui::Button::new(RichText::new(t.delete).color(if has_file { p.danger } else { p.text_weak })).shortcut_text("Del");
+            if ui.add_enabled(has_file, del).clicked() {
+                ui.close();
+                self.request_delete(false);
+            }
+        });
+    }
+
+    pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
+        let is_jpeg = self.cur.as_ref().is_some_and(|c| {
+            c.path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "jpe" | "jfif"))
+        });
+        let Some(d) = &mut self.dialog else { return };
+        let t = tr();
+        let p = theme::palette(ctx);
+        let mut choice = None;
+        let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(20)).corner_radius(egui::CornerRadius::same(8));
+        let modal = egui::Modal::new(egui::Id::new("dialog")).frame(frame).show(ctx, |ui| {
+            ui.set_width(380.0);
+            let (title, body, primary, secondary, danger) = match d {
+                Dialog::Delete { forever: true, .. } => (t.delete_title, t.delete_body_forever, t.delete_forever_btn, None, true),
+                Dialog::Delete { .. } => (t.delete_title, trash_body(), t.delete_btn, None, true),
+                Dialog::SaveRotation { .. } => (t.rotate_save_title, t.rotate_save_body, t.save, Some(t.dont_save), false),
+            };
+            ui.label(RichText::new(title).size(16.0).color(p.text));
+            ui.add_space(6.0);
+            ui.label(RichText::new(body).color(p.text_weak));
+            if matches!(d, Dialog::SaveRotation { .. }) && is_jpeg {
+                ui.label(RichText::new(t.rotate_save_jpeg).color(p.text_weak).size(12.0));
+            }
+            if let Dialog::Delete { forever: false, dont_ask, .. } = d {
+                ui.add_space(10.0);
+                widgets::checkbox(ui, dont_ask, t.dont_ask);
+            }
+            ui.add_space(18.0);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                if widgets::accent_button(ui, primary, danger).clicked() {
+                    choice = Some(Choice::Primary);
+                }
+                if let Some(s) = secondary
+                    && widgets::plain_button(ui, s).clicked()
+                {
+                    choice = Some(Choice::Secondary);
+                }
+                if widgets::plain_button(ui, t.cancel).clicked() {
+                    choice = Some(Choice::Cancel);
+                }
+            });
+        });
+        if choice.is_none() && modal.should_close() {
+            choice = Some(Choice::Cancel);
+        }
+        let Some(choice) = choice else { return };
+        let Some(d) = self.dialog.take() else { return };
+        match (d, choice) {
+            (_, Choice::Cancel) => {}
+            (Dialog::Delete { path, forever, dont_ask }, _) => {
+                if dont_ask && !forever {
+                    self.settings.confirm_delete = false;
+                }
+                self.do_delete(path, forever);
+            }
+            (Dialog::SaveRotation { after }, Choice::Primary) => {
+                if matches!(after, super::After::Close) {
+                    self.save_rotation_blocking();
+                } else {
+                    self.save_rotation();
+                }
+                self.resume(after, ctx);
+            }
+            (Dialog::SaveRotation { after }, Choice::Secondary) => self.resume(after, ctx),
+        }
+    }
+}
+
+pub(crate) fn trash_body() -> &'static str {
+    if cfg!(target_os = "macos") { tr().delete_body_trash_mac } else { tr().delete_body_trash }
+}
