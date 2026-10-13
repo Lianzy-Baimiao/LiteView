@@ -19,6 +19,15 @@ pub fn is_image(p: &Path) -> bool {
     })
 }
 
+/// 扫描结果合并后的变化
+#[derive(Debug, PartialEq, Eq)]
+pub enum Polled {
+    Nothing,
+    Changed,
+    /// 重新扫描时发现当前图已经不在了（被删除或移走）：index 指向原位置上的下一张
+    CurrentGone,
+}
+
 #[derive(Debug, PartialEq, Eq)]
 pub enum Step {
     Moved,
@@ -31,7 +40,8 @@ pub enum Step {
 pub struct Folder {
     pub files: Vec<PathBuf>,
     pub index: usize,
-    scan: Option<Receiver<Vec<PathBuf>>>,
+    /// 后台扫描；bool = 是重新扫描（文件夹有变化），不是刚打开
+    scan: Option<(Receiver<Vec<PathBuf>>, bool)>,
 }
 
 impl Folder {
@@ -47,56 +57,76 @@ impl Folder {
     /// 打开一张图并在后台扫描它所在的文件夹；扫描完成时让界面重绘
     pub fn open(path: &Path, sort: SortKey, desc: bool, ctx: Option<egui::Context>) -> Self {
         let mut f = Self::single(path.to_path_buf());
-        if let Some(dir) = path.parent().map(Path::to_path_buf) {
-            let (tx, rx) = channel();
-            f.scan = Some(rx);
-            std::thread::Builder::new()
-                .name("scan".into())
-                .spawn(move || {
-                    let files = scan(&dir, sort, desc);
-                    if tx.send(files).is_ok()
-                        && let Some(ctx) = ctx
-                    {
-                        ctx.request_repaint();
-                    }
-                })
-                .ok();
-        }
+        f.start_scan(sort, desc, ctx, false);
         f
+    }
+
+    /// 文件夹有变化：在后台重新扫描（正在扫描的作废）
+    pub fn rescan(&mut self, sort: SortKey, desc: bool, ctx: Option<egui::Context>) {
+        self.start_scan(sort, desc, ctx, true);
+    }
+
+    fn start_scan(&mut self, sort: SortKey, desc: bool, ctx: Option<egui::Context>, rescan: bool) {
+        let Some(dir) = self.dir().map(Path::to_path_buf) else { return };
+        let (tx, rx) = channel();
+        self.scan = Some((rx, rescan));
+        std::thread::Builder::new()
+            .name("scan".into())
+            .spawn(move || {
+                let files = scan(&dir, sort, desc);
+                if tx.send(files).is_ok()
+                    && let Some(ctx) = ctx
+                {
+                    ctx.request_repaint();
+                }
+            })
+            .ok();
+    }
+
+    /// 当前图所在的文件夹
+    pub fn dir(&self) -> Option<&Path> {
+        self.current()?.parent().filter(|d| !d.as_os_str().is_empty())
     }
 
     pub fn scanning(&self) -> bool {
         self.scan.is_some()
     }
 
-    /// 扫描完成后合并到列表；返回列表是否变化
-    pub fn poll(&mut self) -> bool {
-        let Some(rx) = &self.scan else { return false };
+    /// 扫描完成后合并到列表
+    pub fn poll(&mut self) -> Polled {
+        let Some((rx, rescan)) = &self.scan else { return Polled::Nothing };
+        let rescan = *rescan;
         let files = match rx.try_recv() {
             Ok(files) => files,
-            Err(TryRecvError::Empty) => return false,
+            Err(TryRecvError::Empty) => return Polled::Nothing,
             Err(TryRecvError::Disconnected) => {
                 self.scan = None;
-                return false;
+                return Polled::Nothing;
             }
         };
         self.scan = None;
-        self.merge(files);
-        true
+        self.merge(files, |p| !rescan || p.exists())
     }
 
-    fn merge(&mut self, mut files: Vec<PathBuf>) {
-        if let Some(cur) = self.files.get(self.index).cloned() {
-            match files.iter().position(|p| same_path(p, &cur)) {
-                Some(i) => self.index = i,
-                None => {
-                    // 扩展名不在列表里、但能打开的图：放在最前面
-                    files.insert(0, cur);
-                    self.index = 0;
-                }
-            }
+    /// exists：当前图还在不在（刚打开时一定在）
+    fn merge(&mut self, mut files: Vec<PathBuf>, exists: impl Fn(&Path) -> bool) -> Polled {
+        let Some(cur) = self.files.get(self.index).cloned() else {
+            self.files = files;
+            return Polled::Changed;
+        };
+        if let Some(i) = files.iter().position(|p| same_path(p, &cur)) {
+            self.index = i;
+        } else if exists(&cur) {
+            // 扩展名不在列表里、但能打开的图：放在最前面
+            files.insert(0, cur);
+            self.index = 0;
+        } else {
+            self.files = files;
+            self.index = self.index.min(self.files.len().saturating_sub(1));
+            return Polled::CurrentGone;
         }
         self.files = files;
+        Polled::Changed
     }
 
     pub fn current(&self) -> Option<&Path> {
@@ -163,7 +193,7 @@ impl Folder {
     }
 }
 
-fn same_path(a: &Path, b: &Path) -> bool {
+pub fn same_path(a: &Path, b: &Path) -> bool {
     a == b || (cfg!(windows) && a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase())
 }
 
@@ -227,10 +257,23 @@ mod tests {
     #[test]
     fn merge_keeps_current() {
         let mut f = Folder::single(PathBuf::from("/d/2.png"));
-        f.merge(folder(4, 0).files);
+        assert_eq!(f.merge(folder(4, 0).files, |_| true), Polled::Changed);
         assert_eq!((f.index, f.len()), (2, 4));
         let mut g = Folder::single(PathBuf::from("/d/odd.bin"));
-        g.merge(folder(2, 0).files);
+        g.merge(folder(2, 0).files, |_| true);
         assert_eq!((g.index, g.len()), (0, 3));
+    }
+
+    #[test]
+    fn rescan_notices_removed_current() {
+        let mut f = folder(4, 2);
+        let mut files = folder(4, 0).files;
+        files.remove(2);
+        assert_eq!(f.merge(files, |_| false), Polled::CurrentGone);
+        // 原位置上的下一张
+        assert_eq!(f.current(), Some(Path::new("/d/3.png")));
+        let mut g = folder(2, 1);
+        assert_eq!(g.merge(vec![PathBuf::from("/d/0.png")], |_| false), Polled::CurrentGone);
+        assert_eq!(g.index, 0);
     }
 }

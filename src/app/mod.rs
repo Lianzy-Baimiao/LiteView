@@ -106,6 +106,11 @@ pub struct App {
     pub(crate) info: Option<info::InfoCache>,
     pub(crate) show_gps: bool,
     pub(crate) rename: Option<info::Rename>,
+    /// 监听当前文件夹
+    pub(crate) watch: Option<crate::viewer::watch::Watch>,
+    pub(crate) watch_dir: Option<PathBuf>,
+    /// 刚由本程序保存的文件（文件夹监听不再重复载入）
+    pub(crate) self_saved: Vec<(PathBuf, Instant)>,
 }
 
 pub fn run() -> eframe::Result {
@@ -214,6 +219,9 @@ impl App {
             info: None,
             show_gps: false,
             rename: None,
+            watch: None,
+            watch_dir: None,
+            self_saved: Vec::new(),
         };
         if let Some(p) = args.path {
             app.open_path(p, ctx);
@@ -247,16 +255,11 @@ impl App {
                 }
                 Notice::Saved(p) => {
                     self.loader.forget(&p);
+                    self.self_saved.push((p.clone(), Instant::now()));
                     self.show_toast(crate::i18n::tr().saved.to_owned());
                     // 保存的是正在看的图：重新载入（旋转已写进文件，载入后显示方向复位）
-                    if let Some(c) = &mut self.cur
-                        && c.path == p
-                    {
-                        c.loaded = None;
-                        c.since = Instant::now();
-                        if let Some(l) = self.loader.request(&p) {
-                            self.on_loaded(l);
-                        }
+                    if self.cur.as_ref().is_some_and(|c| c.path == p) {
+                        self.reload_current();
                     }
                 }
             }
@@ -324,6 +327,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.poll_notices(&ctx);
         self.poll_loader(&ctx);
+        self.poll_watch(&ctx);
         self.update_window(&ctx, frame);
         self.canvas_ui(ui);
         self.keyboard(&ctx);

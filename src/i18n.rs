@@ -74,6 +74,7 @@ strings! {
     copy_image: "复制图片", "Copy image";
     copy_path: "复制文件路径", "Copy file path";
     save_as: "另存为…", "Save as…";
+    export_frame: "导出当前帧…", "Export current frame…";
     rename: "重命名", "Rename";
     set_wallpaper: "设为桌面背景", "Set as desktop background";
     show_in_folder: "在资源管理器中显示", "Show in folder";

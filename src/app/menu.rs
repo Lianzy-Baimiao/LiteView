@@ -48,7 +48,8 @@ impl App {
                 ui.close();
             }
             ui.separator();
-            if item(ui, t.save_as, format!("{c}Shift+S"), has_img) {
+            let save_label = if self.is_animated() { t.export_frame } else { t.save_as };
+            if item(ui, save_label, format!("{c}Shift+S"), has_img) {
                 ui.close();
                 self.save_as();
             }

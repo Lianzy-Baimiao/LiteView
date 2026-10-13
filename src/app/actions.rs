@@ -103,10 +103,15 @@ impl App {
         });
     }
 
+    /// 另存为；动图是导出当前帧（默认 PNG，文件名带帧号）
     pub(crate) fn save_as(&mut self) {
         let Some((img, xf)) = self.displayed_image() else { return };
         let stem = self.cur.as_ref().filter(|c| !c.clipboard).and_then(|c| c.path.file_stem()).map_or("image".into(), |s| s.to_string_lossy().into_owned());
-        let mut d = rfd::FileDialog::new().set_file_name(format!("{stem}.png"));
+        let name = match &self.play {
+            Some(p) if self.is_animated() => format!("{stem}-{}.png", p.index + 1),
+            _ => format!("{stem}.png"),
+        };
+        let mut d = rfd::FileDialog::new().set_file_name(name);
         for f in Format::ALL {
             d = d.add_filter(f.name(), f.exts());
         }

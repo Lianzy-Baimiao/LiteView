@@ -5,3 +5,4 @@ pub mod loader;
 pub mod playback;
 pub mod texture;
 pub mod view;
+pub mod watch;

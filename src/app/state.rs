@@ -7,7 +7,7 @@ use std::time::Instant;
 use super::{After, App, Current, Dialog, Shown, Tex};
 use crate::decode::{Content, Decoded};
 use crate::i18n::tr;
-use crate::viewer::folder::{Folder, Step};
+use crate::viewer::folder::{Folder, Polled, Step, same_path};
 use crate::viewer::loader::Loaded;
 use crate::viewer::playback::Playback;
 use crate::viewer::texture::{AnimTexture, StillTextures};
@@ -97,9 +97,18 @@ impl App {
     }
 
     pub(crate) fn poll_loader(&mut self, ctx: &egui::Context) {
-        if self.folder.poll() {
-            self.loader.preload(&self.folder.neighbors(self.settings.preload as usize));
-            ctx.request_repaint();
+        match self.folder.poll() {
+            Polled::Nothing => {}
+            Polled::Changed => {
+                self.loader.preload(&self.folder.neighbors(self.settings.preload as usize));
+                ctx.request_repaint();
+            }
+            // 当前图被外部删除或移走：和在这里删除一样显示下一张
+            Polled::CurrentGone => {
+                self.view.xf = Default::default();
+                self.show_toast(tr().err_not_found);
+                self.show_current();
+            }
         }
         let keep = self.cur.as_ref().map(|c| c.path.clone());
         let done = self.loader.poll(keep.as_deref());
@@ -108,6 +117,45 @@ impl App {
             && done.contains(&c.path)
             && let Some(l) = self.loader.get(&c.path)
         {
+            self.on_loaded(l);
+        }
+    }
+
+    /// 监听当前文件夹：列表变化时重新扫描；图片被外部修改后丢掉缓存，当前图重新载入
+    pub(crate) fn poll_watch(&mut self, ctx: &egui::Context) {
+        let dir = self.cur.as_ref().filter(|c| !c.clipboard).and_then(|_| self.folder.dir()).map(PathBuf::from);
+        if dir != self.watch_dir {
+            self.watch = dir.as_deref().and_then(|d| crate::viewer::watch::Watch::new(d, ctx.clone()));
+            self.watch_dir = dir;
+        }
+        let Some(changes) = self.watch.as_mut().and_then(|w| w.poll(ctx)) else { return };
+        self.self_saved.retain(|(_, t)| t.elapsed().as_secs_f32() < 3.0);
+        for p in &changes.paths {
+            self.loader.forget(p);
+        }
+        if changes.list {
+            self.folder.rescan(self.settings.sort, self.settings.sort_desc, Some(ctx.clone()));
+        }
+        let reload = self.cur.as_ref().is_some_and(|c| {
+            !c.clipboard
+                && changes.paths.iter().any(|p| same_path(p, &c.path))
+                && c.path.exists()
+                && !self.self_saved.iter().any(|(p, _)| same_path(p, &c.path))
+        });
+        if reload && !self.needs_rotation_prompt() {
+            log::info!("当前图被外部修改，重新载入");
+            self.reload_current();
+        }
+    }
+
+    /// 重新解码当前图（文件被修改、保存之后）
+    pub(crate) fn reload_current(&mut self) {
+        let Some(c) = &mut self.cur else { return };
+        let path = c.path.clone();
+        self.loader.forget(&path);
+        c.loaded = None;
+        c.since = Instant::now();
+        if let Some(l) = self.loader.request(&path) {
             self.on_loaded(l);
         }
     }

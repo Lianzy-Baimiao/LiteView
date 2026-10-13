@@ -4,7 +4,8 @@
 
 ## 进行中（M2 动图与格式）
 - [x] 单实例：双击新图片在原窗口打开（Windows 命名管道 / Unix 套接字，本机实测 124 ms 交接）
-- [ ] 监听文件夹变化、导出动图当前帧
+- [x] 监听文件夹（notify）：新增、删除、改名后自动更新列表，当前图被外部修改后重新载入、被删除后显示下一张（本机实测）；动图右键「导出当前帧…」（默认 PNG，文件名带帧号）
+- [x] MinGW 构建时 exe 里有两份清单（gcc 自带的 default-manifest.o 与我们的），改为用我们的代替它
 - [x] Windows 文件关联：只写 HKCU（ProgID、OpenWithProgids、RegisteredApplications 能力声明），「设为默认看图软件」打开系统默认应用（Win11 22H2 起直接到本软件页面），标出当前默认的格式，取消关联后注册表恢复原样（本机实测），资源管理器右键「用 LiteView 编辑 / 打码」，首次启动询问一次，`--register` / `--unregister`
 
 ## 下一步

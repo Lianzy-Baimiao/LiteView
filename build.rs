@@ -36,7 +36,11 @@ fn main() {
     let rc_path = out.join("app.rc");
     std::fs::write(&rc_path, rc).expect("write rc");
     if target.contains("gnu") {
-        let obj = out.join("app_res.o");
+        // MinGW 的 gcc 每次链接都会带上自己的 default-manifest.o（只有 longPathAware），与我们的清单重复。
+        // 把资源编译成同名文件放进单独的目录，用 -B 让 gcc 找到我们的这个，代替默认的
+        let dir = out.join("res");
+        let _ = std::fs::create_dir_all(&dir);
+        let obj = dir.join("default-manifest.o");
         let bin = std::env::var("LITEVIEW_MINGW_BIN").ok();
         let windres = bin.as_ref().map_or("windres".to_string(), |b| format!("{b}/windres.exe"));
         let mut cmd = Command::new(&windres);
@@ -46,7 +50,7 @@ fn main() {
             cmd.env("PATH", format!("{b};{path}"));
         }
         match cmd.status() {
-            Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins={}", obj.display()),
+            Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins=-B{}/", dir.display()),
             _ => println!("cargo:warning=windres 不可用，程序将不带图标与清单"),
         }
     } else {
