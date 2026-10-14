@@ -62,6 +62,11 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - name: Windows process-tree regression
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        run: ./packaging/test_installer_process.ps1
       - name: Linux packages
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
@@ -87,6 +92,13 @@ jobs:
           New-Item -ItemType Directory -Path $previous -Force | Out-Null
           & $compiler.FullName "/DAppVersion=0.0.0" "/DBinaryDir=$pwd/target/release" "/O$previous" packaging/windows.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Windows installer lifecycle
+        if: runner.os == 'Windows'
+        timeout-minutes: 5
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])"
+          $previous = Join-Path $env:RUNNER_TEMP 'liteview-previous-installer'
           ./packaging/test_windows_installer.ps1 -Installer "dist/LiteView-v$version-windows-x64-setup.exe" -PreviousInstaller "$previous/LiteView-v0.0.0-windows-x64-setup.exe" -Binary "target/release/LiteView.exe" -Version $version
       - name: Installer smoke test logs
         if: always() && runner.os == 'Windows'

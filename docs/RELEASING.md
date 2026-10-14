@@ -25,7 +25,8 @@ Windows 安装包需 Inno Setup 6：
 
 - 普通 CI 执行三平台静态检查、Rust 测试、构建。
 - Release 工作流支持手动触发：仅构建并上传 Actions artifacts，不创建公开版本。
-- Windows 打包门禁在一次性 GitHub runner 上运行 `packaging/test_windows_installer.ps1`：用户级安装、同 AppId 从合成的 0.0.0 安装包升级、卸载、保留配置和用户图片、跳过关联/绿色版后来接管关联时不误删注册信息。脚本拒绝本机日常账户运行，也拒绝覆盖既有注册。此测试不等于旧版本程序数据迁移、交互式安装向导或系统默认应用验收。
+- 本机可安全运行 `powershell -NoProfile -ExecutionPolicy Bypass -File packaging/test_installer_process.ps1` 或 `pwsh -NoProfile -File packaging/test_installer_process.ps1`：仅加载辅助函数并使用合成父/子进程验证完整进程树等待和非零退出码传播，不运行安装器或读写注册表。常规 CI 覆盖两个 PowerShell 版本，Release 也运行该回归；每步限时 2 分钟。
+- Windows 打包门禁在一次性 GitHub runner 上运行 `packaging/test_windows_installer.ps1`：用户级安装、同 AppId 从合成的 0.0.0 安装包升级、卸载、保留配置和用户图片、跳过关联/绿色版后来接管关联时不误删注册信息。使用 `Start-Process -Wait` 等待整个进程树，不用启动进程退出或卸载注册表项消失代替清理完成；独立生命周期步骤限时 5 分钟。脚本拒绝本机日常账户运行，也拒绝覆盖既有注册。此测试不等于旧版本程序数据迁移、交互式安装向导或系统默认应用验收。
 - 推送与 Cargo.toml 完全匹配的 vX.Y.Z 标签后，生成第三方许可、测试并构建 Windows x64、Linux x64、macOS arm64 / x64。
 - 只有全部发布构建成功才创建 GitHub Release；附所有平台包与 SHA256SUMS.txt。不接受用 macOS 的 continue-on-error 掩盖发布失败。
 - 当前没有 Windows 签名或 macOS 公证。拿到证书并加入安全的 CI 凭据之前，不得宣称已签名。

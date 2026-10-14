@@ -52,11 +52,9 @@ function Get-OpenCommand {
     return $null
 }
 function Invoke-Checked([string]$Exe, [string[]]$Arguments) {
-    $p = Start-Process -FilePath $Exe -ArgumentList $Arguments -WindowStyle Hidden -PassThru
-    if (-not $p.WaitForExit(120000)) {
-        $p.Kill($true)
-        throw "Process timed out: $Exe"
-    }
+    # Inno delegates cleanup to a child. Wait for the whole process tree, not
+    # just the launcher; the dedicated CI lifecycle step has a five-minute timeout.
+    $p = Start-Process -FilePath $Exe -ArgumentList $Arguments -WindowStyle Hidden -Wait -PassThru
     Assert-True ($p.ExitCode -eq 0) "Process exited $($p.ExitCode): $Exe"
 }
 function Install-Test([string]$Setup, [bool]$Associate) {
@@ -79,9 +77,8 @@ function Uninstall-Test {
         $script:seq++
         Invoke-Checked (Join-Path $app 'unins000.exe') @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART',
             ('/LOG="{0}"' -f (Join-Path $root "uninstall-$seq.log")))
-        # Inno may finish cleanup in a child uninstaller process.
-        $deadline = [DateTime]::UtcNow.AddSeconds(20)
-        while ((Test-Path -LiteralPath $uninstallKey) -and [DateTime]::UtcNow -lt $deadline) { Start-Sleep -Milliseconds 200 }
+        # The registry key disappears before child cleanup ends: it is not a wait signal.
+        Assert-True (-not (Test-Path -LiteralPath (Join-Path $app 'unins000.exe'))) 'Uninstaller cleanup is incomplete.'
         Assert-True (-not (Test-Path -LiteralPath $uninstallKey)) 'Uninstall registration remains.'
         Assert-True (-not (Test-Path -LiteralPath (Join-Path $app 'LiteView.exe'))) 'Installed executable remains.'
     }
