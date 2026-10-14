@@ -11,13 +11,13 @@ use crate::viewer::texture::paint_checker;
 use crate::viewer::view::{View, WHEEL_STEP, snap};
 
 /// 黑白两色的虚线框：在任何背景上都看得见
-fn dashed_rect(painter: &Painter, r: Rect) {
+pub(crate) fn dashed_rect(painter: &Painter, r: Rect) {
     let pts = [r.left_top(), r.right_top(), r.right_bottom(), r.left_bottom(), r.left_top()];
     painter.add(Shape::line(pts.to_vec(), Stroke::new(1.0, Color32::WHITE)));
     painter.extend(Shape::dashed_line(&pts, Stroke::new(1.0, Color32::BLACK), 4.0, 4.0));
 }
 
-fn paint_handles(painter: &Painter, r: Rect) {
+pub(crate) fn paint_handles(painter: &Painter, r: Rect) {
     for h in handles(r) {
         let b = Rect::from_center_size(h, Vec2::splat(7.0));
         painter.rect_filled(b, 1.0, Color32::WHITE);
@@ -148,6 +148,8 @@ impl App {
             let r = super::pointer::select_rect(*a, c, false, ed.doc.width(), ed.doc.height());
             dashed_rect(painter, to_screen(self, super::ops::irect_to_rect(r)));
         }
+        self.shape_overlay(ctx, painter, ed);
+        self.text_ui(ctx, painter, ed);
         let k = self.view.zoom / ctx.pixels_per_point();
         if let (Some(d), Some(c)) = (self.brush_diameter(ed), ed.cursor) {
             let r = (d * k / 2.0).max(1.0);
@@ -187,8 +189,16 @@ impl App {
             Some(Drag::Pan) => CursorIcon::Grabbing,
             Some(Drag::Move { .. }) => CursorIcon::Move,
             Some(Drag::Handle { index, .. }) => handle_cursor(*index),
+            Some(Drag::ShapeEdit { handle: None, .. } | Drag::TextMove { .. }) => CursorIcon::Move,
+            Some(Drag::TextWidth { .. }) => CursorIcon::ResizeHorizontal,
             _ if ctx.input(|i| i.key_down(egui::Key::Space)) => CursorIcon::Grab,
             _ if self.brush_diameter(ed).is_some() => CursorIcon::None,
+            _ if ed.tool == Tool::Shape => match self.shape_hit(ed, pos) {
+                Some(super::paint::ShapeHit::Handle(i)) if !matches!(self.settings.shape, crate::settings::ShapeKind::Line | crate::settings::ShapeKind::Arrow) => handle_cursor(i),
+                Some(super::paint::ShapeHit::Handle(_)) => CursorIcon::Crosshair,
+                Some(super::paint::ShapeHit::Body) => CursorIcon::Move,
+                None => CursorIcon::Crosshair,
+            },
             _ => match ed.tool {
                 Tool::Select => {
                     let float = ed.floating.as_ref().map(|f| f.rect).or(ed.sel.map(super::ops::irect_to_rect));

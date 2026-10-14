@@ -45,6 +45,20 @@ fn map(path: &std::path::Path) -> Option<&'static [u8]> {
     Some(&m[..])
 }
 
+/// 映射字体文件（同一个文件只映射一次；文字工具选字体时用）
+pub fn map_cached(path: &std::path::Path) -> Option<&'static [u8]> {
+    use std::collections::HashMap;
+    use std::sync::{Mutex, OnceLock};
+    static MAPS: OnceLock<Mutex<HashMap<std::path::PathBuf, &'static [u8]>>> = OnceLock::new();
+    let mut m = MAPS.get_or_init(Default::default).lock().ok()?;
+    if let Some(b) = m.get(path) {
+        return Some(b);
+    }
+    let b = map(path)?;
+    m.insert(path.to_path_buf(), b);
+    Some(b)
+}
+
 pub fn install(ctx: &egui::Context) {
     let mut defs = FontDefinitions::default();
     let mut names = Vec::new();

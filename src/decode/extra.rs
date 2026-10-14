@@ -19,15 +19,30 @@ fn still(format: &'static str, img: RgbaImage) -> Decoded {
 /// SVG 的长边栅格化到这么多像素（小图标也放大到清楚）
 const SVG_SIDE: f32 = 2048.0;
 
-/// 系统字体只在第一次遇到带文字的 SVG 时加载（加载要几十毫秒）
-fn fontdb() -> Arc<resvg::usvg::fontdb::Database> {
-    static DB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+static DB: OnceLock<Arc<resvg::usvg::fontdb::Database>> = OnceLock::new();
+
+/// 系统字体只在第一次用到时加载（带文字的 SVG、文字工具；加载要几十毫秒）
+pub fn fontdb() -> Arc<resvg::usvg::fontdb::Database> {
     DB.get_or_init(|| {
         let mut db = resvg::usvg::fontdb::Database::new();
         db.load_system_fonts();
         Arc::new(db)
     })
     .clone()
+}
+
+/// 已经加载好的系统字体（还没加载完时 None，不等待）
+pub fn fontdb_ready() -> Option<Arc<resvg::usvg::fontdb::Database>> {
+    DB.get().cloned()
+}
+
+/// 在后台开始加载系统字体（选中文字工具时调用）
+pub fn preload_fontdb() {
+    if DB.get().is_none() {
+        std::thread::spawn(|| {
+            let _ = fontdb();
+        });
+    }
 }
 
 pub fn svg(data: &[u8]) -> Result<Decoded, Error> {

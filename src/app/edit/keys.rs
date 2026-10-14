@@ -15,10 +15,16 @@ impl App {
         if self.dialog.is_some() || self.settings_page.is_some() || ed.resize.is_some() || ed.save_options.is_some() || ed.saving {
             return;
         }
+        // 文本框（文字工具、颜色 HEX、调整大小的数字）里输入时，单键快捷键与撤销、全选、删除都交给文本框
         let typing = ctx.egui_wants_keyboard_input() || ed.text.is_some();
         let (cmd, shift, none) = (Modifiers::COMMAND, Modifiers::SHIFT, Modifiers::NONE);
         let cmd_shift = cmd | shift;
         let k = |m: Modifiers, key: Key| ctx.input_mut(|i| i.consume_key(m, key));
+        // Esc：文本框会放开焦点但不吃掉这个键，这里接着确认文字
+        if k(none, Key::Escape) && !ctx.any_popup_open() {
+            self.edit_escape(ctx, ed);
+            return;
+        }
         // 剪切 / 复制 / 粘贴（egui 把 Ctrl+X、Shift+Del 转成 Cut 事件，Ctrl+C 转成 Copy；Ctrl+V 看按键抬起）
         let (cut, copy, paste) = ctx.input(|i| {
             let cut = i.events.iter().find_map(|e| matches!(e, Event::Cut).then_some(i.modifiers));
@@ -39,7 +45,9 @@ impl App {
                 self.edit_paste();
             }
         }
-        if k(cmd_shift, Key::Z) || k(cmd, Key::Y) {
+        if typing {
+            // 文本框自己处理撤销
+        } else if k(cmd_shift, Key::Z) || k(cmd, Key::Y) {
             self.edit_redo(ed);
         } else if k(cmd, Key::Z) {
             self.edit_undo(ed);
@@ -131,9 +139,6 @@ impl App {
                 f.rect = f.rect.translate(d * step);
             }
         }
-        if k(none, Key::Escape) && !ctx.any_popup_open() {
-            self.edit_escape(ctx, ed);
-        }
     }
 
     /// Esc 依次取消：拖动中的 → 浮动选区 / 形状 / 文字（确认下来）→ 选区；都没有时退出编辑
@@ -149,7 +154,24 @@ impl App {
                         f.rect = from;
                     }
                 }
-                Drag::Select(_) | Drag::Pan | Drag::Shape(_) => {}
+                // 正在拖出的形状不要了；调整中的恢复原样
+                Drag::Shape(_) => ed.shape = None,
+                Drag::ShapeEdit { a, b, .. } => {
+                    if let Some(s) = &mut ed.shape {
+                        (s.a, s.b) = (a, b);
+                    }
+                }
+                Drag::TextMove { from, .. } => {
+                    if let Some(t) = &mut ed.text {
+                        t.pos = from;
+                    }
+                }
+                Drag::TextWidth { from, .. } => {
+                    if let Some(t) = &mut ed.text {
+                        t.width = from;
+                    }
+                }
+                Drag::Select(_) | Drag::Pan => {}
             }
         } else if ed.floating.is_some() || ed.shape.is_some() || ed.text.is_some() {
             self.edit_finalize(ed);

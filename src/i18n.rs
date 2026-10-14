@@ -237,6 +237,10 @@ strings! {
     p_fill: "填充", "Fill";
     p_font: "字体", "Font";
     p_text_bg: "背景填辅色", "Fill background";
+    p_bold: "粗体", "Bold";
+    p_italic: "斜体", "Italic";
+    p_underline: "下划线", "Underline";
+    p_strike: "删除线", "Strikethrough";
     p_select_hint: "拖动框选；拖动选区内部可移动，拉四周的点可缩放", "Drag to select; drag inside to move, drag the handles to resize";
     p_picker_hint: "左键取主色，右键取辅色", "Left click picks the primary color, right click the secondary";
     p_select_all: "全选", "Select all";

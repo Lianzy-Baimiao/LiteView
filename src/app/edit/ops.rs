@@ -260,6 +260,10 @@ impl App {
         if tool == Tool::Picker {
             ed.prev_tool = ed.tool;
         }
+        if tool == Tool::Text {
+            // 系统字体在后台先加载好
+            crate::decode::extra::preload_fontdb();
+        }
         ed.tool = tool;
     }
 

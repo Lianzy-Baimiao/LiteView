@@ -13,6 +13,7 @@ mod pointer;
 mod props;
 mod save;
 mod session;
+mod text;
 mod texture;
 
 use std::path::PathBuf;
@@ -64,8 +65,13 @@ pub(crate) enum Drag {
     /// 框选打码：起点与这一框
     RedactRect(egui::Pos2, Stroke),
     /// 画形状：起点
-    #[allow(dead_code)]
     Shape(egui::Pos2),
+    /// 调整还没确认的形状：handle = 拉哪个控制点（None = 移动）；按下时的鼠标位置与形状
+    ShapeEdit { handle: Option<usize>, grab: egui::Pos2, a: egui::Pos2, b: egui::Pos2 },
+    /// 拖动文本框
+    TextMove { grab: egui::Pos2, from: egui::Pos2 },
+    /// 拉宽文本框
+    TextWidth { from: f32, grab: f32 },
 }
 
 /// 编辑的图来自哪里

@@ -9,7 +9,7 @@ use crate::settings::{RedactEffect, RedactMode};
 use crate::ui::{theme, widgets};
 
 /// 「名称  滑块  数值」
-fn slider_row(ui: &mut Ui, label: &str, value: &mut u32, lo: u32, hi: u32, log: bool, unit: &str) -> bool {
+pub(crate) fn slider_row(ui: &mut Ui, label: &str, value: &mut u32, lo: u32, hi: u32, log: bool, unit: &str) -> bool {
     let p = theme::palette(ui.ctx());
     ui.label(RichText::new(label).color(p.text_weak));
     let mut v = *value as f32;

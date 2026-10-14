@@ -7,6 +7,7 @@
 pub mod history;
 pub mod ops;
 pub mod resample;
+pub mod shape;
 pub mod stroke;
 
 /// 撤销历史与实时效果的分块大小

@@ -165,13 +165,17 @@ impl App {
             Tool::Fill => self.fill_at(ed, p, secondary),
             Tool::Picker => self.pick_at(ed, p, secondary),
             Tool::Shape => self.shape_press(ed, p, screen, secondary),
-            Tool::Text => self.text_press(ed, p),
+            Tool::Text => self.text_press(ed, p, screen, secondary),
         }
     }
     fn drag_to(&mut self, ed: &mut Editor, p: Pos2, shift: bool) {
         let (w, h) = (ed.doc.width(), ed.doc.height());
-        if matches!(ed.drag, Some(Drag::Shape(_))) {
+        if matches!(ed.drag, Some(Drag::Shape(_) | Drag::ShapeEdit { .. })) {
             self.shape_drag(ed, p, shift);
+            return;
+        }
+        if matches!(ed.drag, Some(Drag::TextMove { .. } | Drag::TextWidth { .. })) {
+            self.text_drag(ed, p);
             return;
         }
         match &mut ed.drag {
@@ -201,7 +205,7 @@ impl App {
                     ed.doc.mark(part);
                 }
             }
-            Some(Drag::Shape(_) | Drag::Pan) | None => {}
+            Some(Drag::Shape(_) | Drag::ShapeEdit { .. } | Drag::TextMove { .. } | Drag::TextWidth { .. } | Drag::Pan) | None => {}
         }
     }
 
@@ -214,6 +218,12 @@ impl App {
             // 只点了一下：不留选区
             Some(Drag::Select(_)) => ed.sel = ed.sel.filter(|s| s.width() > 1 && s.height() > 1),
             Some(Drag::Shape(_)) => self.shape_release(ed),
+            // 拖完文本框接着输入
+            Some(Drag::TextMove { .. } | Drag::TextWidth { .. }) => {
+                if let Some(t) = &mut ed.text {
+                    t.focus = true;
+                }
+            }
             _ => {}
         }
     }

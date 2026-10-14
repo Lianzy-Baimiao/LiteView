@@ -22,6 +22,10 @@ impl Log for Logger {
         if !record.target().starts_with("liteview") && record.level() > Level::Warn {
             return;
         }
+        // 加载系统字体时，读不了的字体文件每个都会警告一次（不影响使用）
+        if record.target().starts_with("fontdb") && record.level() > Level::Error {
+            return;
+        }
         let line = format!(
             "[{:>8.1} ms {:5} {}] {}\n",
             self.start.elapsed().as_secs_f64() * 1000.0,

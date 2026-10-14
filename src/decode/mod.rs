@@ -3,7 +3,7 @@
 //! 解码器内部出错（panic）只影响这一张图。
 
 mod anim;
-mod extra;
+pub mod extra;
 mod raster;
 pub mod sniff;
 #[cfg(windows)]
