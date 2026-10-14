@@ -4,7 +4,7 @@ use egui::{RichText, Ui};
 
 use super::App;
 use crate::i18n::{fill, tr};
-use crate::settings::{Background, DoubleClick, FitMode, Language, Settings, SortKey, ThemeMode, WheelAction};
+use crate::settings::{Background, DoubleClick, FitMode, Language, RedactEffect, RedactMode, Settings, SortKey, ThemeMode, WheelAction};
 use crate::ui::{theme, widgets};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -203,10 +203,17 @@ impl App {
             }
             Page::Edit => {
                 widgets::checkbox(ui, &mut s.confirm_overwrite, t.s_confirm_overwrite);
+                widgets::checkbox(ui, &mut s.keep_metadata, t.s_keep_meta);
                 ui.add_space(6.0);
                 let mut q = u32::from(s.jpeg_quality);
                 row(ui, t.s_jpeg_quality, |ui| number(ui, &mut q, 1.0..=100.0));
                 s.jpeg_quality = q as u8;
+                row(ui, t.s_undo_steps, |ui| number(ui, &mut s.undo_steps, 50.0..=500.0));
+                row(ui, t.s_undo_mb, |ui| number(ui, &mut s.undo_mb, 128.0..=4096.0));
+                row(ui, t.s_redact_default, |ui| {
+                    choose(ui, &mut s.redact_mode, &[(RedactMode::Brush, t.p_brush), (RedactMode::Rect, t.p_rect)]);
+                    choose(ui, &mut s.redact_effect, &[(RedactEffect::Mosaic, t.p_mosaic), (RedactEffect::Blur, t.p_blur)]);
+                });
             }
             Page::Assoc => {
                 if let Some(m) = assoc_page(ui, s) {

@@ -4,7 +4,8 @@
 mod actions;
 mod canvas;
 mod chrome;
-mod info;
+pub(crate) mod edit;
+pub(crate) mod info;
 mod input;
 mod menu;
 mod settings_ui;
@@ -24,14 +25,17 @@ use crate::viewer::texture::{AnimTexture, StillTextures};
 use crate::viewer::view::View;
 
 /// 后台任务（复制、粘贴、删除、保存）回报给界面
-pub enum Notice {
+pub(crate) enum Notice {
     Toast(String),
     OpenPath(PathBuf),
     Pasted(Box<crate::decode::Decoded>),
-    Removed(PathBuf),
     Saved(PathBuf),
     /// 另一个实例发来的「打开这个文件」
     Remote(crate::single::Request),
+    /// 编辑模式：保存完成
+    EditSaved(Box<edit::SaveDone>),
+    /// 编辑模式：要粘贴的图（剪贴板 / 拖进来的文件）
+    EditPaste(Box<image::RgbaImage>),
 }
 
 pub(crate) struct Current {
@@ -70,6 +74,12 @@ pub(crate) enum Dialog {
     SaveRotation { after: After },
     /// 首次启动：设为默认看图软件？
     AskDefault,
+    /// 编辑有未保存的修改：保存 / 不保存 / 取消；after = 之后做的事
+    ExitEdit { after: Option<After> },
+    /// 第一次覆盖原图
+    Overwrite { then: edit::SaveThen, dont_ask: bool },
+    /// 粘贴的图比画布大
+    ExpandCanvas { image: std::sync::Arc<image::RgbaImage> },
 }
 
 pub struct App {
@@ -111,6 +121,10 @@ pub struct App {
     pub(crate) watch_dir: Option<PathBuf>,
     /// 刚由本程序保存的文件（文件夹监听不再重复载入）
     pub(crate) self_saved: Vec<(PathBuf, Instant)>,
+    /// 编辑模式（None = 查看）
+    pub(crate) editor: Option<Box<edit::Editor>>,
+    /// 图片载入后进入编辑（`--edit`、`--mosaic`、资源管理器右键）
+    pub(crate) pending_edit: Option<edit::Tool>,
 }
 
 pub fn run() -> eframe::Result {
@@ -175,6 +189,17 @@ pub fn run() -> eframe::Result {
     )
 }
 
+/// 命令行 / 另一个实例要求打开后进入的工具
+fn edit_tool(edit: bool, mosaic: bool) -> Option<edit::Tool> {
+    if mosaic {
+        Some(edit::Tool::Redact)
+    } else if edit {
+        Some(edit::Tool::Select)
+    } else {
+        None
+    }
+}
+
 pub(crate) fn decode_options(s: &Settings) -> Options {
     Options { anim_cache: s.anim_cache_mb as usize * 1048576, ..Options::default() }
 }
@@ -222,7 +247,10 @@ impl App {
             watch: None,
             watch_dir: None,
             self_saved: Vec::new(),
+            editor: None,
+            pending_edit: None,
         };
+        app.pending_edit = edit_tool(args.edit, args.mosaic);
         if let Some(p) = args.path {
             app.open_path(p, ctx);
         }
@@ -247,12 +275,19 @@ impl App {
                 Notice::Toast(t) => self.show_toast(t),
                 Notice::OpenPath(p) => self.open_path(p, ctx),
                 Notice::Pasted(d) => self.show_pasted(*d),
-                Notice::Removed(p) => self.loader.forget(&p),
                 Notice::Remote(r) => {
-                    self.open_path(r.path, ctx);
                     ctx.send_viewport_cmd(egui::ViewportCommand::Minimized(false));
                     ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+                    self.pending_edit = edit_tool(r.edit, r.mosaic);
+                    if self.editor.is_some() {
+                        // 编辑中：先离开编辑（有修改时询问），再打开
+                        self.with_editor(|app, ed| app.edit_request_exit(ed, Some(After::Open(r.path))));
+                    } else {
+                        self.open_path(r.path, ctx);
+                    }
                 }
+                Notice::EditSaved(done) => self.with_editor(|app, ed| app.edit_saved(ed, *done)),
+                Notice::EditPaste(img) => self.with_editor(|app, ed| app.edit_paste_image(ed, *img)),
                 Notice::Saved(p) => {
                     self.loader.forget(&p);
                     self.self_saved.push((p.clone(), Instant::now()));
@@ -270,11 +305,30 @@ impl App {
         self.toast = Some((text.into(), Instant::now()));
     }
 
+    /// `--edit` / `--mosaic`：图片载入后进入编辑；打不开就算了
+    fn start_pending_edit(&mut self) {
+        let Some(tool) = self.pending_edit else { return };
+        if self.editor.is_some() || self.dialog.is_some() {
+            return;
+        }
+        match self.cur.as_ref().and_then(|c| c.loaded.as_ref()) {
+            Some(Ok(_)) => {
+                self.pending_edit = None;
+                self.enter_edit(tool);
+            }
+            Some(Err(_)) => self.pending_edit = None,
+            None if self.cur.is_none() => self.pending_edit = None,
+            None => {}
+        }
+    }
+
     fn update_window(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
         let t = crate::i18n::tr();
+        // 编辑中有未保存的修改时文件名前加 *
+        let star = if self.editor.as_ref().is_some_and(|e| e.modified()) { "*" } else { "" };
         let title = match &self.cur {
-            Some(c) if c.clipboard => format!("{} - {}", t.clipboard_image, t.app_name),
-            Some(c) => format!("{} - {}", crate::natsort::file_name(&c.path), t.app_name),
+            Some(c) if c.clipboard => format!("{star}{} - {}", t.clipboard_image, t.app_name),
+            Some(c) => format!("{star}{} - {}", crate::natsort::file_name(&c.path), t.app_name),
             None => t.app_name.to_owned(),
         };
         if title != self.title {
@@ -329,16 +383,32 @@ impl eframe::App for App {
         self.poll_loader(&ctx);
         self.poll_watch(&ctx);
         self.update_window(&ctx, frame);
-        self.canvas_ui(ui);
-        self.keyboard(&ctx);
-        self.chrome(&ctx);
-        self.info_panel(&ctx);
+        self.start_pending_edit();
+        if self.editor.is_some() {
+            if let Some(ed) = &mut self.editor {
+                ed.popup_was_open = ctx.any_popup_open();
+            }
+            self.edit_frame(ui);
+        } else {
+            self.canvas_ui(ui);
+            self.keyboard(&ctx);
+            self.chrome(&ctx);
+            self.info_panel(&ctx);
+        }
+        self.toast_ui(&ctx);
         self.dialogs(&ctx);
         self.settings_ui(&ctx);
         self.rename_ui(&ctx);
-        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close && self.needs_rotation_prompt() {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.dialog = Some(Dialog::SaveRotation { after: After::Close });
+        if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
+            if self.editor.is_some() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                if self.dialog.is_none() {
+                    self.with_editor(|app, ed| app.edit_request_exit(ed, Some(After::Close)));
+                }
+            } else if self.needs_rotation_prompt() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.dialog = Some(Dialog::SaveRotation { after: After::Close });
+            }
         }
         self.script.after_frame(&ctx, self.first_paint_logged);
     }

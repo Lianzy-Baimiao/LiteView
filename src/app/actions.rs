@@ -9,7 +9,42 @@ use crate::settings::FitMode;
 use crate::viewer::view::{View, WHEEL_STEP, snap};
 
 impl App {
-    fn spawn(&self, f: impl FnOnce() -> Option<Notice> + Send + 'static) {
+    /// 复制一张图到剪贴板（后台），完成后轻提示
+    pub(crate) fn copy_rgba(&self, img: image::RgbaImage) {
+        self.spawn(move || {
+            Some(Notice::Toast(match crate::clipboard::set_image(img) {
+                Ok(()) => tr().copied.to_owned(),
+                Err(e) => fill(tr().failed, &[&e]),
+            }))
+        });
+    }
+
+    /// 编辑时 Ctrl+V：剪贴板里的图片 / 复制的图片文件 → 浮动选区
+    pub(crate) fn edit_paste(&mut self) {
+        let opts = super::decode_options(&self.settings);
+        self.spawn(move || {
+            let file = |p: &std::path::Path| crate::decode::decode_file(p, &opts).ok().map(|d| Notice::EditPaste(Box::new(d.first_image().as_ref().clone())));
+            Some(match crate::clipboard::get() {
+                crate::clipboard::Content::Image(img) => Notice::EditPaste(Box::new(img)),
+                crate::clipboard::Content::Files(files) => files.iter().find_map(|p| file(p)).unwrap_or(Notice::Toast(tr().nothing_to_paste.to_owned())),
+                crate::clipboard::Content::Path(p) => file(&p).unwrap_or(Notice::Toast(tr().nothing_to_paste.to_owned())),
+                crate::clipboard::Content::Nothing => Notice::Toast(tr().nothing_to_paste.to_owned()),
+            })
+        });
+    }
+
+    /// 编辑时拖进来的图片文件 → 浮动选区
+    pub(crate) fn paste_file(&mut self, p: std::path::PathBuf) {
+        let opts = super::decode_options(&self.settings);
+        self.spawn(move || {
+            Some(match crate::decode::decode_file(&p, &opts) {
+                Ok(d) => Notice::EditPaste(Box::new(d.first_image().as_ref().clone())),
+                Err(_) => Notice::Toast(tr().cannot_open.to_owned()),
+            })
+        });
+    }
+
+    pub(crate) fn spawn(&self, f: impl FnOnce() -> Option<Notice> + Send + 'static) {
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
             if let Some(n) = f() {

@@ -21,7 +21,6 @@ impl App {
         let ctx = ui.ctx().clone();
         let p = theme::palette(&ctx);
         let rect = ui.max_rect();
-        let ppp = ctx.pixels_per_point();
         let bg = match self.settings.background {
             Background::Black => Color32::BLACK,
             Background::White => Color32::WHITE,
@@ -31,29 +30,15 @@ impl App {
         if self.settings.background == Background::Checker {
             paint_checker(&ctx, ui.painter(), rect, p.checker);
         }
-        let resized = self.canvas.size() != rect.size();
-        self.canvas = rect;
         if let Some(s) = self.shown {
             let size = self.view.shown_size(s.width, s.height);
-            if self.pending_reset || (resized && self.view.fitted) {
-                let mode = if self.pending_reset { self.settings.fit_mode } else { FitMode::Fit };
-                self.view.reset(mode, rect.size(), ppp, size);
-                self.pending_reset = false;
-            }
-            if self.view.tick(rect) {
-                ctx.request_repaint();
-            }
-            if self.fling.length() > 0.5 && !ctx.input(|i| i.pointer.any_down()) {
-                self.view.offset += self.fling * ctx.input(|i| i.stable_dt).min(0.05);
-                self.fling *= 0.88;
-                ctx.request_repaint();
-            }
-            self.view.clamp(rect, ppp, size);
-            let img_rect = self.view.image_rect(rect, ppp, size);
+            let img_rect = self.update_view(&ctx, rect, size, self.settings.fit_mode);
             if s.has_alpha && self.settings.background != Background::Checker {
                 paint_checker(&ctx, ui.painter(), img_rect, p.checker);
             }
             self.paint_image(&ctx, ui.painter(), img_rect);
+        } else {
+            self.canvas = rect;
         }
         let resp = ui.interact(rect, ui.id().with("canvas"), Sense::click_and_drag());
         self.pointer(&ctx, &resp);
@@ -74,6 +59,29 @@ impl App {
                 _ => {}
             },
         }
+    }
+
+    /// 画布变成 rect、图片（旋转后）尺寸 size：按需重新适应，推进缩放动画与惯性，限制平移；返回图片在屏幕上的矩形。
+    /// fit_mode = 新图片时的显示方式（编辑时总是适应窗口）
+    pub(crate) fn update_view(&mut self, ctx: &egui::Context, rect: Rect, size: Vec2, fit_mode: FitMode) -> Rect {
+        let ppp = ctx.pixels_per_point();
+        let resized = self.canvas.size() != rect.size();
+        self.canvas = rect;
+        if self.pending_reset || (resized && self.view.fitted) {
+            let mode = if self.pending_reset { fit_mode } else { FitMode::Fit };
+            self.view.reset(mode, rect.size(), ppp, size);
+            self.pending_reset = false;
+        }
+        if self.view.tick(rect) {
+            ctx.request_repaint();
+        }
+        if self.fling.length() > 0.5 && !ctx.input(|i| i.pointer.any_down()) {
+            self.view.offset += self.fling * ctx.input(|i| i.stable_dt).min(0.05);
+            self.fling *= 0.88;
+            ctx.request_repaint();
+        }
+        self.view.clamp(rect, ppp, size);
+        self.view.image_rect(rect, ppp, size)
     }
 
     fn paint_image(&mut self, ctx: &egui::Context, painter: &egui::Painter, img_rect: Rect) {

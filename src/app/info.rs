@@ -23,7 +23,7 @@ pub(crate) struct Rename {
     pub focus: bool,
 }
 
-fn size_text(bytes: u64) -> String {
+pub(crate) fn size_text(bytes: u64) -> String {
     let b = bytes as f64;
     if b >= 1048576.0 { format!("{:.1} MB", b / 1048576.0) } else { format!("{:.0} KB", (b / 1024.0).max(1.0)) }
 }

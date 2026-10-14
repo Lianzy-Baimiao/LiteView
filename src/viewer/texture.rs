@@ -11,7 +11,7 @@ use rayon::prelude::*;
 
 use super::view::Transform;
 
-struct Tile {
+pub struct Tile {
     tex: TextureHandle,
     /// 这一块显示的区域（这一级的像素坐标）
     x0: u32,
@@ -111,22 +111,43 @@ impl StillTextures {
             lvl.tiles = upload(ctx, &self.name, &lvl.image, max_side, nearest);
             lvl.nearest = nearest;
         }
-        let (lw, lh) = (lvl.image.width() as f32, lvl.image.height() as f32);
-        let clip = painter.clip_rect();
-        for t in &lvl.tiles {
-            let (u0, v0, u1, v1) = (t.x0 as f32 / lw, t.y0 as f32 / lh, t.x1 as f32 / lw, t.y1 as f32 / lh);
-            let a = xf.map(rect, u0, v0);
-            let b = xf.map(rect, u1, v1);
-            if !Rect::from_two_pos(a, b).intersects(clip) {
-                continue;
-            }
-            let [tw, th] = t.tex.size();
-            let uv = Rect::from_min_max(
-                pos2(t.pad_x as f32 / tw as f32, t.pad_y as f32 / th as f32),
-                pos2((t.pad_x + t.x1 - t.x0) as f32 / tw as f32, (t.pad_y + t.y1 - t.y0) as f32 / th as f32),
-            );
-            quad(painter, t.tex.id(), rect, xf, [u0, v0, u1, v1], uv);
+        paint_tiles(painter, &lvl.tiles, lvl.image.dimensions(), rect, xf);
+    }
+}
+
+/// 画分块纹理：size 是这一级图的尺寸，rect 是旋转后图片在屏幕上的矩形
+pub fn paint_tiles(painter: &Painter, tiles: &[Tile], size: (u32, u32), rect: Rect, xf: Transform) {
+    let (lw, lh) = (size.0 as f32, size.1 as f32);
+    let clip = painter.clip_rect();
+    for t in tiles {
+        let (u0, v0, u1, v1) = (t.x0 as f32 / lw, t.y0 as f32 / lh, t.x1 as f32 / lw, t.y1 as f32 / lh);
+        let a = xf.map(rect, u0, v0);
+        let b = xf.map(rect, u1, v1);
+        if !Rect::from_two_pos(a, b).intersects(clip) {
+            continue;
         }
+        let [tw, th] = t.tex.size();
+        let uv = Rect::from_min_max(
+            pos2(t.pad_x as f32 / tw as f32, t.pad_y as f32 / th as f32),
+            pos2((t.pad_x + t.x1 - t.x0) as f32 / tw as f32, (t.pad_y + t.y1 - t.y0) as f32 / th as f32),
+        );
+        quad(painter, t.tex.id(), rect, xf, [u0, v0, u1, v1], uv);
+    }
+}
+
+/// 图上 [x0, x1) × [y0, y1) 变了：只重新上传各块纹理里对应的部分
+pub fn update_tiles(tiles: &mut [Tile], img: &RgbaImage, x0: u32, y0: u32, x1: u32, y1: u32, nearest: bool) {
+    let opts = options(nearest);
+    for t in tiles {
+        let [tw, th] = t.tex.size();
+        // 这块纹理覆盖的图片范围（含重叠像素）
+        let (tx0, ty0) = (t.x0 - t.pad_x, t.y0 - t.pad_y);
+        let (tx1, ty1) = (tx0 + tw as u32, ty0 + th as u32);
+        let (ax, ay, bx, by) = (x0.max(tx0), y0.max(ty0), x1.min(tx1), y1.min(ty1));
+        if ax >= bx || ay >= by {
+            continue;
+        }
+        t.tex.set_partial([(ax - tx0) as usize, (ay - ty0) as usize], region(img, ax, ay, bx - ax, by - ay), opts);
     }
 }
 
@@ -153,7 +174,7 @@ fn options(nearest: bool) -> TextureOptions {
     o
 }
 
-fn upload(ctx: &egui::Context, name: &str, img: &RgbaImage, max_side: usize, nearest: bool) -> Vec<Tile> {
+pub fn upload(ctx: &egui::Context, name: &str, img: &RgbaImage, max_side: usize, nearest: bool) -> Vec<Tile> {
     let (w, h) = img.dimensions();
     let opts = options(nearest);
     let max = max_side as u32;
@@ -176,26 +197,10 @@ fn upload(ctx: &egui::Context, name: &str, img: &RgbaImage, max_side: usize, nea
     tiles
 }
 
-/// 高质量缩小到 w × h（预乘透明度后再缩小，透明边缘不发黑）
+/// 高质量缩小到 w × h（与编辑时缩小显示用同一个算法，多线程）
 fn resample(src: &RgbaImage, w: u32, h: u32) -> ColorImage {
-    let mut pre = src.clone();
-    pre.par_chunks_mut(4).for_each(|p| {
-        if p[3] != 255 {
-            let a = u16::from(p[3]);
-            for c in &mut p[..3] {
-                *c = ((u16::from(*c) * a + 127) / 255) as u8;
-            }
-        }
-    });
-    let mut out = image::imageops::resize(&pre, w, h, image::imageops::FilterType::CatmullRom);
-    // CatmullRom 有负瓣：预乘的颜色不能超过透明度
-    out.par_chunks_mut(4).for_each(|p| {
-        let a = p[3];
-        for c in &mut p[..3] {
-            *c = (*c).min(a);
-        }
-    });
-    ColorImage::from_rgba_premultiplied([w as usize, h as usize], out.as_raw())
+    let out = crate::editor::resample::resize(src, w, h, crate::editor::resample::Filter::CatmullRom, true);
+    ColorImage::from_rgba_premultiplied([w as usize, h as usize], &out)
 }
 
 /// 取一块区域转成 egui 的（预乘）颜色

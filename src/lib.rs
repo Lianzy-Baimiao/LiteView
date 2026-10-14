@@ -8,6 +8,7 @@ pub mod cli;
 pub mod clipboard;
 pub mod decode;
 pub mod devtools;
+pub mod editor;
 pub mod fsutil;
 pub mod gpu;
 pub mod i18n;

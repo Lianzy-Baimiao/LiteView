@@ -22,6 +22,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
         return Err(Error::TooLarge { width: w, height: h });
     }
     let exif = decoder.exif_metadata().ok().flatten();
+    let icc = decoder.icc_profile().ok().flatten();
     let orientation = match decoder.orientation() {
         Ok(Orientation::NoTransforms) | Err(_) => {
             exif.as_deref().and_then(Orientation::from_exif_chunk).unwrap_or(Orientation::NoTransforms)
@@ -43,6 +44,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
             has_alpha: color.has_alpha(),
             file_size: 0,
             exif: exif.map(Arc::new),
+            icc: icc.map(Arc::new),
         },
         content: Content::Still { image: Arc::new(rgba), levels: Vec::new() },
     })

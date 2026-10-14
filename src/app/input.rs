@@ -74,10 +74,20 @@ impl App {
         if k(none, Key::F11) {
             self.toggle_fullscreen(ctx);
         }
-        if k(shift, Key::Delete) {
+        // Windows 上 egui 把 Shift+Del 转成「剪切」事件
+        let cut = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Cut)) && i.modifiers.shift && !i.modifiers.command);
+        if cut || k(shift, Key::Delete) {
             self.request_delete(true);
         } else if k(none, Key::Delete) {
             self.request_delete(false);
+        }
+        if k(none, Key::E) {
+            self.enter_edit(super::edit::Tool::Select);
+            return;
+        }
+        if k(none, Key::M) {
+            self.enter_edit(super::edit::Tool::Redact);
+            return;
         }
         if k(cmd, Key::O) {
             self.open_dialog(ctx);

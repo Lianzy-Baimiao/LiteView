@@ -35,5 +35,39 @@ fn main() {
     let big = image::RgbImage::from_fn(17000, 6000, |x, y| image::Rgb([(x % 256) as u8, (y % 256) as u8, ((x / 64 + y / 64) % 2 * 200) as u8]));
     big.save(dir.join("04 big.png")).unwrap();
     std::fs::write(dir.join("05 broken.jpg"), b"\xFF\xD8\xFF\xE0 not really a jpeg").unwrap();
+    std::fs::write(dir.join("06 gps.jpg"), gps_jpeg()).unwrap();
     println!("samples in {}", dir.display());
+}
+
+/// 带 EXIF（相机、GPS、缩略图）的照片：检查打码后保存是否去掉元数据
+fn gps_jpeg() -> Vec<u8> {
+    use exif::{Field, In, Rational, Tag, Value};
+    use image::ImageEncoder;
+    let img = image::RgbImage::from_fn(1600, 1200, |x, y| image::Rgb([(x / 7) as u8, (y / 5) as u8, ((x + y) / 11) as u8]));
+    let mut thumb = Vec::new();
+    image::codecs::jpeg::JpegEncoder::new(&mut thumb).encode_image(&image::imageops::thumbnail(&img, 160, 120)).unwrap();
+    let r = |n| Rational { num: n, denom: 1 };
+    let f = |tag, ifd_num, value| Field { tag, ifd_num, value };
+    let fields = [
+        f(Tag::Make, In::PRIMARY, Value::Ascii(vec![b"LiteView Test Camera".to_vec()])),
+        f(Tag::Orientation, In::PRIMARY, Value::Short(vec![1])),
+        f(Tag::DateTimeOriginal, In::PRIMARY, Value::Ascii(vec![b"2026:10:14 08:00:00".to_vec()])),
+        f(Tag::GPSLatitudeRef, In::PRIMARY, Value::Ascii(vec![b"N".to_vec()])),
+        f(Tag::GPSLatitude, In::PRIMARY, Value::Rational(vec![r(31), r(14), r(0)])),
+        f(Tag::GPSLongitudeRef, In::PRIMARY, Value::Ascii(vec![b"E".to_vec()])),
+        f(Tag::GPSLongitude, In::PRIMARY, Value::Rational(vec![r(121), r(28), r(0)])),
+        f(Tag::Compression, In::THUMBNAIL, Value::Short(vec![6])),
+    ];
+    let mut w = exif::experimental::Writer::new();
+    for x in &fields {
+        w.push_field(x);
+    }
+    w.set_jpeg(&thumb, In::THUMBNAIL);
+    let mut tiff = std::io::Cursor::new(Vec::new());
+    w.write(&mut tiff, false).unwrap();
+    let mut out = Vec::new();
+    let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90);
+    enc.set_exif_metadata(tiff.into_inner()).unwrap();
+    enc.write_image(img.as_raw(), 1600, 1200, image::ExtendedColorType::Rgb8).unwrap();
+    out
 }

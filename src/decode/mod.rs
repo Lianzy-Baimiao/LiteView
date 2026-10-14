@@ -46,6 +46,8 @@ pub struct Info {
     pub has_alpha: bool,
     pub file_size: u64,
     pub exif: Option<Arc<Vec<u8>>>,
+    /// 颜色配置文件（编辑后保存时写回）
+    pub icc: Option<Arc<Vec<u8>>>,
 }
 
 pub struct Frame {
@@ -125,6 +127,7 @@ pub fn from_rgba(img: RgbaImage, format: &'static str) -> Decoded {
             has_alpha,
             file_size: 0,
             exif: None,
+            icc: None,
         },
         content: Content::Still { image: Arc::new(img), levels },
     }

@@ -65,6 +65,31 @@ pub enum DoubleClick {
     Fullscreen,
 }
 
+/// 打码方式：画笔涂抹 / 框选
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RedactMode {
+    #[default]
+    Brush,
+    Rect,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum RedactEffect {
+    #[default]
+    Mosaic,
+    Blur,
+}
+
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ShapeKind {
+    Line,
+    Arrow,
+    #[default]
+    Rect,
+    RoundRect,
+    Ellipse,
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 pub struct WindowState {
     pub pos: Option<[f32; 2]>,
@@ -102,6 +127,43 @@ pub struct Settings {
     pub window: WindowState,
     /// 文件关联要注册的扩展名
     pub assoc_exts: Vec<String>,
+    // 编辑
+    pub undo_steps: u32,
+    pub undo_mb: u32,
+    /// 保存时保留 EXIF（打过码的图默认不保留）
+    pub keep_metadata: bool,
+    pub redact_mode: RedactMode,
+    pub redact_effect: RedactEffect,
+    /// 用户改过的打码参数（None = 按图片大小自动算）
+    pub mosaic_block: Option<u32>,
+    pub blur_radius: Option<u32>,
+    pub brush_size: Option<u32>,
+    /// 主色 / 辅色（RGBA）
+    pub color1: [u8; 4],
+    pub color2: [u8; 4],
+    /// 最近用过的自定义颜色
+    pub recent_colors: Vec<[u8; 4]>,
+    pub pencil_size: u32,
+    pub paint_size: u32,
+    pub paint_opacity: u32,
+    /// 刷子是荧光笔（半透明、同一笔不叠加）
+    pub highlighter: bool,
+    pub eraser_size: u32,
+    /// 橡皮擦擦成透明（否则擦成辅色）
+    pub eraser_transparent: bool,
+    pub fill_tolerance: u32,
+    pub shape: ShapeKind,
+    pub shape_outline: bool,
+    pub shape_fill: bool,
+    pub shape_width: u32,
+    pub text_size: u32,
+    pub text_font: String,
+    pub text_bold: bool,
+    pub text_italic: bool,
+    pub text_underline: bool,
+    pub text_strike: bool,
+    /// 文字背景填辅色
+    pub text_background: bool,
 }
 
 impl Default for Settings {
@@ -132,6 +194,35 @@ impl Default for Settings {
             jpeg_quality: 90,
             window: WindowState::default(),
             assoc_exts: crate::platform::assoc::default_exts(),
+            undo_steps: 100,
+            undo_mb: 512,
+            keep_metadata: true,
+            redact_mode: RedactMode::Brush,
+            redact_effect: RedactEffect::Mosaic,
+            mosaic_block: None,
+            blur_radius: None,
+            brush_size: None,
+            color1: [0, 0, 0, 255],
+            color2: [255, 255, 255, 255],
+            recent_colors: Vec::new(),
+            pencil_size: 1,
+            paint_size: 8,
+            paint_opacity: 100,
+            highlighter: false,
+            eraser_size: 20,
+            eraser_transparent: false,
+            fill_tolerance: 32,
+            shape: ShapeKind::Rect,
+            shape_outline: true,
+            shape_fill: false,
+            shape_width: 4,
+            text_size: 24,
+            text_font: String::new(),
+            text_bold: false,
+            text_italic: false,
+            text_underline: false,
+            text_strike: false,
+            text_background: false,
         }
     }
 }

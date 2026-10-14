@@ -62,6 +62,7 @@ pub fn decode(data: &[u8], kind: Kind) -> Result<Decoded, Error> {
                 has_alpha,
                 file_size: 0,
                 exif: None,
+                icc: None,
             },
             content: Content::Still { image: Arc::new(image), levels: Vec::new() },
         })

@@ -63,7 +63,6 @@ impl App {
                 });
         }
         self.edge_arrows(ctx);
-        self.toast_ui(ctx);
     }
 
     fn toolbar_contents(&mut self, ui: &mut egui::Ui) {
@@ -104,6 +103,11 @@ impl App {
         widgets::separator(ui);
         if widgets::icon_button(ui, Icon::RotateCw, t.rotate_cw, "Ctrl+R", has).clicked() {
             self.rotate(true);
+        }
+        let editable = has && self.decoded().is_some() && !self.is_animated();
+        let tip = if self.is_animated() { t.anim_no_edit } else { t.edit };
+        if widgets::icon_button(ui, Icon::Edit, tip, "E", editable).clicked() {
+            self.enter_edit(super::edit::Tool::Select);
         }
         let deletable = self.cur.as_ref().is_some_and(|c| !c.clipboard);
         let del = widgets::icon_button_ex(ui, Icon::Delete, t.delete, "Del", deletable, false, None);
@@ -189,7 +193,7 @@ impl App {
         }
     }
 
-    fn toast_ui(&mut self, ctx: &egui::Context) {
+    pub(crate) fn toast_ui(&mut self, ctx: &egui::Context) {
         let Some((text, at)) = &self.toast else { return };
         let age = at.elapsed().as_secs_f32();
         if age > 2.0 {
@@ -200,7 +204,14 @@ impl App {
         ctx.request_repaint_after(Duration::from_secs_f32(if age < 1.7 { 1.7 - age } else { 0.03 }));
         let p = theme::palette(ctx);
         let text = text.clone();
-        let y = if self.is_animated() { -16.0 - 2.0 * (BAR_H + 8.0) - 4.0 } else { -16.0 - BAR_H - 12.0 };
+        let y = if self.editor.is_some() {
+            // 编辑时在状态栏上方
+            -28.0 - 16.0
+        } else if self.is_animated() {
+            -16.0 - 2.0 * (BAR_H + 8.0) - 4.0
+        } else {
+            -16.0 - BAR_H - 12.0
+        };
         Area::new(Id::new("toast")).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(0.0, y)).interactable(false).show(ctx, |ui| {
             ui.set_opacity(o);
             egui::Frame::new().fill(p.text).corner_radius(CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(14, 7)).show(ui, |ui| {

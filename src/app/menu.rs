@@ -22,6 +22,21 @@ impl App {
             let has_file = self.cur.as_ref().is_some_and(|c| !c.clipboard);
             let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
             let item = |ui: &mut egui::Ui, text: &str, sc: String, on: bool| ui.add_enabled(on, egui::Button::new(text).shortcut_text(sc)).clicked();
+            // 动图只看，不能编辑、打码
+            let editable = has_img && !self.is_animated();
+            let edit = ui.add_enabled(editable, egui::Button::new(t.edit).shortcut_text("E"));
+            if has_img && !editable {
+                edit.clone().on_disabled_hover_text(t.anim_no_edit);
+            }
+            if edit.clicked() {
+                ui.close();
+                self.enter_edit(super::edit::Tool::Select);
+            }
+            if item(ui, t.mosaic, "M".into(), editable) {
+                ui.close();
+                self.enter_edit(super::edit::Tool::Redact);
+            }
+            ui.separator();
             if item(ui, t.copy_image, format!("{c}C"), has_img) {
                 self.copy_image();
                 ui.close();
@@ -103,6 +118,9 @@ impl App {
                 Dialog::Delete { .. } => (t.delete_title, trash_body(), t.delete_btn, None, true, t.cancel),
                 Dialog::SaveRotation { .. } => (t.rotate_save_title, t.rotate_save_body, t.save, Some(t.dont_save), false, t.cancel),
                 Dialog::AskDefault => (t.ask_title, t.ask_body, t.a_set_default, Some(t.ask_never), false, t.ask_later),
+                Dialog::ExitEdit { .. } => (t.exit_edit_title, t.exit_edit_body, t.save, Some(t.dont_save), false, t.cancel),
+                Dialog::Overwrite { .. } => (t.overwrite_title, t.overwrite_body, t.overwrite_btn, Some(t.save_as), false, t.cancel),
+                Dialog::ExpandCanvas { .. } => (t.expand_title, t.expand_body, t.expand_btn, Some(t.keep_size), false, t.cancel),
             };
             ui.label(RichText::new(title).size(16.0).color(p.text));
             ui.add_space(6.0);
@@ -110,7 +128,7 @@ impl App {
             if matches!(d, Dialog::SaveRotation { .. }) && is_jpeg {
                 ui.label(RichText::new(t.rotate_save_jpeg).color(p.text_weak).size(12.0));
             }
-            if let Dialog::Delete { forever: false, dont_ask, .. } = d {
+            if let Dialog::Delete { forever: false, dont_ask, .. } | Dialog::Overwrite { dont_ask, .. } = d {
                 ui.add_space(10.0);
                 widgets::checkbox(ui, dont_ask, t.dont_ask);
             }
@@ -132,10 +150,37 @@ impl App {
         if choice.is_none() && modal.should_close() {
             choice = Some(Choice::Cancel);
         }
+        // 回车 = 主按钮（删除这类不可恢复的操作除外，要点按钮）
+        if choice.is_none() && !matches!(self.dialog, Some(Dialog::Delete { .. })) && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
+            choice = Some(Choice::Primary);
+        }
         let Some(choice) = choice else { return };
         let Some(d) = self.dialog.take() else { return };
+        use super::edit::SaveThen;
         match (d, choice) {
+            (Dialog::ExitEdit { .. }, Choice::Cancel) => self.pending_edit = None,
+            (Dialog::Overwrite { .. }, Choice::Cancel) => self.with_editor(|_, ed| ed.after = None),
             (_, Choice::Cancel) => {}
+            (Dialog::ExitEdit { after }, Choice::Primary) => self.with_editor(|app, ed| {
+                ed.after = after;
+                app.edit_save(ed, SaveThen::Exit);
+            }),
+            (Dialog::ExitEdit { after }, Choice::Secondary) => self.with_editor(|_, ed| {
+                ed.leave = true;
+                ed.after = after;
+            }),
+            (Dialog::Overwrite { then, dont_ask }, Choice::Primary) => {
+                if dont_ask {
+                    self.settings.confirm_overwrite = false;
+                }
+                self.with_editor(|app, ed| {
+                    ed.overwrite_ok = true;
+                    app.edit_save(ed, then);
+                });
+            }
+            (Dialog::Overwrite { then, .. }, Choice::Secondary) => self.with_editor(|app, ed| app.edit_save_as(ed, then)),
+            (Dialog::ExpandCanvas { image }, Choice::Primary) => self.with_editor(|app, ed| app.expand_and_paste(ed, image)),
+            (Dialog::ExpandCanvas { image }, Choice::Secondary) => self.with_editor(|app, ed| app.place_floating(ed, image, true)),
             (Dialog::Delete { path, forever, dont_ask }, _) => {
                 if dont_ask && !forever {
                     self.settings.confirm_delete = false;

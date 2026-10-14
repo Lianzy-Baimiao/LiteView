@@ -1,6 +1,6 @@
 //! 开发用：按脚本回放操作并截图，用来检查界面（环境变量 `LITEVIEW_SCRIPT`，内容或文件路径）。
 //! 每行一条：`wait 300`、`waitimage`、`key ctrl+r`、`move 100 200`、`click 100 200`、`rclick x y`、
-//! `dclick x y`、`wheel -3`、`shot out.png`、`quit`。坐标是逻辑像素。
+//! `dclick x y`、`down x y`、`up`、`drag x1 y1 x2 y2 步数`、`wheel -3`、`shot out.png`、`quit`。坐标是逻辑像素。
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -64,8 +64,11 @@ impl Script {
             }
             Step::Key(m, key) => {
                 raw.events.push(Event::ModifiersChanged(m));
+                // 与 egui-winit 一致：Ctrl+C → Copy，Ctrl+X / Shift+Del → Cut（不再有按下的按键事件）
                 if m.command && key == Key::C {
                     raw.events.push(Event::Copy);
+                } else if (m.command && key == Key::X) || (cfg!(windows) && m.shift && key == Key::Delete) {
+                    raw.events.push(Event::Cut);
                 } else {
                     raw.events.push(Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m });
                 }
@@ -125,6 +128,25 @@ fn parse(text: &str) -> VecDeque<Step> {
                 }
             }
             Some("move") => out.push_back(Step::Move(at())),
+            // 按下 / 松开左键（down 带坐标时先移过去）
+            Some("down") => {
+                if w.len() >= 3 {
+                    out.push_back(Step::Move(at()));
+                }
+                out.push_back(Step::Button(PointerButton::Primary, true));
+            }
+            Some("up") => out.push_back(Step::Button(PointerButton::Primary, false)),
+            // drag x1 y1 x2 y2 [步数]：按住左键从一点拖到另一点
+            Some("drag") => {
+                let (a, b) = (pos2(num(1), num(2)), pos2(num(3), num(4)));
+                let n = (num(5) as usize).max(1);
+                out.push_back(Step::Move(a));
+                out.push_back(Step::Button(PointerButton::Primary, true));
+                for i in 1..=n {
+                    out.push_back(Step::Move(a + (b - a) * (i as f32 / n as f32)));
+                }
+                out.push_back(Step::Button(PointerButton::Primary, false));
+            }
             Some(c @ ("click" | "rclick" | "dclick")) => {
                 let b = if c == "rclick" { PointerButton::Secondary } else { PointerButton::Primary };
                 out.push_back(Step::Move(at()));
@@ -151,7 +173,11 @@ fn parse_key(s: &str) -> Option<(Modifiers, Key)> {
             "ctrl" | "cmd" => m.command = true,
             "shift" => m.shift = true,
             "alt" => m.alt = true,
-            other => key = Key::from_name(other).or_else(|| Key::from_name(&other.to_ascii_uppercase())).or_else(|| Key::from_name(part)),
+            other => {
+                key = Key::from_name(part).or_else(|| {
+                    Key::ALL.iter().copied().find(|k| k.name().eq_ignore_ascii_case(other) || format!("{k:?}").eq_ignore_ascii_case(other) || k.symbol_or_name() == other)
+                })
+            }
         }
     }
     if m.command {
@@ -171,6 +197,10 @@ mod tests {
         assert_eq!(s.len(), 7);
         assert!(matches!(s[1], Step::Key(m, Key::R) if m.command));
         assert!(matches!(parse_key("Escape"), Some((_, Key::Escape))));
+        assert!(matches!(parse_key("escape"), Some((_, Key::Escape))));
+        assert!(matches!(parse_key("enter"), Some((_, Key::Enter))));
         assert!(matches!(parse_key("ArrowRight"), Some((_, Key::ArrowRight))));
+        assert!(matches!(parse_key("ctrl+shift+x"), Some((m, Key::X)) if m.command && m.shift));
+        assert!(matches!(parse_key("["), Some((_, Key::OpenBracket))));
     }
 }

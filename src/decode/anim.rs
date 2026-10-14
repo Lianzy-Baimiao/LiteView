@@ -70,7 +70,7 @@ fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: &'static str, play
     if out.is_empty() {
         return Err(Error::Corrupt("no frames".into()));
     }
-    let info = Info { format, width: w, height: h, bits: 8, channels: 4, has_alpha: true, file_size: 0, exif: None };
+    let info = Info { format, width: w, height: h, bits: 8, channels: 4, has_alpha: true, file_size: 0, exif: None, icc: None };
     let content = if out.len() == 1 {
         let image = out.pop().expect("one frame").image;
         Content::Still { image, levels: Vec::new() }

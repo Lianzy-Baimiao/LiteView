@@ -124,6 +124,32 @@ pub fn slider(ui: &mut Ui, value: &mut f32, range: std::ops::RangeInclusive<f32>
     resp
 }
 
+/// 对数刻度的滑块（范围很大时小值也好调，如打码圆圈 4 ~ 1000 像素）
+pub fn slider_log(ui: &mut Ui, value: &mut f32, lo: f32, hi: f32, width: f32) -> Response {
+    let (l0, l1) = (lo.max(1e-3).ln(), hi.ln());
+    let mut t = ((value.max(lo).ln() - l0) / (l1 - l0) * 1000.0).round();
+    let r = slider(ui, &mut t, 0.0..=1000.0, width);
+    if r.changed() {
+        *value = (l0 + t / 1000.0 * (l1 - l0)).exp().round().clamp(lo, hi);
+    }
+    r
+}
+
+/// 选中时用强调色底、白色图标的图标按钮（编辑工具栏的「打码」）
+pub fn accent_icon_button(ui: &mut Ui, icon: Icon, tip: &str, shortcut: &str, enabled: bool, selected: bool) -> Response {
+    if !selected {
+        return icon_button(ui, icon, tip, shortcut, enabled);
+    }
+    let p = palette(ui.ctx());
+    let sense = if enabled { Sense::click() } else { Sense::hover() };
+    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(BUTTON), sense);
+    let label = tip.to_owned();
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, true, &label));
+    ui.painter().rect_filled(rect, CornerRadius::same(6), p.accent);
+    icons::paint(ui, icon, egui::Rect::from_center_size(rect.center(), Vec2::splat(ICON)), p.on_accent);
+    resp.on_hover_text(format!("{tip}  {shortcut}"))
+}
+
 /// 分段按钮：返回新选中的序号
 pub fn segmented(ui: &mut Ui, items: &[&str], selected: usize) -> Option<usize> {
     let p = palette(ui.ctx());
