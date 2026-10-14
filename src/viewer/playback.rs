@@ -61,6 +61,11 @@ impl Playback {
         self.due = None;
     }
 
+    /// 帧还在解码时不追帧；就绪后给这一帧完整显示时间。
+    pub fn buffering(&mut self) {
+        self.due = None;
+    }
+
     /// 推进到 now 应显示的帧；返回离下一帧还有多久（暂停或播完时 None）
     pub fn tick(&mut self, now: Instant, delay_of: impl Fn(usize) -> Duration) -> Option<Duration> {
         if !self.playing || self.count < 2 {
@@ -127,6 +132,21 @@ mod tests {
         p.tick(t0 + D * 100, |_| D);
         assert!(p.playing);
         assert_eq!(p.tick(t0 + D * 100, |_| D), Some(D));
+    }
+
+    #[test]
+    fn buffering_does_not_skip_slow_frames_or_change_pause_state() {
+        let mut p = Playback::new(6, None, true, false);
+        let t = Instant::now();
+        p.tick(t, |_| D);
+        p.tick(t + D, |_| D);
+        assert_eq!(p.index, 1);
+        p.buffering();
+        assert_eq!(p.tick(t + D * 100, |_| D), Some(D));
+        assert_eq!(p.index, 1);
+        p.step(1);
+        p.buffering();
+        assert!(!p.playing);
     }
 
     #[test]

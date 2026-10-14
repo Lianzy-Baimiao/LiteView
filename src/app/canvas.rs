@@ -90,27 +90,36 @@ impl App {
         match &mut self.tex {
             Tex::None => {}
             Tex::Still(t) => t.paint(ctx, painter, img_rect, zoom, xf, nearest, settled),
-            Tex::Anim { decoded, tex } => {
-                let crate::decode::Content::Animation { frames, .. } = &decoded.content else { return };
-                let index = match &mut self.play {
-                    Some(play) => {
-                        if let Some(wait) = play.tick(Instant::now(), |i| frames[i].delay) {
+            Tex::Anim { decoded, tex, frames } => {
+                let crate::decode::Content::Animation { delays, .. } = &decoded.content else { return };
+                let result = (|| {
+                    if let Some(play) = &mut self.play {
+                        if frames.request(play.index)?
+                            && let Some(wait) = play.tick(Instant::now(), |i| delays[i])
+                        {
                             ctx.request_repaint_after(wait);
                         }
-                        play.index.min(frames.len() - 1)
+                        if !frames.request(play.index)? {
+                            play.buffering();
+                        }
                     }
-                    None => 0,
-                };
-                tex.paint(painter, img_rect, xf, index, &frames[index].image, zoom >= nearest);
+                    Ok::<_, crate::decode::Error>(())
+                })();
+                let (index, image) = frames.displayed();
+                tex.paint(painter, img_rect, xf, index, image, zoom >= nearest);
+                if let Err(e) = result {
+                    if let Some(play) = &mut self.play {
+                        play.playing = false;
+                    }
+                    log::warn!("动图解码失败：{e:?}");
+                    // 只提示一次；后续保留最后一张已解出的画面。
+                    self.show_toast(tr().err_corrupt);
+                }
             }
         }
         if !self.first_paint_logged {
             self.first_paint_logged = true;
-            log::info!(
-                "启动 {:.0} ms：第一张图显示，内存 {:.0} MB",
-                crate::platform::ms_since_process_start(),
-                crate::platform::memory_mb()
-            );
+            log::info!("启动 {:.0} ms：第一张图显示，内存 {:.0} MB", crate::platform::ms_since_process_start(), crate::platform::memory_mb());
         }
     }
 

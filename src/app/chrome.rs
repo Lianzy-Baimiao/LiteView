@@ -30,11 +30,8 @@ impl App {
         let o = ctx.animate_bool_with_time(Id::new("toolbar-shown"), show, 0.15);
         let p = theme::palette(ctx);
         if o > 0.0 {
-            let r = Area::new(Id::new("toolbar"))
-                .order(Order::Foreground)
-                .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0))
-                .interactable(o > 0.5)
-                .show(ctx, |ui| {
+            let r =
+                Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0)).interactable(o > 0.5).show(ctx, |ui| {
                     ui.set_opacity(o);
                     widgets::floating_frame(p).show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -48,11 +45,9 @@ impl App {
         let paused = self.play.as_ref().is_some_and(|pl| !pl.playing);
         let oa = ctx.animate_bool_with_time(Id::new("animbar-shown"), self.is_animated() && (show || paused && inside), 0.15);
         if oa > 0.0 {
-            Area::new(Id::new("animbar"))
-                .order(Order::Foreground)
-                .anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0 - BAR_H - 8.0))
-                .interactable(oa > 0.5)
-                .show(ctx, |ui| {
+            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0 - BAR_H - 8.0)).interactable(oa > 0.5).show(
+                ctx,
+                |ui| {
                     ui.set_opacity(oa);
                     widgets::floating_frame(p).show(ui, |ui| {
                         ui.horizontal(|ui| {
@@ -60,7 +55,8 @@ impl App {
                             self.anim_contents(ui);
                         });
                     });
-                });
+                },
+            );
         }
         self.edge_arrows(ctx);
     }
@@ -147,7 +143,7 @@ impl App {
     fn anim_contents(&mut self, ui: &mut egui::Ui) {
         let t = tr();
         let delay = self.decoded().and_then(|d| match &d.content {
-            crate::decode::Content::Animation { frames, .. } => self.play.as_ref().map(|p| frames[p.index.min(frames.len() - 1)].delay),
+            crate::decode::Content::Animation { delays, .. } => self.play.as_ref().and_then(|p| delays.get(p.index).copied()),
             _ => None,
         });
         let Some(play) = &mut self.play else { return };
@@ -196,20 +192,16 @@ impl App {
                 continue;
             }
             let center = pos2(if left { r.left() + 36.0 } else { r.right() - 36.0 }, r.center().y);
-            Area::new(Id::new(("edge-area", left)))
-                .order(Order::Foreground)
-                .fixed_pos(center - Vec2::splat(20.0))
-                .interactable(a > 0.5)
-                .show(ctx, |ui| {
-                    ui.set_opacity(a);
-                    let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
-                    let fill = if resp.hovered() { p.surface } else { p.floating };
-                    ui.painter().circle(rect.center(), 20.0, fill, Stroke::new(1.0, p.divider));
-                    icons::paint(ui, icon, Rect::from_center_size(rect.center(), Vec2::splat(20.0)), p.text);
-                    if resp.on_hover_text(tip).clicked() {
-                        self.navigate(d);
-                    }
-                });
+            Area::new(Id::new(("edge-area", left))).order(Order::Foreground).fixed_pos(center - Vec2::splat(20.0)).interactable(a > 0.5).show(ctx, |ui| {
+                ui.set_opacity(a);
+                let (rect, resp) = ui.allocate_exact_size(Vec2::splat(40.0), Sense::click());
+                let fill = if resp.hovered() { p.surface } else { p.floating };
+                ui.painter().circle(rect.center(), 20.0, fill, Stroke::new(1.0, p.divider));
+                icons::paint(ui, icon, Rect::from_center_size(rect.center(), Vec2::splat(20.0)), p.text);
+                if resp.on_hover_text(tip).clicked() {
+                    self.navigate(d);
+                }
+            });
         }
     }
 
@@ -252,7 +244,8 @@ fn scrubber(ui: &mut egui::Ui, index: usize, n: usize) -> Option<usize> {
     ui.painter().rect_filled(Rect::from_min_max(track.min, pos2(x, track.max.y)), CornerRadius::same(2), p.accent);
     let r = if resp.hovered() || resp.dragged() { 7.0 } else { 6.0 };
     ui.painter().circle_filled(pos2(x, rect.center().y), r, p.accent);
-    if (resp.dragged() || resp.clicked()) && n > 1
+    if (resp.dragged() || resp.clicked())
+        && n > 1
         && let Some(pos) = resp.interact_pointer_pos()
     {
         let f = ((pos.x - track.left()) / track.width()).clamp(0.0, 1.0);

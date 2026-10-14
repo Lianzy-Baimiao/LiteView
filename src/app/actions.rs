@@ -66,20 +66,21 @@ impl App {
         }
     }
 
-    /// 当前显示的图（动图取当前帧），按显示方向旋转好
-    fn displayed_image(&self) -> Option<(Arc<image::RgbaImage>, crate::viewer::view::Transform)> {
-        let d = self.decoded()?;
-        let img = match &d.content {
-            crate::decode::Content::Animation { frames, .. } => frames[self.play.as_ref().map_or(0, |p| p.index).min(frames.len() - 1)].image.clone(),
-            crate::decode::Content::Still { image, .. } => image.clone(),
-        };
-        Some((img, self.view.xf))
+    /// 在调用时固定帧号；真正取像素在后台，拖动进度条后不会错导出缓存末帧。
+    fn displayed_image(&self) -> Option<(Arc<crate::decode::Decoded>, usize, crate::viewer::view::Transform)> {
+        Some((self.decoded()?.clone(), self.play.as_ref().map_or(0, |p| p.index), self.view.xf))
     }
 
     pub(crate) fn copy_image(&mut self) {
-        let Some((img, xf)) = self.displayed_image() else { return };
+        let Some((decoded, index, xf)) = self.displayed_image() else { return };
         self.spawn(move || {
-            let img = save::apply_transform(&img, xf);
+            let img = match decoded.content.image_at(index) {
+                Ok(img) => save::apply_transform(&img, xf),
+                Err(e) => {
+                    log::warn!("取动图帧失败：{e:?}");
+                    return Some(Notice::Toast(tr().err_corrupt.to_owned()));
+                }
+            };
             Some(Notice::Toast(match crate::clipboard::set_image(img) {
                 Ok(()) => tr().copied.to_owned(),
                 Err(e) => fill(tr().failed, &[&e]),
@@ -140,7 +141,7 @@ impl App {
 
     /// 另存为；动图是导出当前帧（默认 PNG，文件名带帧号）
     pub(crate) fn save_as(&mut self) {
-        let Some((img, xf)) = self.displayed_image() else { return };
+        let Some((decoded, index, xf)) = self.displayed_image() else { return };
         let stem = self.cur.as_ref().filter(|c| !c.clipboard).and_then(|c| c.path.file_stem()).map_or("image".into(), |s| s.to_string_lossy().into_owned());
         let name = match &self.play {
             Some(p) if self.is_animated() => format!("{stem}-{}.png", p.index + 1),
@@ -157,7 +158,13 @@ impl App {
         let fmt = Format::from_path(&dest).unwrap_or(Format::Png);
         let q = self.settings.jpeg_quality;
         self.spawn(move || {
-            let img = save::apply_transform(&img, xf);
+            let img = match decoded.content.image_at(index) {
+                Ok(img) => save::apply_transform(&img, xf),
+                Err(e) => {
+                    log::warn!("取动图帧失败：{e:?}");
+                    return Some(Notice::Toast(tr().err_corrupt.to_owned()));
+                }
+            };
             Some(match save::write(&dest, &img, fmt, q) {
                 Ok(()) => Notice::Saved(dest),
                 Err(e) => Notice::Toast(fill(tr().failed, &[&e])),
@@ -167,9 +174,15 @@ impl App {
 
     /// 设为桌面背景：按显示方向存一份到配置目录（原图被移走、删除后背景还在；HEIC 等格式也能用）
     pub(crate) fn set_wallpaper(&mut self) {
-        let Some((img, xf)) = self.displayed_image() else { return };
+        let Some((decoded, index, xf)) = self.displayed_image() else { return };
         self.spawn(move || {
-            let img = save::apply_transform(&img, xf);
+            let img = match decoded.content.image_at(index) {
+                Ok(img) => save::apply_transform(&img, xf),
+                Err(e) => {
+                    log::warn!("取动图帧失败：{e:?}");
+                    return Some(Notice::Toast(tr().err_corrupt.to_owned()));
+                }
+            };
             let dir = crate::settings::config_dir();
             let _ = std::fs::create_dir_all(&dir);
             let opaque = img.pixels().all(|p| p.0[3] == 255);

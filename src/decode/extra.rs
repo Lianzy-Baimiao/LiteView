@@ -67,45 +67,70 @@ pub fn svg(data: &[u8]) -> Result<Decoded, Error> {
     Ok(d)
 }
 
-pub fn jxl(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
-    let err = |e: Box<dyn std::error::Error + Send + Sync>| Error::Corrupt(e.to_string());
-    let mut img = jxl_oxide::JxlImage::builder().read(std::io::Cursor::new(data)).map_err(err)?;
+fn open_jxl(data: &[u8]) -> Result<jxl_oxide::JxlImage, Error> {
+    let mut img = jxl_oxide::JxlImage::builder().read(std::io::Cursor::new(data)).map_err(|e| Error::Corrupt(e.to_string()))?;
+    check_size(img.width(), img.height())?;
     img.request_color_encoding(jxl_oxide::EnumColourEncoding::srgb(jxl_oxide::RenderingIntent::Relative));
-    let (w, h) = (img.width(), img.height());
-    let tps = img.image_header().metadata.animation.as_ref().map(|a| f64::from(a.tps_numerator) / f64::from(a.tps_denominator.max(1)));
-    let mut frames = Vec::new();
-    let (mut bytes, mut truncated) = (0usize, false);
-    for k in 0..img.num_loaded_keyframes() {
-        let render = img.render_frame(k).map_err(err)?;
-        let mut stream = render.stream();
-        let (fw, fh, ch) = (stream.width(), stream.height(), stream.channels() as usize);
-        check_size(fw, fh)?;
-        if !frames.is_empty() && bytes + (fw * fh * 4) as usize > opts.anim_cache {
-            truncated = true;
+    Ok(img)
+}
+
+fn jxl_frame(img: &jxl_oxide::JxlImage, index: usize) -> Result<RgbaImage, Error> {
+    let render = img.render_frame(index).map_err(|e| Error::Corrupt(e.to_string()))?;
+    let mut stream = render.stream();
+    let (w, h, ch) = (stream.width(), stream.height(), stream.channels() as usize);
+    check_size(w, h)?;
+    let mut buf = vec![0u8; w as usize * h as usize * ch];
+    stream.write_to_buffer(&mut buf);
+    let rgba: Vec<u8> = match ch {
+        1 => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
+        2 => buf.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
+        3 => buf.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
+        _ => buf.chunks_exact(ch).flat_map(|p| [p[0], p[1], p[2], p[3]]).collect(),
+    };
+    RgbaImage::from_raw(w, h, rgba).ok_or_else(|| Error::Corrupt("invalid JPEG XL frame size".into()))
+}
+
+pub(super) fn jxl_each_frame(data: &[u8], mut f: impl FnMut(usize, RgbaImage) -> bool) -> Result<(), Error> {
+    let img = open_jxl(data)?;
+    for i in 0..img.num_loaded_keyframes() {
+        if !f(i, jxl_frame(&img, i)?) {
             break;
         }
-        bytes += (fw * fh * 4) as usize;
-        let mut buf = vec![0u8; fw as usize * fh as usize * ch];
-        stream.write_to_buffer(&mut buf);
-        let rgba: Vec<u8> = match ch {
-            1 => buf.iter().flat_map(|&g| [g, g, g, 255]).collect(),
-            2 => buf.as_chunks::<2>().0.iter().flat_map(|p| [p[0], p[0], p[0], p[1]]).collect(),
-            3 => buf.as_chunks::<3>().0.iter().flat_map(|p| [p[0], p[1], p[2], 255]).collect(),
-            _ => buf.chunks_exact(ch).flat_map(|p| [p[0], p[1], p[2], p[3]]).collect(),
-        };
-        let ms = tps.map_or(0.0, |t| f64::from(render.duration()) / t * 1000.0);
-        let delay = Duration::from_secs_f64(if ms <= 10.0 { 0.1 } else { ms / 1000.0 });
-        frames.push(Frame { image: Arc::new(RgbaImage::from_raw(fw, fh, rgba).expect("size")), delay });
+    }
+    Ok(())
+}
+
+pub fn jxl(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
+    let img = open_jxl(data)?;
+    let anim = img.image_header().metadata.animation.as_ref();
+    let tps = anim.map(|a| f64::from(a.tps_numerator) / f64::from(a.tps_denominator.max(1)));
+    let delays: Vec<_> = (0..img.num_loaded_keyframes())
+        .map(|i| {
+            let ms = tps.filter(|t| *t > 0.0).map_or(0.0, |t| f64::from(img.frame_header(i).expect("loaded frame").duration) / t * 1000.0);
+            Duration::from_secs_f64(if ms <= 10.0 { 0.1 } else { ms / 1000.0 })
+        })
+        .collect();
+    let plays = anim.and_then(|a| (a.num_loops > 0).then_some(a.num_loops));
+    let mut frames = Vec::new();
+    let mut bytes = 0usize;
+    let size = img.width() as usize * img.height() as usize * 4;
+    for (i, &delay) in delays.iter().enumerate() {
+        if !frames.is_empty() && bytes + size > opts.anim_cache {
+            break;
+        }
+        let image = Arc::new(jxl_frame(&img, i)?);
+        bytes += image.len();
+        frames.push(Frame { image, delay });
     }
     let first = frames.first().ok_or(Error::Corrupt("no frames".into()))?.image.clone();
     let has_alpha = first.pixels().any(|p| p.0[3] != 255);
     let mut info = info("JPEG XL", first.width(), first.height(), has_alpha);
     info.bits = img.image_header().metadata.bit_depth.bits_per_sample() as u16;
-    let _ = (w, h);
-    let content = if frames.len() == 1 {
+    let content = if delays.len() == 1 {
         Content::Still { image: first, levels: Vec::new() }
     } else {
-        Content::Animation { frames, plays: None, truncated }
+        let source = (frames.len() < delays.len()).then(|| Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Jxl }));
+        Content::Animation { frames, delays, plays, source }
     };
     Ok(Decoded { info, content })
 }

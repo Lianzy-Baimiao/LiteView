@@ -49,7 +49,7 @@ pub(crate) struct Current {
 pub(crate) enum Tex {
     None,
     Still(StillTextures),
-    Anim { decoded: std::sync::Arc<crate::decode::Decoded>, tex: AnimTexture },
+    Anim { decoded: std::sync::Arc<crate::decode::Decoded>, tex: AnimTexture, frames: crate::viewer::animation::AnimationFrames },
 }
 
 /// 正在显示的图（新图解码完成前继续显示旧图）
@@ -70,16 +70,29 @@ pub(crate) enum After {
 }
 
 pub(crate) enum Dialog {
-    Delete { path: PathBuf, forever: bool, dont_ask: bool },
-    SaveRotation { after: After },
+    Delete {
+        path: PathBuf,
+        forever: bool,
+        dont_ask: bool,
+    },
+    SaveRotation {
+        after: After,
+    },
     /// 首次启动：设为默认看图软件？
     AskDefault,
     /// 编辑有未保存的修改：保存 / 不保存 / 取消；after = 之后做的事
-    ExitEdit { after: Option<After> },
+    ExitEdit {
+        after: Option<After>,
+    },
     /// 第一次覆盖原图
-    Overwrite { then: edit::SaveThen, dont_ask: bool },
+    Overwrite {
+        then: edit::SaveThen,
+        dont_ask: bool,
+    },
     /// 粘贴的图比画布大
-    ExpandCanvas { image: std::sync::Arc<image::RgbaImage> },
+    ExpandCanvas {
+        image: std::sync::Arc<image::RgbaImage>,
+    },
 }
 
 pub struct App {
@@ -169,12 +182,7 @@ pub fn run() -> eframe::Result {
     if let Some(pos) = w.pos {
         vp = vp.with_position(pos);
     }
-    let options = eframe::NativeOptions {
-        viewport: vp,
-        centered: w.pos.is_none(),
-        wgpu_options: crate::gpu::configuration(),
-        ..Default::default()
-    };
+    let options = eframe::NativeOptions { viewport: vp, centered: w.pos.is_none(), wgpu_options: crate::gpu::configuration(), ..Default::default() };
     log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
     eframe::run_native(
         "LiteView",
@@ -351,7 +359,8 @@ impl App {
         if std::mem::take(&mut self.pending_window_fit)
             && let Some(s) = self.shown
         {
-            let (maximized, full, monitor) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false), i.viewport().monitor_size));
+            let (maximized, full, monitor) =
+                ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false), i.viewport().monitor_size));
             if !maximized && !full {
                 let size = self.view.shown_size(s.width, s.height) / ctx.pixels_per_point();
                 let max = monitor.map_or(egui::vec2(1600.0, 1000.0), |m| m * 0.9);

@@ -42,9 +42,9 @@ fn build(path: &Path, d: &Decoded, clipboard: bool) -> InfoCache {
         rows.push((t.i_size, size_text(i.file_size)));
     }
     rows.push((t.i_format, format!("{}，{} bit × {}", i.format, i.bits, i.channels)));
-    if let crate::decode::Content::Animation { frames, .. } = &d.content {
-        let ms: u128 = frames.iter().map(|f| f.delay.as_millis()).sum();
-        rows.push((t.i_frames, fill(t.i_frames_fmt, &[&frames.len(), &format!("{:.2}", ms as f64 / 1000.0)])));
+    if let crate::decode::Content::Animation { delays, .. } = &d.content {
+        let ms: u128 = delays.iter().map(|d| d.as_millis()).sum();
+        rows.push((t.i_frames, fill(t.i_frames_fmt, &[&delays.len(), &format!("{:.2}", ms as f64 / 1000.0)])));
     }
     if let Ok(m) = std::fs::metadata(path).and_then(|m| m.modified()) {
         rows.push((t.i_modified, chrono::DateTime::<chrono::Local>::from(m).format("%Y-%m-%d %H:%M:%S").to_string()));
@@ -98,45 +98,42 @@ impl App {
         let w = 300.0;
         let r = self.canvas;
         let mut close = false;
-        Area::new(Id::new("info"))
-            .order(Order::Foreground)
-            .anchor(Align2::RIGHT_TOP, vec2(w * (1.0 - a), 0.0))
-            .show(ctx, |ui| {
-                egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.divider)).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
-                    ui.set_width(w - 32.0);
-                    ui.set_min_height(r.height() - 32.0);
-                    let t = tr();
-                    ui.horizontal(|ui| {
-                        ui.label(RichText::new(t.info).size(16.0));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            close = widgets::icon_button(ui, Icon::Close, t.close, "I", true).clicked();
-                        });
+        Area::new(Id::new("info")).order(Order::Foreground).anchor(Align2::RIGHT_TOP, vec2(w * (1.0 - a), 0.0)).show(ctx, |ui| {
+            egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.divider)).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
+                ui.set_width(w - 32.0);
+                ui.set_min_height(r.height() - 32.0);
+                let t = tr();
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new(t.info).size(16.0));
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        close = widgets::icon_button(ui, Icon::Close, t.close, "I", true).clicked();
                     });
-                    ui.add_space(8.0);
-                    let Some(c) = &self.info else { return };
-                    let row = |ui: &mut egui::Ui, k: &str, v: &str| {
-                        ui.label(RichText::new(k).color(p.text_weak).size(12.0));
-                        ui.add(egui::Label::new(RichText::new(v).color(p.text)).wrap());
-                        ui.add_space(6.0);
-                    };
-                    for (k, v) in &c.rows {
-                        row(ui, k, v);
-                    }
-                    if !c.exif.is_empty() || c.gps.is_some() {
-                        ui.separator();
-                        ui.add_space(6.0);
-                    }
-                    for (k, v) in &c.exif {
-                        row(ui, k, v);
-                    }
-                    if let Some(g) = &c.gps {
-                        widgets::checkbox(ui, &mut self.show_gps, t.i_gps_show);
-                        if self.show_gps {
-                            row(ui, t.i_gps, g);
-                        }
-                    }
                 });
+                ui.add_space(8.0);
+                let Some(c) = &self.info else { return };
+                let row = |ui: &mut egui::Ui, k: &str, v: &str| {
+                    ui.label(RichText::new(k).color(p.text_weak).size(12.0));
+                    ui.add(egui::Label::new(RichText::new(v).color(p.text)).wrap());
+                    ui.add_space(6.0);
+                };
+                for (k, v) in &c.rows {
+                    row(ui, k, v);
+                }
+                if !c.exif.is_empty() || c.gps.is_some() {
+                    ui.separator();
+                    ui.add_space(6.0);
+                }
+                for (k, v) in &c.exif {
+                    row(ui, k, v);
+                }
+                if let Some(g) = &c.gps {
+                    widgets::checkbox(ui, &mut self.show_gps, t.i_gps_show);
+                    if self.show_gps {
+                        row(ui, t.i_gps, g);
+                    }
+                }
             });
+        });
         if close {
             self.info_open = false;
         }

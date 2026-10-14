@@ -44,8 +44,7 @@ impl App {
     }
 
     pub(crate) fn needs_rotation_prompt(&self) -> bool {
-        !self.view.xf.is_identity()
-            && self.cur.as_ref().is_some_and(|c| !c.clipboard && crate::save::can_save_rotation(&c.path))
+        !self.view.xf.is_identity() && self.cur.as_ref().is_some_and(|c| !c.clipboard && crate::save::can_save_rotation(&c.path))
     }
 
     pub(crate) fn navigate(&mut self, delta: isize) {
@@ -174,12 +173,16 @@ impl App {
                     Content::Still { image, levels } => {
                         self.tex = Tex::Still(StillTextures::new("image", image.clone(), levels));
                     }
-                    Content::Animation { frames, plays, .. } => {
+                    Content::Animation { delays, plays, .. } => {
                         let s = &self.settings;
-                        let mut p = Playback::new(frames.len(), *plays, s.anim_autoplay, s.anim_always_loop);
+                        let mut p = Playback::new(delays.len(), *plays, s.anim_autoplay, s.anim_always_loop);
                         p.set_speed(s.anim_speed);
                         self.play = Some(p);
-                        self.tex = Tex::Anim { decoded: d.clone(), tex: AnimTexture::new() };
+                        self.tex = Tex::Anim {
+                            decoded: d.clone(),
+                            tex: AnimTexture::new(),
+                            frames: crate::viewer::animation::AnimationFrames::new(d.clone(), self.ctx.clone()),
+                        };
                     }
                 }
                 // 「锁定缩放与位置」：切到同样尺寸的图时保持缩放与位置，方便对比
@@ -205,12 +208,7 @@ impl App {
         }
         self.paste_seq += 1;
         self.folder = Folder::empty();
-        self.cur = Some(Current {
-            path: PathBuf::from(format!("clipboard-{}.png", self.paste_seq)),
-            loaded: None,
-            since: Instant::now(),
-            clipboard: true,
-        });
+        self.cur = Some(Current { path: PathBuf::from(format!("clipboard-{}.png", self.paste_seq)), loaded: None, since: Instant::now(), clipboard: true });
         self.on_loaded(Ok(Arc::new(d)));
     }
 

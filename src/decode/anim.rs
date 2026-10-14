@@ -1,5 +1,5 @@
 //! 动图：GIF、APNG、动态 WebP。image crate 给出的每一帧已经合成好（处置方式、局部帧、透明色）。
-//! 帧延时 ≤ 10 ms 按 100 ms（与主流浏览器一致）；缓存的帧超过上限时只保留前面的帧。
+//! 帧延时 ≤ 10 ms 按 100 ms（与主流浏览器一致）；超出缓存的帧保留时间线与源数据，按需解码。
 
 use std::io::Cursor;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result
             let (w, h) = d.dimensions();
             let apng = d.apng().ok()?;
             let plays = plays_of(apng.loop_count());
-            Some(collect(apng.into_frames(), w, h, "APNG", plays, opts))
+            Some(collect(apng.into_frames(), w, h, ImageFormat::Png, plays, opts, data))
         }
         ImageFormat::WebP => {
             let d = WebPDecoder::new(cur()).ok()?;
@@ -35,7 +35,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result
             }
             let (w, h) = d.dimensions();
             let plays = plays_of(d.loop_count());
-            Some(collect(d.into_frames(), w, h, "WebP", plays, opts))
+            Some(collect(d.into_frames(), w, h, ImageFormat::WebP, plays, opts, data))
         }
         _ => None,
     }
@@ -44,10 +44,27 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result
 fn gif(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
     let d = GifDecoder::new(Cursor::new(data)).map_err(img_error)?;
     let (w, h) = d.dimensions();
-    collect(d.into_frames(), w, h, "GIF", gif_plays(data), opts)
+    collect(d.into_frames(), w, h, ImageFormat::Gif, gif_plays(data), opts, data)
 }
 
-fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: &'static str, plays: Option<u32>, opts: &Options) -> Result<Decoded, Error> {
+/// 从头逐帧解码（每帧已经合成好）；f 返回 false 时停下
+pub fn each_frame(data: &[u8], format: ImageFormat, mut f: impl FnMut(usize, image::RgbaImage) -> bool) -> Result<(), Error> {
+    let cur = || Cursor::new(data);
+    let frames = match format {
+        ImageFormat::Gif => GifDecoder::new(cur()).map(|d| d.into_frames()),
+        ImageFormat::Png => PngDecoder::new(cur()).and_then(|d| d.apng()).map(|a| a.into_frames()),
+        ImageFormat::WebP => WebPDecoder::new(cur()).map(|d| d.into_frames()),
+        _ => return Err(Error::Unsupported),
+    };
+    for (i, fr) in frames.map_err(img_error)?.enumerate() {
+        if !f(i, fr.map_err(img_error)?.into_buffer()) {
+            break;
+        }
+    }
+    Ok(())
+}
+
+fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: ImageFormat, plays: Option<u32>, opts: &Options, data: &[u8]) -> Result<Decoded, Error> {
     check_size(w, h)?;
     let mut out: Vec<Frame> = Vec::new();
     let (mut bytes, mut truncated) = (0usize, false);
@@ -70,12 +87,26 @@ fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: &'static str, play
     if out.is_empty() {
         return Err(Error::Corrupt("no frames".into()));
     }
-    let info = Info { format, width: w, height: h, bits: 8, channels: 4, has_alpha: true, file_size: 0, exif: None, icc: None };
-    let content = if out.len() == 1 {
+    let name = match format {
+        ImageFormat::Gif => "GIF",
+        ImageFormat::Png => "APNG",
+        _ => "WebP",
+    };
+    let info = Info { format: name, width: w, height: h, bits: 8, channels: 4, has_alpha: true, file_size: 0, exif: None, icc: None };
+    let content = if out.len() == 1 && !truncated {
         let image = out.pop().expect("one frame").image;
         Content::Still { image, levels: Vec::new() }
     } else {
-        Content::Animation { frames: out, plays, truncated }
+        let mut delays: Vec<_> = out.iter().map(|f| f.delay).collect();
+        let source = if truncated {
+            super::timing::frame_delays(data, format).filter(|all| all.len() > out.len()).map(|all| {
+                delays.extend_from_slice(&all[out.len()..]);
+                Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Raster(format) })
+            })
+        } else {
+            None
+        };
+        Content::Animation { frames: out, delays, plays, source }
     };
     Ok(Decoded { info, content })
 }
@@ -142,8 +173,8 @@ mod tests {
     fn frames_and_delay_clamp() {
         let data = make_gif(Some(Repeat::Infinite), 3, 0);
         let d = super::super::decode_bytes(&data, "gif", &Options::default()).unwrap();
-        let Content::Animation { frames, plays, truncated } = d.content else { panic!("not animated") };
-        assert_eq!((frames.len(), plays, truncated), (3, None, false));
+        let Content::Animation { frames, plays, source, .. } = d.content else { panic!("not animated") };
+        assert_eq!((frames.len(), plays, source.is_some()), (3, None, false));
         assert_eq!(frames[0].delay, Duration::from_millis(100));
         assert_eq!(frames[2].image.get_pixel(0, 0).0[0], 120);
     }
@@ -155,12 +186,22 @@ mod tests {
     }
 
     #[test]
-    fn cache_limit_truncates() {
+    fn cache_limit_keeps_full_timeline_and_stream_source() {
         let data = make_gif(Some(Repeat::Infinite), 5, 40);
         let opts = Options { anim_cache: 4 * 3 * 4 * 2, ..Options::default() };
         let d = super::super::decode_bytes(&data, "gif", &opts).unwrap();
-        let Content::Animation { frames, truncated, .. } = d.content else { panic!() };
-        assert_eq!((frames.len(), truncated), (2, true));
+        let Content::Animation { frames, delays, source, .. } = d.content else { panic!() };
+        // 只缓存前 2 帧，但知道一共 5 帧、每帧多长，后面的边播边解
+        assert_eq!((frames.len(), delays.len()), (2, 5));
         assert_eq!(frames[1].delay, Duration::from_millis(40));
+        assert!(delays.iter().all(|d| *d == Duration::from_millis(40)));
+        let src = source.expect("streaming source");
+        let mut got = Vec::new();
+        src.each_frame(|i, img| {
+            got.push((i, img.get_pixel(0, 0).0[0]));
+            true
+        })
+        .unwrap();
+        assert_eq!(got, vec![(0, 0), (1, 60), (2, 120), (3, 180), (4, 240)]);
     }
 }

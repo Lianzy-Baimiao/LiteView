@@ -9,6 +9,15 @@ macro_rules! strings {
         pub struct Strings { $(pub $key: &'static str,)* }
         pub static ZH: Strings = Strings { $($key: $zh,)* };
         pub static EN: Strings = Strings { $($key: $en,)* };
+        #[cfg(test)]
+        #[test]
+        fn translations_are_complete_and_placeholders_match() {
+            $(
+                assert!(!$en.trim().is_empty(), "missing English string: {}", stringify!($key));
+                assert_eq!($zh.matches("{}").count(), $en.matches("{}").count(), "placeholder mismatch: {}", stringify!($key));
+                assert!(!$en.chars().any(|c| ('\u{4e00}'..='\u{9fff}').contains(&c)), "untranslated English string: {}", stringify!($key));
+            )*
+        }
     };
 }
 

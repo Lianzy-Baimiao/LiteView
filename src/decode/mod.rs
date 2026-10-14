@@ -6,6 +6,7 @@ mod anim;
 pub mod extra;
 mod raster;
 pub mod sniff;
+pub mod timing;
 #[cfg(windows)]
 mod wic;
 
@@ -31,7 +32,10 @@ pub enum Error {
     MissingCodec(Kind),
     Denied,
     NotFound,
-    TooLarge { width: u32, height: u32 },
+    TooLarge {
+        width: u32,
+        height: u32,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -62,12 +66,70 @@ pub enum Content {
         levels: Vec<Arc<RgbaImage>>,
     },
     Animation {
+        /// 缓存的帧（帧太多、超出内存上限时只有前面的）
         frames: Vec<Frame>,
+        /// 所有帧的延时（帧数 = 它的长度，可能比 frames 多）
+        delays: Vec<Duration>,
         /// 播放次数；None = 无限循环
         plays: Option<u32>,
-        /// 帧太多、超出内存上限，只缓存了前面的帧
-        truncated: bool,
+        /// 缓存放不下全部帧：后面的帧边播边解
+        source: Option<Arc<AnimSource>>,
     },
+}
+
+/// 动图的原始数据（后面的帧边播边解时用）
+pub struct AnimSource {
+    pub data: Arc<[u8]>,
+    pub format: AnimFormat,
+}
+
+#[derive(Clone, Copy)]
+pub enum AnimFormat {
+    Raster(ImageFormat),
+    Jxl,
+}
+
+impl AnimSource {
+    /// 从头顺序解码；回调返回 false 即取消，不保留已交付的 RGBA 帧。
+    pub fn each_frame(&self, f: impl FnMut(usize, RgbaImage) -> bool) -> Result<(), Error> {
+        match self.format {
+            AnimFormat::Raster(format) => anim::each_frame(&self.data, format, f),
+            AnimFormat::Jxl => extra::jxl_each_frame(&self.data, f),
+        }
+    }
+}
+
+impl Content {
+    /// 取指定帧；未缓存的帧会解码，调用方必须放到后台线程。
+    pub fn image_at(&self, index: usize) -> Result<Arc<RgbaImage>, Error> {
+        match self {
+            Content::Still { image, .. } if index == 0 => Ok(image.clone()),
+            Content::Animation { frames, delays, source, .. } if index < delays.len() => {
+                if let Some(frame) = frames.get(index) {
+                    return Ok(frame.image.clone());
+                }
+                let mut found = None;
+                if let Some(source) = source {
+                    source.each_frame(|i, image| {
+                        if i == index {
+                            found = Some(Arc::new(image));
+                        }
+                        i < index
+                    })?;
+                }
+                found.ok_or_else(|| Error::Corrupt("animation frame unavailable".into()))
+            }
+            _ => Err(Error::Corrupt("frame index out of range".into())),
+        }
+    }
+
+    /// 动图的总帧数
+    pub fn frame_count(&self) -> usize {
+        match self {
+            Content::Still { .. } => 1,
+            Content::Animation { delays, .. } => delays.len(),
+        }
+    }
 }
 
 pub struct Decoded {
@@ -80,7 +142,7 @@ impl Decoded {
     pub fn bytes(&self) -> usize {
         match &self.content {
             Content::Still { image, levels } => image.len() + levels.iter().map(|l| l.len()).sum::<usize>(),
-            Content::Animation { frames, .. } => frames.iter().map(|f| f.image.len()).sum(),
+            Content::Animation { frames, source, .. } => frames.iter().map(|f| f.image.len()).sum::<usize>() + source.as_ref().map_or(0, |s| s.data.len()),
         }
     }
 
