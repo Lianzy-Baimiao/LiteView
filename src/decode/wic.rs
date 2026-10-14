@@ -36,14 +36,11 @@ pub fn decode(data: &[u8], kind: Kind) -> Result<Decoded, Error> {
     unsafe {
         let stream = fac.CreateStream().map_err(|_| Error::Unsupported)?;
         stream.InitializeFromMemory(data).map_err(|_| Error::Unsupported)?;
-        let decoder = fac
-            .CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand)
-            .map_err(|_| missing())?;
+        let decoder = fac.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand).map_err(|_| missing())?;
         let container = decoder.GetContainerFormat().unwrap_or_default();
         let frame = decoder.GetFrame(0).map_err(|_| missing())?;
         let conv = fac.CreateFormatConverter().map_err(|_| Error::Unsupported)?;
-        conv.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom)
-            .map_err(|_| missing())?;
+        conv.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom).map_err(|_| missing())?;
         let (mut w, mut h) = (0u32, 0u32);
         conv.GetSize(&mut w, &mut h).map_err(|e| Error::Corrupt(e.message()))?;
         check_size(w, h)?;
@@ -61,6 +58,7 @@ pub fn decode(data: &[u8], kind: Kind) -> Result<Decoded, Error> {
                 channels: if has_alpha { 4 } else { 3 },
                 has_alpha,
                 file_size: 0,
+                jpeg_quality: None,
                 exif: None,
                 icc: None,
             },

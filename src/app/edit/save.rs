@@ -56,7 +56,8 @@ impl App {
             return;
         }
         let keep_meta = self.settings.keep_metadata && !ed.doc.redacted();
-        let job = SaveJob { dest: ed.src.path.clone(), format, quality: self.settings.jpeg_quality, keep_meta, then };
+        let quality = overwrite_quality(format, ed.src.jpeg_quality, self.settings.jpeg_quality);
+        let job = SaveJob { dest: ed.src.path.clone(), format, quality, keep_meta, then };
         self.edit_start_save(ed, job);
     }
 
@@ -135,6 +136,7 @@ impl App {
         }
         ed.src.format = d.info.format;
         ed.src.file_size = d.info.file_size;
+        ed.src.jpeg_quality = d.info.jpeg_quality;
         ed.src.exif = d.info.exif.clone();
         if let Some(c) = &mut self.cur {
             c.path = done.dest;
@@ -151,4 +153,31 @@ impl App {
 /// 原格式能不能直接写回（HEIC、RAW、SVG、PSD 等只能另存为）
 fn writable(format: &str) -> bool {
     matches!(format, "PNG" | "JPEG" | "WebP" | "BMP" | "GIF" | "TIFF")
+}
+
+/// 只影响覆盖保存；另存为继续采用用户选择的品质。
+fn overwrite_quality(format: Format, original: Option<u8>, fallback: u8) -> u8 {
+    if format == Format::Jpeg { original.unwrap_or(fallback) } else { fallback }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn jpeg_overwrite_preserves_detected_quality_instead_of_using_default() {
+        let img = image::RgbaImage::from_fn(16, 16, |x, y| image::Rgba([(x * 15) as u8, (y * 15) as u8, 91, 255]));
+        for original in [1, 35, 50, 75, 95, 100] {
+            let bytes = save::encode(&img, Format::Jpeg, original).unwrap();
+            let decoded = crate::decode::decode_bytes(&bytes, "jpg", &Default::default()).unwrap();
+            let quality = overwrite_quality(Format::Jpeg, decoded.info.jpeg_quality, 90);
+            let saved = save::encode(decoded.first_image(), Format::Jpeg, quality).unwrap();
+            let reread = crate::decode::decode_bytes(&saved, "jpg", &Default::default()).unwrap();
+            assert_eq!(reread.info.jpeg_quality, Some(original));
+        }
+        assert_eq!(overwrite_quality(Format::Jpeg, None, 83), 83);
+        assert_eq!(overwrite_quality(Format::Png, Some(35), 83), 83);
+        let png = save::encode(&img, Format::Png, 90).unwrap();
+        assert_eq!(crate::decode::decode_bytes(&png, "png", &Default::default()).unwrap().info.jpeg_quality, None);
+    }
 }

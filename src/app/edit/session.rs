@@ -40,6 +40,7 @@ impl App {
             clipboard: cur.clipboard,
             format: d.info.format,
             file_size: d.info.file_size,
+            jpeg_quality: d.info.jpeg_quality,
             exif: d.info.exif.clone(),
             icc: d.info.icc.clone(),
             has_alpha: d.info.has_alpha,

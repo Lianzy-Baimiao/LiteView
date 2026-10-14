@@ -1,6 +1,8 @@
 //! 保存：编码各格式（都经过 fsutil::atomic_write，不在原文件上覆盖写入）；按显示方向转像素；
 //! JPEG 保存旋转时只改 EXIF 方向标记，画质无损。
 
+mod gif;
+
 use std::io::Cursor;
 use std::path::Path;
 
@@ -66,6 +68,9 @@ pub fn encode(img: &RgbaImage, fmt: Format, quality: u8) -> Result<Vec<u8>, Stri
 
 pub fn encode_with(img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta) -> Result<Vec<u8>, String> {
     use image::ImageEncoder;
+    if fmt == Format::Gif {
+        return gif::encode(img);
+    }
     let opaque = img.pixels().all(|p| p.0[3] == 255);
     let rgb = opaque || matches!(fmt, Format::Jpeg | Format::Bmp);
     let flat;
@@ -109,7 +114,7 @@ pub fn encode_with(img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta) -> Re
             enc.write_image(bytes, w, h, color)
         }
         Format::Bmp => image::codecs::bmp::BmpEncoder::new(&mut out).write_image(bytes, w, h, color),
-        Format::Gif => DynamicImage::ImageRgba8(img.clone()).write_to(&mut out, ImageFormat::Gif),
+        Format::Gif => unreachable!("handled before flattening"),
     };
     r.map_err(|e| e.to_string())?;
     Ok(out.into_inner())
@@ -137,16 +142,11 @@ pub fn clean_exif(raw: &[u8]) -> Option<Vec<u8>> {
     use exif::{Context, In, Tag, Value};
     let parsed = exif::Reader::new().read_raw(raw.to_vec()).ok()?;
     let drop = |t: Tag| {
-        matches!(
-            t,
-            Tag::MakerNote | Tag::ImageWidth | Tag::ImageLength | Tag::PixelXDimension | Tag::PixelYDimension
-        ) || matches!(t, Tag(Context::Tiff, 0x02BC | 0x014A | 0x8773 | 0x83BB | 0x8649 | 0x935C))
+        matches!(t, Tag::MakerNote | Tag::ImageWidth | Tag::ImageLength | Tag::PixelXDimension | Tag::PixelYDimension)
+            || matches!(t, Tag(Context::Tiff, 0x02BC | 0x014A | 0x8773 | 0x83BB | 0x8649 | 0x935C))
     };
-    let mut fields: Vec<exif::Field> = parsed
-        .fields()
-        .filter(|f| f.ifd_num == In::PRIMARY && !drop(f.tag) && !matches!(f.value, Value::Unknown(..)))
-        .cloned()
-        .collect();
+    let mut fields: Vec<exif::Field> =
+        parsed.fields().filter(|f| f.ifd_num == In::PRIMARY && !drop(f.tag) && !matches!(f.value, Value::Unknown(..))).cloned().collect();
     for f in &mut fields {
         if f.tag == Tag::Orientation {
             f.value = Value::Short(vec![1]);
@@ -279,7 +279,8 @@ fn orientation_slot(data: &[u8]) -> Option<(usize, bool)> {
         _ => return None,
     };
     let rd16 = |o: usize| data.get(o..o + 2).map(|b| if be { u16::from_be_bytes([b[0], b[1]]) } else { u16::from_le_bytes([b[0], b[1]]) });
-    let rd32 = |o: usize| data.get(o..o + 4).map(|b| if be { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) });
+    let rd32 =
+        |o: usize| data.get(o..o + 4).map(|b| if be { u32::from_be_bytes([b[0], b[1], b[2], b[3]]) } else { u32::from_le_bytes([b[0], b[1], b[2], b[3]]) });
     let ifd = tiff + rd32(tiff + 4)? as usize;
     let n = rd16(ifd)? as usize;
     (0..n).map(|k| ifd + 2 + k * 12).find(|&e| rd16(e) == Some(0x0112)).map(|e| (e + 8, be))
@@ -366,7 +367,11 @@ mod tests {
             f(Tag::Orientation, In::PRIMARY, Value::Short(vec![6])),
             f(Tag::MakerNote, In::PRIMARY, Value::Undefined(vec![1, 2, 3, 4], 0)),
             f(Tag::PixelXDimension, In::PRIMARY, Value::Long(vec![4000])),
-            f(Tag::GPSLatitude, In::PRIMARY, Value::Rational(vec![Rational { num: 31, denom: 1 }, Rational { num: 14, denom: 1 }, Rational { num: 0, denom: 1 }])),
+            f(
+                Tag::GPSLatitude,
+                In::PRIMARY,
+                Value::Rational(vec![Rational { num: 31, denom: 1 }, Rational { num: 14, denom: 1 }, Rational { num: 0, denom: 1 }]),
+            ),
             f(Tag::Compression, In::THUMBNAIL, Value::Short(vec![6])),
         ];
         let thumb = [0xFFu8, 0xD8, 0xFF, 0xD9];

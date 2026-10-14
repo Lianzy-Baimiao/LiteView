@@ -216,11 +216,12 @@ mod tests {
     }
 
     #[test]
-    fn apng_webp_and_apng_poster_match_full_decode_beyond_cache() {
+    fn apng_webp_jxl_and_apng_poster_match_full_decode_beyond_cache() {
         for (data, ext) in [
             (&include_bytes!("../../tests/fixtures/animation.png")[..], "png"),
             (&include_bytes!("../../tests/fixtures/poster.png")[..], "png"),
             (&include_bytes!("../../tests/fixtures/animation.webp")[..], "webp"),
+            (&include_bytes!("../../tests/fixtures/animation.jxl")[..], "jxl"),
         ] {
             let full = decode_bytes(data, ext, &Options::default()).unwrap();
             let small = Arc::new(decode_bytes(data, ext, &Options { anim_cache: 8 * 6 * 4, ..Options::default() }).unwrap());
@@ -241,6 +242,22 @@ mod tests {
                 assert_eq!(streaming.displayed().1, expected[index].image.as_ref());
                 assert_eq!(small.content.image_at(index).unwrap().as_ref(), expected[index].image.as_ref());
             }
+        }
+    }
+
+    #[test]
+    fn lossless_jxl_animation_matches_original_apng_pixels_and_timeline() {
+        let png = decode_bytes(include_bytes!("../../tests/fixtures/animation.png"), "png", &Options::default()).unwrap();
+        let jxl = decode_bytes(include_bytes!("../../tests/fixtures/animation.jxl"), "jxl", &Options::default()).unwrap();
+        let Content::Animation { frames: expected, delays, plays, .. } = &png.content else { panic!() };
+        let Content::Animation { frames, delays: actual, plays: actual_plays, .. } = &jxl.content else { panic!() };
+        assert_eq!(frames.len(), expected.len());
+        assert_eq!(actual, delays);
+        // cjxl 0.11.1 drops the APNG loop count (also verified with djxl).
+        assert_eq!(*plays, Some(2));
+        assert_eq!(*actual_plays, None);
+        for (a, b) in frames.iter().zip(expected) {
+            assert_eq!(a.image, b.image);
         }
     }
 

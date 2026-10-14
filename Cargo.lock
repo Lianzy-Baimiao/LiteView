@@ -2153,9 +2153,11 @@ version = "0.1.0"
 dependencies = [
  "arboard",
  "chrono",
+ "color_quant",
  "eframe",
  "egui",
  "embed-resource",
+ "gif",
  "image",
  "jxl-oxide",
  "kamadak-exif",

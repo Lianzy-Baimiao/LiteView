@@ -24,9 +24,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
     let exif = decoder.exif_metadata().ok().flatten();
     let icc = decoder.icc_profile().ok().flatten();
     let orientation = match decoder.orientation() {
-        Ok(Orientation::NoTransforms) | Err(_) => {
-            exif.as_deref().and_then(Orientation::from_exif_chunk).unwrap_or(Orientation::NoTransforms)
-        }
+        Ok(Orientation::NoTransforms) | Err(_) => exif.as_deref().and_then(Orientation::from_exif_chunk).unwrap_or(Orientation::NoTransforms),
         Ok(o) => o,
     };
     let color = decoder.color_type();
@@ -43,6 +41,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
             channels,
             has_alpha: color.has_alpha(),
             file_size: 0,
+            jpeg_quality: (format == ImageFormat::Jpeg).then(|| super::jpeg_quality::estimate(data)).flatten(),
             exif: exif.map(Arc::new),
             icc: icc.map(Arc::new),
         },

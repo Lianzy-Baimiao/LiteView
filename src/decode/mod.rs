@@ -4,6 +4,7 @@
 
 mod anim;
 pub mod extra;
+mod jpeg_quality;
 mod raster;
 pub mod sniff;
 pub mod timing;
@@ -49,6 +50,8 @@ pub struct Info {
     pub channels: u8,
     pub has_alpha: bool,
     pub file_size: u64,
+    /// 与标准 IJG 量化表精确匹配的原 JPEG 品质；其它格式或自定义表为 None。
+    pub jpeg_quality: Option<u8>,
     pub exif: Option<Arc<Vec<u8>>>,
     /// 颜色配置文件（编辑后保存时写回）
     pub icc: Option<Arc<Vec<u8>>>,
@@ -188,6 +191,7 @@ pub fn from_rgba(img: RgbaImage, format: &'static str) -> Decoded {
             channels: if has_alpha { 4 } else { 3 },
             has_alpha,
             file_size: 0,
+            jpeg_quality: None,
             exif: None,
             icc: None,
         },

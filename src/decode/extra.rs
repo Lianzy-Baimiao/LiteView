@@ -8,7 +8,7 @@ use image::RgbaImage;
 use super::{Content, Decoded, Error, Frame, Info, Options, check_size};
 
 fn info(format: &'static str, w: u32, h: u32, has_alpha: bool) -> Info {
-    Info { format, width: w, height: h, bits: 8, channels: if has_alpha { 4 } else { 3 }, has_alpha, file_size: 0, exif: None, icc: None }
+    Info { format, width: w, height: h, bits: 8, channels: if has_alpha { 4 } else { 3 }, has_alpha, file_size: 0, jpeg_quality: None, exif: None, icc: None }
 }
 
 fn still(format: &'static str, img: RgbaImage) -> Decoded {

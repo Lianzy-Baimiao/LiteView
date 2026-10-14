@@ -4,19 +4,25 @@
 
 ## 本轮补齐
 
-- GIF / APNG / WebP 超过缓存上限后继续后台解码，保留全部帧；支持回退、拖动、循环、复制和导出未缓存的当前帧。
+- GIF / APNG / WebP / JPEG XL 超过缓存上限后继续后台解码，保留全部帧；支持回退、拖动、循环、复制和导出未缓存的当前帧。
 - 解码请求只保留最新目标，离开图片取消工作；等帧时保持画面，不阻塞 UI，也不为追赶时间而跳过待显示帧。
 - 补齐英文翻译完整性检查、安装/发布说明，以及随包的逐依赖第三方许可证。
 - 增加 Windows 绿色包/用户级安装脚本、Linux tar.gz、macOS 双架构应用包的发布流程。手动构建只产出测试包；只有匹配版本标签且全矩阵成功才创建正式 Release。
 
+- GIF 导出补齐蛇形 Floyd–Steinberg 抖动；少色图精确保色，透明像素不会占用不透明颜色索引。
+- JPEG 覆盖保存识别标准 IJG 原品质，无法可靠识别时使用设置值；另存为不受影响。重新编码仍然有损，不能保证原文件大小。
+
 ## 已验证
 
-Windows GNU release 构建、75 项 Rust 单元测试、release Clippy、3 项打包测试通过。
-1 MB 动图缓存的 Windows GUI 实测可查看约 37.5 MiB RGBA 的 32 帧 GIF，末帧与回到首帧正确。
+Windows GNU release 构建、86 项 Rust 单元测试、release Clippy、3 项打包测试通过。
+三平台严格 CI 与四目标测试包构建均通过，Windows 安装包成功编译；手动工作流未发布正式版。
+真实六帧 JXL 的逐帧缓存/按需解码、回退、导出与原 APNG 像素和延时对比通过。
+1 MB 动图缓存的 Windows GUI 实测可查看约 37.5 MiB RGBA 的 32 帧 GIF 与 JXL，末帧与回到首帧正确。
+JPEG 实际编辑覆盖保存：默认品质 90 时，品质 35 原图的量化表仍被保留。
 
 ## 尚未完成的验收
 
-Windows 安装/升级/卸载、Linux/macOS 原生运行与桌面集成、真实 HEIC EXIF 方向、真实多帧 JPEG XL，以及屏幕阅读器验收仍在待办中。
+Windows 安装/升级/卸载、Linux/macOS 原生运行与桌面集成、真实 HEIC EXIF 方向，以及屏幕阅读器验收仍在待办中。
 打包脚本存在不代表这些平台已经完成实机验收。没有 Windows 数字签名或 macOS 公证；不要关闭系统安全功能来绕过警告。
 
 Windows 绿色包解压后运行 LiteView.exe；LiteView.portable 标记让配置保存在程序旁的 config 目录。

@@ -56,9 +56,15 @@ pub(crate) enum Drag {
     /// 拖出新选区：起点（图片像素）
     Select(egui::Pos2),
     /// 移动浮动选区：按下时的鼠标位置与选区位置
-    Move { grab: egui::Pos2, from: egui::Rect },
+    Move {
+        grab: egui::Pos2,
+        from: egui::Rect,
+    },
     /// 拉控制点缩放（0 ~ 7 从左上角起顺时针）
-    Handle { index: usize, from: egui::Rect },
+    Handle {
+        index: usize,
+        from: egui::Rect,
+    },
     Pan,
     /// 涂抹：画笔打码、铅笔、刷子、橡皮擦
     Stroke(Stroke),
@@ -67,11 +73,22 @@ pub(crate) enum Drag {
     /// 画形状：起点
     Shape(egui::Pos2),
     /// 调整还没确认的形状：handle = 拉哪个控制点（None = 移动）；按下时的鼠标位置与形状
-    ShapeEdit { handle: Option<usize>, grab: egui::Pos2, a: egui::Pos2, b: egui::Pos2 },
+    ShapeEdit {
+        handle: Option<usize>,
+        grab: egui::Pos2,
+        a: egui::Pos2,
+        b: egui::Pos2,
+    },
     /// 拖动文本框
-    TextMove { grab: egui::Pos2, from: egui::Pos2 },
+    TextMove {
+        grab: egui::Pos2,
+        from: egui::Pos2,
+    },
     /// 拉宽文本框
-    TextWidth { from: f32, grab: f32 },
+    TextWidth {
+        from: f32,
+        grab: f32,
+    },
 }
 
 /// 编辑的图来自哪里
@@ -80,6 +97,7 @@ pub(crate) struct Source {
     pub clipboard: bool,
     pub format: &'static str,
     pub file_size: u64,
+    pub jpeg_quality: Option<u8>,
     pub exif: Option<Arc<Vec<u8>>>,
     pub icc: Option<Arc<Vec<u8>>>,
     /// 原图有透明通道：删除选区、拿起选区后原处变透明（否则填辅色）
