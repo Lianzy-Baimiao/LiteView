@@ -1,5 +1,7 @@
 //! 设计变量（PRD 7.2）与 egui 样式：扁平、无渐变，阴影只给浮在内容上面的东西。
 
+use std::sync::RwLock;
+
 use egui::{Color32, CornerRadius, Margin, Shadow, Stroke, Theme, Visuals};
 
 #[derive(Clone, Copy, Debug)]
@@ -52,13 +54,58 @@ pub const DARK: Palette = Palette {
     checker: [Color32::from_rgb(0x3A, 0x3A, 0x3A), Color32::from_rgb(0x2E, 0x2E, 0x2E)],
 };
 
+/// 正在用的浅色 / 深色设计变量（强调色可换）
+static ACTIVE: RwLock<(&'static Palette, &'static Palette)> = RwLock::new((&LIGHT, &DARK));
+
 /// 当前主题的设计变量
 pub fn palette(ctx: &egui::Context) -> &'static Palette {
-    if ctx.theme() == Theme::Dark { &DARK } else { &LIGHT }
+    let (light, dark) = ACTIVE.read().map_or((&LIGHT, &DARK), |g| *g);
+    if ctx.theme() == Theme::Dark { dark } else { light }
+}
+
+/// 相对亮度（WCAG）
+fn luminance(c: Color32) -> f32 {
+    let f = |v: u8| {
+        let v = f32::from(v) / 255.0;
+        if v <= 0.04045 { v / 12.92 } else { ((v + 0.055) / 1.055).powf(2.4) }
+    };
+    0.2126 * f(c.r()) + 0.7152 * f(c.g()) + 0.0722 * f(c.b())
+}
+
+pub fn contrast(a: Color32, b: Color32) -> f32 {
+    let (la, lb) = (luminance(a), luminance(b));
+    (la.max(lb) + 0.05) / (la.min(lb) + 0.05)
+}
+
+/// 换强调色：调深 / 调浅到在面板上对比度 ≥ 4.5:1（文字、链接用得上），按钮上的字选黑或白里对比度高的
+fn with_accent(base: &Palette, rgb: [u8; 3]) -> Palette {
+    let mut c = Color32::from_rgb(rgb[0], rgb[1], rgb[2]);
+    let toward = if base.dark { Color32::WHITE } else { Color32::BLACK };
+    for _ in 0..20 {
+        if contrast(c, base.surface) >= 4.5 {
+            break;
+        }
+        c = c.lerp_to_gamma(toward, 0.1);
+    }
+    let on = if contrast(Color32::WHITE, c) >= contrast(Color32::BLACK, c) { Color32::WHITE } else { Color32::BLACK };
+    Palette { accent: c, on_accent: on, ..*base }
+}
+
+/// 设置强调色（None = 默认的蓝色）；之后要再调用一次 install
+pub fn set_accent(rgb: Option<[u8; 3]>) {
+    let pair: (&'static Palette, &'static Palette) = match rgb {
+        None => (&LIGHT, &DARK),
+        // 每次换色泄漏两个很小的结构，换得很少
+        Some(c) => (Box::leak(Box::new(with_accent(&LIGHT, c))), Box::leak(Box::new(with_accent(&DARK, c)))),
+    };
+    if let Ok(mut g) = ACTIVE.write() {
+        *g = pair;
+    }
 }
 
 pub fn install(ctx: &egui::Context) {
-    for (theme, p) in [(Theme::Light, &LIGHT), (Theme::Dark, &DARK)] {
+    let (light, dark) = ACTIVE.read().map_or((&LIGHT, &DARK), |g| *g);
+    for (theme, p) in [(Theme::Light, light), (Theme::Dark, dark)] {
         ctx.style_mut_of(theme, |s| {
             s.visuals = visuals(p);
             s.spacing.button_padding = egui::vec2(10.0, 6.0);
@@ -110,4 +157,33 @@ fn visuals(p: &Palette) -> Visuals {
         s.expansion = 0.0;
     }
     v
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn text_contrast_meets_wcag_aa() {
+        for p in [&LIGHT, &DARK] {
+            for bg in [p.canvas, p.surface] {
+                assert!(contrast(p.text, bg) >= 4.5 && contrast(p.text_weak, bg) >= 4.5, "dark={}", p.dark);
+            }
+            assert!(contrast(p.accent, p.surface) >= 4.5);
+            assert!(contrast(p.on_accent, p.accent) >= 4.5);
+        }
+    }
+
+    #[test]
+    fn custom_accent_is_adjusted_for_contrast() {
+        // 很浅的黄色：浅色主题下要调深
+        let light = with_accent(&LIGHT, [0xFF, 0xE0, 0x66]);
+        assert!(contrast(light.accent, LIGHT.surface) >= 4.5);
+        assert!(contrast(light.on_accent, light.accent) >= 3.0);
+        // 很深的蓝色：深色主题下要调浅
+        let dark = with_accent(&DARK, [0x10, 0x20, 0x80]);
+        assert!(contrast(dark.accent, DARK.surface) >= 4.5);
+        // Windows 默认蓝在浅色主题下不用改
+        assert_eq!(with_accent(&LIGHT, [0x00, 0x78, 0xD4]).accent, Color32::from_rgb(0x00, 0x78, 0xD4));
+    }
 }

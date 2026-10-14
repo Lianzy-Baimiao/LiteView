@@ -83,7 +83,21 @@ impl App {
         }
         let pct = format!("{:.0}%", self.view.zoom * 100.0);
         let button = egui::Button::new(egui::RichText::new(pct).size(13.0)).min_size(vec2(58.0, 32.0)).frame_when_inactive(false);
-        MenuButton::from_button(button).ui(ui, |ui| {
+        let menu = MenuButton::from_button(button).ui(ui, |ui| {
+            // 输入比例（回车生效），或选预设
+            ui.horizontal(|ui| {
+                let r = ui.add(egui::TextEdit::singleline(&mut self.zoom_text).desired_width(56.0).hint_text("100"));
+                ui.label("%");
+                if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                    if let Ok(v) = self.zoom_text.trim().trim_end_matches('%').parse::<f32>()
+                        && v > 0.0
+                    {
+                        self.zoom_set(v / 100.0);
+                    }
+                    ui.close();
+                }
+            });
+            ui.separator();
             for z in [0.25f32, 0.5, 1.0, 2.0, 4.0] {
                 if ui.button(format!("{:.0}%", z * 100.0)).clicked() {
                     self.zoom_set(z);
@@ -91,14 +105,20 @@ impl App {
                 }
             }
         });
+        if menu.0.clicked() {
+            self.zoom_text = format!("{:.0}", self.view.zoom * 100.0);
+        }
         if widgets::icon_button(ui, Icon::ZoomIn, t.zoom_in, "Ctrl+=", has).clicked() {
             self.zoom_step(true);
         }
-        if widgets::icon_button(ui, Icon::Fit, t.fit, "Ctrl+0", has).clicked() {
-            self.zoom_fit();
-        }
-        if widgets::icon_button(ui, Icon::Actual, t.actual, "Ctrl+1", has).clicked() {
-            self.zoom_actual();
+        // 窗口窄时不放「适应窗口」「原始大小」按钮（Ctrl+0 / Ctrl+1、双击还在）
+        if self.canvas.width() >= 640.0 {
+            if widgets::icon_button(ui, Icon::Fit, t.fit, "Ctrl+0", has).clicked() {
+                self.zoom_fit();
+            }
+            if widgets::icon_button(ui, Icon::Actual, t.actual, "Ctrl+1", has).clicked() {
+                self.zoom_actual();
+            }
         }
         widgets::separator(ui);
         if widgets::icon_button(ui, Icon::RotateCw, t.rotate_cw, "Ctrl+R", has).clicked() {

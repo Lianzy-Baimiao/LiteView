@@ -165,6 +165,23 @@ impl App {
         });
     }
 
+    /// 设为桌面背景：按显示方向存一份到配置目录（原图被移走、删除后背景还在；HEIC 等格式也能用）
+    pub(crate) fn set_wallpaper(&mut self) {
+        let Some((img, xf)) = self.displayed_image() else { return };
+        self.spawn(move || {
+            let img = save::apply_transform(&img, xf);
+            let dir = crate::settings::config_dir();
+            let _ = std::fs::create_dir_all(&dir);
+            let opaque = img.pixels().all(|p| p.0[3] == 255);
+            let (path, fmt) = if opaque { (dir.join("wallpaper.jpg"), Format::Jpeg) } else { (dir.join("wallpaper.png"), Format::Png) };
+            let r = save::write(&path, &img, fmt, 95).and_then(|()| crate::platform::set_wallpaper(&path));
+            Some(Notice::Toast(match r {
+                Ok(()) => tr().wallpaper_set.to_owned(),
+                Err(e) => fill(tr().failed, &[&e]),
+            }))
+        });
+    }
+
     pub(crate) fn save_rotation(&mut self) {
         let Some(c) = self.cur.as_ref().filter(|c| !c.clipboard) else { return };
         let (path, xf, q) = (c.path.clone(), self.view.xf, self.settings.jpeg_quality);

@@ -89,3 +89,22 @@ pub fn style_titlebar(hwnd: isize, dark: bool, caption: [u8; 3], text: [u8; 3]) 
         let _ = DwmSetWindowAttribute(hwnd, DWMWA_TEXT_COLOR, (&raw const txt).cast(), 4);
     }
 }
+
+/// 系统强调色（「设置 → 个性化 → 颜色」里选的），注册表 DWM\AccentColor（ABGR）
+pub fn system_accent() -> Option<[u8; 3]> {
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{HKEY_CURRENT_USER, RRF_RT_REG_DWORD, RegGetValueW};
+    let key = wide(std::ffi::OsStr::new("Software\\Microsoft\\Windows\\DWM"));
+    let name = wide(std::ffi::OsStr::new("AccentColor"));
+    let mut v: u32 = 0;
+    let mut len = 4u32;
+    let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, PCWSTR(key.as_ptr()), PCWSTR(name.as_ptr()), RRF_RT_REG_DWORD, None, Some((&raw mut v).cast()), Some(&mut len)) };
+    (r == ERROR_SUCCESS).then_some([v as u8, (v >> 8) as u8, (v >> 16) as u8])
+}
+
+/// 设为桌面背景
+pub fn set_wallpaper(path: &Path) -> Result<(), String> {
+    use windows::Win32::UI::WindowsAndMessaging::{SPI_SETDESKWALLPAPER, SPIF_SENDCHANGE, SPIF_UPDATEINIFILE, SystemParametersInfoW};
+    let p = wide(path.as_os_str());
+    unsafe { SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, Some(p.as_ptr() as *mut core::ffi::c_void), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) }.map_err(|e| e.to_string())
+}

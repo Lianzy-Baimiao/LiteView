@@ -72,6 +72,10 @@ impl App {
                 ui.close();
                 self.start_rename();
             }
+            if crate::platform::has_wallpaper() && item(ui, t.set_wallpaper, String::new(), has_img) {
+                ui.close();
+                self.set_wallpaper();
+            }
             if item(ui, super::canvas::folder_label(), String::new(), has_file) {
                 if let Some(cur) = &self.cur {
                     crate::platform::show_in_folder(&cur.path);

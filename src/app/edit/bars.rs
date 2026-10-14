@@ -17,13 +17,18 @@ impl App {
         let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
         ui.spacing_mut().item_spacing.x = 2.0;
         let on = !ed.saving;
-        if widgets::icon_button(ui, Icon::Undo, t.undo, &format!("{c}Z"), on && (ed.doc.can_undo() || ed.floating.is_some())).clicked() {
-            self.edit_undo(ed);
+        // 窗口变窄：先把画图工具收进下拉，再去掉撤销 / 重做按钮（Ctrl+Z / Ctrl+Y、右键菜单还在）
+        let width = ui.available_width();
+        let compact = width < 860.0;
+        if width >= 620.0 {
+            if widgets::icon_button(ui, Icon::Undo, t.undo, &format!("{c}Z"), on && (ed.doc.can_undo() || ed.floating.is_some())).clicked() {
+                self.edit_undo(ed);
+            }
+            if widgets::icon_button(ui, Icon::Redo, t.redo, &format!("{c}Y"), on && ed.doc.can_redo()).clicked() {
+                self.edit_redo(ed);
+            }
+            widgets::separator(ui);
         }
-        if widgets::icon_button(ui, Icon::Redo, t.redo, &format!("{c}Y"), on && ed.doc.can_redo()).clicked() {
-            self.edit_redo(ed);
-        }
-        widgets::separator(ui);
         let tool = |app: &mut Self, ui: &mut egui::Ui, ed: &mut Editor, icon: Icon, tip: &str, key: &str, tl: Tool| {
             if widgets::icon_button_ex(ui, icon, tip, key, on, ed.tool == tl, None).clicked() {
                 app.switch_tool(ed, tl);
@@ -53,12 +58,6 @@ impl App {
             }
         });
         widgets::separator(ui);
-        tool(self, ui, ed, Icon::Pencil, t.t_pencil, "P", Tool::Pencil);
-        tool(self, ui, ed, Icon::Brush, t.t_brush, "B", Tool::Brush);
-        tool(self, ui, ed, Icon::Eraser, t.t_eraser, "E", Tool::Eraser);
-        tool(self, ui, ed, Icon::Fill, t.t_fill, "G", Tool::Fill);
-        tool(self, ui, ed, Icon::Picker, t.t_picker, "I", Tool::Picker);
-        tool(self, ui, ed, Icon::Text, t.t_text, "T", Tool::Text);
         let shape_icon = match self.settings.shape {
             ShapeKind::Line => Icon::Line,
             ShapeKind::Arrow => Icon::Arrow,
@@ -66,7 +65,35 @@ impl App {
             ShapeKind::RoundRect => Icon::RoundRect,
             ShapeKind::Ellipse => Icon::Ellipse,
         };
-        tool(self, ui, ed, shape_icon, t.t_shape, "U", Tool::Shape);
+        let paint = [
+            (Icon::Pencil, t.t_pencil, "P", Tool::Pencil),
+            (Icon::Brush, t.t_brush, "B", Tool::Brush),
+            (Icon::Eraser, t.t_eraser, "E", Tool::Eraser),
+            (Icon::Fill, t.t_fill, "G", Tool::Fill),
+            (Icon::Picker, t.t_picker, "I", Tool::Picker),
+            (Icon::Text, t.t_text, "T", Tool::Text),
+            (shape_icon, t.t_shape, "U", Tool::Shape),
+        ];
+        if compact {
+            // 窗口窄：画图工具收进一个下拉
+            let cur = paint.iter().find(|p| p.3 == ed.tool);
+            let icon = cur.map_or(Icon::Pencil, |p| p.0);
+            let r = widgets::icon_button_ex(ui, icon, t.more, "", on, cur.is_some(), None);
+            Popup::menu(&r).show(|ui| {
+                ui.set_min_width(170.0);
+                for (icon, tip, key, tl) in paint {
+                    let img = egui::Image::new((crate::ui::icons::texture(ui.ctx(), icon, 16.0).id(), vec2(16.0, 16.0))).tint(crate::ui::theme::palette(ui.ctx()).text);
+                    if ui.add(egui::Button::image_and_text(img, tip).shortcut_text(key).selected(ed.tool == tl)).clicked() {
+                        self.switch_tool(ed, tl);
+                        ui.close();
+                    }
+                }
+            });
+        } else {
+            for (icon, tip, key, tl) in paint {
+                tool(self, ui, ed, icon, tip, key, tl);
+            }
+        }
         widgets::separator(ui);
         // 打码单独一组，选中时用强调色底
         if widgets::accent_icon_button(ui, Icon::Mosaic, t.t_redact, "M", on, ed.tool == Tool::Redact).clicked() {

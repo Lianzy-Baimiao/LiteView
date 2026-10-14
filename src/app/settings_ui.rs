@@ -15,6 +15,7 @@ pub(crate) enum Page {
     Anim,
     Edit,
     Assoc,
+    Keys,
     About,
 }
 
@@ -114,13 +115,17 @@ impl App {
         let mut page = page;
         let p = theme::palette(ctx);
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(0)).corner_radius(egui::CornerRadius::same(8));
+        // 窗口小时设置窗口跟着缩小（右边内容可滚动）
+        let screen = ctx.content_rect().size();
+        let (w, h) = ((screen.x - 24.0).clamp(480.0, 700.0), (screen.y - 24.0).clamp(300.0, 460.0));
+        let (nav, inner) = (if w < 620.0 { 120.0 } else { 150.0 }, h - 20.0);
         let modal = egui::Modal::new(egui::Id::new("settings")).frame(frame).show(ctx, |ui| {
-            ui.set_width(700.0);
-            ui.set_height(460.0);
+            ui.set_width(w);
+            ui.set_height(h);
             ui.horizontal_top(|ui| {
                 egui::Frame::new().fill(p.canvas).inner_margin(egui::Margin::same(10)).show(ui, |ui| ui.vertical(|ui| {
-                    ui.set_width(150.0);
-                    ui.set_min_height(440.0);
+                    ui.set_width(nav);
+                    ui.set_min_height(inner);
                     ui.spacing_mut().item_spacing.y = 2.0;
                     let t = tr();
                     for (pg, name) in [
@@ -129,20 +134,21 @@ impl App {
                         (Page::Anim, t.s_anim),
                         (Page::Edit, t.s_edit),
                         (Page::Assoc, t.s_assoc),
+                        (Page::Keys, t.s_keys),
                         (Page::About, t.s_about),
                     ] {
                         let on = page == pg;
                         let b = egui::Button::new(RichText::new(name).color(if on { p.text } else { p.text_weak }))
                             .fill(if on { p.hover } else { egui::Color32::TRANSPARENT })
-                            .min_size(egui::vec2(150.0, 32.0));
+                            .min_size(egui::vec2(nav, 32.0));
                         if ui.add(b).clicked() {
                             page = pg;
                         }
                     }
                 }));
                 egui::Frame::new().inner_margin(egui::Margin::same(20)).show(ui, |ui| ui.vertical(|ui| {
-                    ui.set_width(500.0);
-                    egui::ScrollArea::vertical().max_height(420.0).show(ui, |ui| self.settings_page_ui(ui, page));
+                    ui.set_width(w - nav - 20.0 - 40.0);
+                    egui::ScrollArea::both().max_height(h - 40.0).show(ui, |ui| self.settings_page_ui(ui, page));
                 }));
             });
         });
@@ -166,6 +172,7 @@ impl App {
             Page::Anim => t.s_anim,
             Page::Edit => t.s_edit,
             Page::Assoc => t.s_assoc,
+            Page::Keys => t.s_keys,
             Page::About => t.s_about,
         }).size(20.0));
         ui.add_space(14.0);
@@ -173,6 +180,19 @@ impl App {
             Page::General => {
                 row(ui, t.s_language, |ui| choose(ui, &mut s.language, &[(Language::Auto, t.s_follow_system), (Language::ZhCn, "简体中文"), (Language::En, "English")]));
                 row(ui, t.s_theme, |ui| choose(ui, &mut s.theme, &[(ThemeMode::System, t.s_follow_system), (ThemeMode::Light, t.s_light), (ThemeMode::Dark, t.s_dark)]));
+                row(ui, t.s_accent, |ui| {
+                    let mut custom = s.accent.is_some();
+                    choose(ui, &mut custom, &[(false, t.s_follow_system), (true, t.s_custom)]);
+                    if custom != s.accent.is_some() {
+                        s.accent = custom.then(|| crate::platform::system_accent().unwrap_or([0x0A, 0x6C, 0xFF]));
+                    }
+                    if let Some(a) = &mut s.accent {
+                        let mut c = egui::Color32::from_rgb(a[0], a[1], a[2]);
+                        if egui::color_picker::color_edit_button_srgba(ui, &mut c, egui::color_picker::Alpha::Opaque).changed() {
+                            *a = [c.r(), c.g(), c.b()];
+                        }
+                    }
+                });
                 widgets::checkbox(ui, &mut s.confirm_delete, t.s_confirm_delete);
                 widgets::checkbox(ui, &mut s.wrap_around, t.s_wrap);
             }
@@ -194,11 +214,21 @@ impl App {
                 row(ui, t.s_nearest, |ui| number(ui, &mut s.nearest_above, 100.0..=1600.0));
                 widgets::checkbox(ui, &mut s.smooth_zoom, t.s_smooth);
                 widgets::checkbox(ui, &mut s.drag_inertia, t.s_inertia);
+                widgets::checkbox(ui, &mut s.lock_zoom, t.s_lock_zoom);
+                widgets::checkbox(ui, &mut s.fit_window, t.s_fit_window);
             }
             Page::Anim => {
                 widgets::checkbox(ui, &mut s.anim_autoplay, t.s_autoplay);
                 widgets::checkbox(ui, &mut s.anim_always_loop, t.s_always_loop);
                 ui.add_space(6.0);
+                row(ui, t.speed, |ui| {
+                    let names: Vec<String> = crate::viewer::playback::SPEEDS.iter().map(|v| format!("{v}×")).collect();
+                    let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+                    let cur = crate::viewer::playback::SPEEDS.iter().position(|v| (*v - s.anim_speed).abs() < 1e-3).unwrap_or(2);
+                    if let Some(i) = widgets::segmented(ui, &refs, cur) {
+                        s.anim_speed = crate::viewer::playback::SPEEDS[i];
+                    }
+                });
                 row(ui, t.s_anim_cache, |ui| number(ui, &mut s.anim_cache_mb, 64.0..=2048.0));
             }
             Page::Edit => {
@@ -219,6 +249,18 @@ impl App {
                 if let Some(m) = assoc_page(ui, s) {
                     toast = Some(m);
                 }
+            }
+            Page::Keys => {
+                let p = theme::palette(ui.ctx());
+                egui::Grid::new("keys").num_columns(3).striped(true).spacing([14.0, 6.0]).show(ui, |ui| {
+                    for (i, line) in t.keys_table.lines().enumerate() {
+                        for cell in line.split('|') {
+                            let text = RichText::new(cell).size(13.0);
+                            ui.label(if i == 0 { text.color(p.text_weak) } else { text.color(p.text) });
+                        }
+                        ui.end_row();
+                    }
+                });
             }
             Page::About => {
                 let p = theme::palette(ui.ctx());
@@ -260,6 +302,10 @@ impl App {
         if s.language != before.language {
             crate::i18n::set_language(s.language);
             self.title.clear();
+        }
+        if s.accent != before.accent {
+            theme::set_accent(s.accent.or_else(crate::platform::system_accent));
+            theme::install(ctx);
         }
         if s.cache_mb != before.cache_mb {
             self.loader.set_budget(s.cache_mb as usize * 1048576);

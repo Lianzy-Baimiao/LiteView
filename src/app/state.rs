@@ -166,6 +166,7 @@ impl App {
         cur.loaded = Some(l.clone());
         self.view.xf = Default::default();
         self.play = None;
+        let before = self.shown;
         match l {
             Ok(d) => {
                 self.shown = Some(Shown { width: d.info.width, height: d.info.height, has_alpha: d.info.has_alpha });
@@ -175,11 +176,20 @@ impl App {
                     }
                     Content::Animation { frames, plays, .. } => {
                         let s = &self.settings;
-                        self.play = Some(Playback::new(frames.len(), *plays, s.anim_autoplay, s.anim_always_loop));
+                        let mut p = Playback::new(frames.len(), *plays, s.anim_autoplay, s.anim_always_loop);
+                        p.set_speed(s.anim_speed);
+                        self.play = Some(p);
                         self.tex = Tex::Anim { decoded: d.clone(), tex: AnimTexture::new() };
                     }
                 }
-                self.pending_reset = true;
+                // 「锁定缩放与位置」：切到同样尺寸的图时保持缩放与位置，方便对比
+                let same = before.is_some_and(|b| (b.width, b.height) == (d.info.width, d.info.height));
+                if !(self.settings.lock_zoom && same) {
+                    self.pending_reset = true;
+                }
+                if self.settings.fit_window {
+                    self.pending_window_fit = true;
+                }
             }
             Err(_) => {
                 self.tex = Tex::None;

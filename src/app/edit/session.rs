@@ -92,7 +92,11 @@ impl App {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.edit_toolbar(ui, &mut ed));
         });
         egui::Panel::top("edit-props").exact_size(40.0).resizable(false).frame(bar).show(ui, |ui| {
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.edit_props(ui, &mut ed));
+            // 窗口窄时属性栏可以横向滚动（滚轮 / 拖动），不显示滚动条
+            egui::ScrollArea::horizontal().scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden).show(ui, |ui| {
+                ui.set_min_height(40.0);
+                ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.edit_props(ui, &mut ed));
+            });
         });
         egui::Panel::bottom("edit-status").exact_size(28.0).resizable(false).frame(bar).show(ui, |ui| {
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| self.edit_status(ui, &mut ed));

@@ -125,6 +125,10 @@ pub struct App {
     pub(crate) editor: Option<Box<edit::Editor>>,
     /// 图片载入后进入编辑（`--edit`、`--mosaic`、资源管理器右键）
     pub(crate) pending_edit: Option<edit::Tool>,
+    /// 新图片载入：窗口适应图片大小（设置里开了时）
+    pub(crate) pending_window_fit: bool,
+    /// 缩放比例输入框里的文字
+    pub(crate) zoom_text: String,
 }
 
 pub fn run() -> eframe::Result {
@@ -158,7 +162,7 @@ pub fn run() -> eframe::Result {
     let mut vp = egui::ViewportBuilder::default()
         .with_title(crate::i18n::tr().app_name)
         .with_inner_size(w.size.unwrap_or([1100.0, 720.0]))
-        .with_min_inner_size([360.0, 260.0])
+        .with_min_inner_size([520.0, 360.0])
         .with_drag_and_drop(true)
         .with_maximized(w.maximized)
         .with_icon(app_icon());
@@ -177,6 +181,7 @@ pub fn run() -> eframe::Result {
         options,
         Box::new(move |cc| {
             crate::ui::fonts::install(&cc.egui_ctx);
+            theme::set_accent(settings.accent.or_else(crate::platform::system_accent));
             theme::install(&cc.egui_ctx);
             cc.egui_ctx.set_theme(match settings.theme {
                 crate::settings::ThemeMode::System => egui::ThemePreference::System,
@@ -249,6 +254,8 @@ impl App {
             self_saved: Vec::new(),
             editor: None,
             pending_edit: None,
+            pending_window_fit: false,
+            zoom_text: String::new(),
         };
         app.pending_edit = edit_tool(args.edit, args.mosaic);
         if let Some(p) = args.path {
@@ -339,6 +346,18 @@ impl App {
         if self.titlebar_dark != Some(dark) {
             self.titlebar_dark = Some(dark);
             style_titlebar(frame, theme::palette(ctx));
+        }
+        // 「窗口适应图片大小」：按图片的原始大小（不超过屏幕的九成）改窗口大小
+        if std::mem::take(&mut self.pending_window_fit)
+            && let Some(s) = self.shown
+        {
+            let (maximized, full, monitor) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false), i.viewport().monitor_size));
+            if !maximized && !full {
+                let size = self.view.shown_size(s.width, s.height) / ctx.pixels_per_point();
+                let max = monitor.map_or(egui::vec2(1600.0, 1000.0), |m| m * 0.9);
+                let want = size.min(max).max(egui::vec2(520.0, 360.0));
+                ctx.send_viewport_cmd(egui::ViewportCommand::InnerSize(want));
+            }
         }
         ctx.input(|i| {
             let vp = i.viewport();

@@ -96,3 +96,32 @@ pub fn open_url(url: &str) {
 pub fn trash(path: &Path) -> Result<(), String> {
     trash::delete(path).map_err(|e| e.to_string())
 }
+
+/// 系统强调色（只有 Windows 有；其它系统 None = 用默认的蓝色）
+pub fn system_accent() -> Option<[u8; 3]> {
+    #[cfg(windows)]
+    {
+        windows::system_accent()
+    }
+    #[cfg(not(windows))]
+    {
+        None
+    }
+}
+
+pub fn has_wallpaper() -> bool {
+    cfg!(windows)
+}
+
+/// 设为桌面背景（只有 Windows）
+pub fn set_wallpaper(path: &Path) -> Result<(), String> {
+    #[cfg(windows)]
+    {
+        windows::set_wallpaper(path)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = path;
+        Err("unsupported".into())
+    }
+}

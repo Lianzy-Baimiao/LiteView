@@ -122,6 +122,12 @@ pub struct Settings {
     pub anim_autoplay: bool,
     pub anim_always_loop: bool,
     pub anim_cache_mb: u32,
+    /// 默认播放速度
+    pub anim_speed: f32,
+    /// 打开图片时窗口适应图片大小（不超过屏幕）
+    pub fit_window: bool,
+    /// 强调色；None = 跟随系统
+    pub accent: Option<[u8; 3]>,
     pub confirm_overwrite: bool,
     pub jpeg_quality: u8,
     pub window: WindowState,
@@ -190,6 +196,9 @@ impl Default for Settings {
             anim_autoplay: true,
             anim_always_loop: false,
             anim_cache_mb: 256,
+            anim_speed: 1.0,
+            fit_window: false,
+            accent: None,
             confirm_overwrite: true,
             jpeg_quality: 90,
             window: WindowState::default(),
