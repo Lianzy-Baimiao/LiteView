@@ -78,7 +78,8 @@ pub(crate) enum Dialog {
     SaveRotation {
         after: After,
     },
-    /// 首次启动：设为默认看图软件？
+    /// 首次启动：设为默认看图软件？（Windows 文件关联）
+    #[cfg(windows)]
     AskDefault,
     /// 编辑有未保存的修改：保存 / 不保存 / 取消；after = 之后做的事
     ExitEdit {

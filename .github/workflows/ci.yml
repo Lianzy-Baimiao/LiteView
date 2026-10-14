@@ -12,8 +12,6 @@ jobs:
       matrix:
         os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
-    # GitHub 的 macOS 托管机器经常排不上（capacity constraints），不让它挡住整个 CI
-    continue-on-error: ${{ matrix.os == 'macos-latest' }}
     timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
@@ -24,8 +22,8 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
       - name: Clippy
-        run: cargo clippy --release --all-targets -- -D warnings
+        run: cargo clippy --locked --release --all-targets -- -D warnings
       - name: Test
-        run: cargo test --release --lib
+        run: cargo test --locked --release --lib
       - name: Build
-        run: cargo build --release
+        run: cargo build --locked --release

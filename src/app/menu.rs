@@ -121,6 +121,7 @@ impl App {
                 Dialog::Delete { forever: true, .. } => (t.delete_title, t.delete_body_forever, t.delete_forever_btn, None, true, t.cancel),
                 Dialog::Delete { .. } => (t.delete_title, trash_body(), t.delete_btn, None, true, t.cancel),
                 Dialog::SaveRotation { .. } => (t.rotate_save_title, t.rotate_save_body, t.save, Some(t.dont_save), false, t.cancel),
+                #[cfg(windows)]
                 Dialog::AskDefault => (t.ask_title, t.ask_body, t.a_set_default, Some(t.ask_never), false, t.ask_later),
                 Dialog::ExitEdit { .. } => (t.exit_edit_title, t.exit_edit_body, t.save, Some(t.dont_save), false, t.cancel),
                 Dialog::Overwrite { .. } => (t.overwrite_title, t.overwrite_body, t.overwrite_btn, Some(t.save_as), false, t.cancel),
@@ -200,15 +201,16 @@ impl App {
                 self.resume(after, ctx);
             }
             (Dialog::SaveRotation { after }, Choice::Secondary) => self.resume(after, ctx),
+            #[cfg(windows)]
             (Dialog::AskDefault, Choice::Primary) => {
                 self.settings.ask_default_app = false;
-                #[cfg(windows)]
                 match crate::platform::assoc::register(&self.settings.assoc_exts) {
                     Ok(()) => crate::platform::assoc::open_default_apps(),
                     Err(e) => self.show_toast(crate::i18n::fill(t.failed, &[&e])),
                 }
                 self.settings.save();
             }
+            #[cfg(windows)]
             (Dialog::AskDefault, Choice::Secondary) => {
                 self.settings.ask_default_app = false;
                 self.settings.save();
