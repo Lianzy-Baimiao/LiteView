@@ -3,3 +3,5 @@
 # 本机工具链路径（参考 .cargo/config.example.toml）
 /.cargo/config.toml
 *.log
+__pycache__/
+/LICENSES.html

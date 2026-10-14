@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=LiteView
+Comment=Lightweight image viewer and editor
+Comment[zh_CN]=轻量看图、编辑、打码
+Exec=LiteView %f
+Icon=liteview
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/jpeg;image/png;image/gif;image/webp;image/bmp;image/tiff;image/svg+xml;image/avif;image/heic;image/heif;image/jxl;image/x-icon;
+StartupNotify=true

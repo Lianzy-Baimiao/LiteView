@@ -4,8 +4,9 @@ LiteView 本身以 MIT 许可发布（见 LICENSE）。程序中包含或使用�
 
 - **Fluent UI System Icons**（assets/icons）— Copyright (c) 2020 Microsoft Corporation，MIT 许可。
   https://github.com/microsoft/fluentui-system-icons
-- Rust 依赖库（egui、eframe、wgpu、image、resvg、rayon、arboard、rfd、trash 等）均为 MIT / Apache-2.0 / BSD / ISC / Zlib 等宽松许可，
-  完整列表见 Cargo.lock；发布 v1.0 前用 cargo-about 生成逐个库的许可全文。
+- Rust 依赖库保留各自的许可，并非都由 LiteView 的 MIT 许可覆盖。依赖版本见 Cargo.lock；
+  发布包随附 LICENSES.html，使用 cargo-about 0.9.2 按 about.toml 的四个平台目标生成逐库归属及许可全文。
+  生成命令见 docs/RELEASING.md；生成失败时发布流程停止。
 
 MIT License（Fluent UI System Icons）
 
