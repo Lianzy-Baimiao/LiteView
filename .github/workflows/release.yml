@@ -83,6 +83,18 @@ jobs:
           if (-not $compiler) { throw 'Inno Setup compiler is required on the Windows runner' }
           & $compiler.FullName "/DAppVersion=$version" "/DBinaryDir=$pwd/target/release" packaging/windows.iss
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $previous = Join-Path $env:RUNNER_TEMP 'liteview-previous-installer'
+          New-Item -ItemType Directory -Path $previous -Force | Out-Null
+          & $compiler.FullName "/DAppVersion=0.0.0" "/DBinaryDir=$pwd/target/release" "/O$previous" packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./packaging/test_windows_installer.ps1 -Installer "dist/LiteView-v$version-windows-x64-setup.exe" -PreviousInstaller "$previous/LiteView-v0.0.0-windows-x64-setup.exe" -Binary "target/release/LiteView.exe" -Version $version
+      - name: Installer smoke test logs
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer-test-logs
+          path: ${{ runner.temp }}/liteview-installer-smoke/*.log
+          if-no-files-found: ignore
       - uses: actions/upload-artifact@v4
         with:
           name: LiteView-${{ matrix.platform }}-${{ matrix.arch }}

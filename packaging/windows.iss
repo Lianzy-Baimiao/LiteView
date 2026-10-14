@@ -51,6 +51,19 @@ Filename: "{app}\LiteView.exe"; Parameters: "--register"; Tasks: associate; Flag
 Filename: "{app}\LiteView.exe"; Description: "Launch LiteView"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
-Filename: "{app}\LiteView.exe"; Parameters: "--unregister"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterLiteView"
+Filename: "{app}\LiteView.exe"; Parameters: "--unregister"; Flags: runhidden waituntilterminated; RunOnceId: "UnregisterLiteView"; Check: OwnsRegistration
 
 ; User pictures and configuration are intentionally never removed by the uninstaller.
+
+[Code]
+// A portable copy can take over the registration after installation. Never
+// unregister that copy (or any pre-existing copy when association was skipped).
+function OwnsRegistration: Boolean;
+var
+  Command: String;
+begin
+  Result := False;
+  if RegQueryStringValue(HKCU,
+      'Software\Classes\Applications\LiteView.exe\shell\open\command', '', Command) then
+    Result := CompareText(Command, '"' + ExpandConstant('{app}\LiteView.exe') + '" "%1"') = 0;
+end;
