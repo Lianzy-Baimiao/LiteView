@@ -126,9 +126,12 @@ impl App {
             ui.label(RichText::new(t.save_options).size(16.0));
             ui.label(RichText::new(crate::natsort::file_name(&job.dest)).size(12.0).color(p.text_weak));
             ui.add_space(12.0);
-            if job.format == crate::save::Format::Jpeg {
+            if job.format == crate::save::Format::WebP {
+                widgets::checkbox(ui, &mut job.webp_lossless, t.webp_lossless);
+            }
+            if job.format == crate::save::Format::Jpeg || (job.format == crate::save::Format::WebP && !job.webp_lossless) {
                 ui.horizontal(|ui| {
-                    ui.label(t.s_jpeg_quality);
+                    ui.label(if job.format == crate::save::Format::WebP { t.webp_quality } else { t.s_jpeg_quality });
                     let mut q = f32::from(job.quality);
                     widgets::slider(ui, &mut q, 1.0..=100.0, 180.0);
                     job.quality = q as u8;
@@ -136,11 +139,20 @@ impl App {
                 });
                 ui.add_space(6.0);
             }
-            if has_exif && job.format != crate::save::Format::Bmp {
+            if has_exif && job.format.supports_exif() {
                 widgets::checkbox(ui, &mut job.keep_meta, t.keep_meta);
                 if redacted {
                     ui.label(RichText::new(t.keep_meta_redacted).size(12.0).color(p.danger));
                 }
+            }
+            if has_exif && !job.format.supports_exif() {
+                ui.label(RichText::new(t.save_drops_exif).size(12.0).color(p.text_weak));
+            }
+            if ed.src.canvas_icc.is_some() && !job.format.supports_icc() {
+                ui.label(RichText::new(t.save_drops_icc).size(12.0).color(p.danger));
+            }
+            if !job.format.full_alpha() {
+                ui.label(RichText::new(if job.format == crate::save::Format::Gif { t.save_binary_alpha } else { t.save_flattens_alpha }).size(12.0).color(p.text_weak));
             }
             ui.add_space(16.0);
             if ui.input_mut(|i| i.consume_key(egui::Modifiers::NONE, egui::Key::Enter)) {
@@ -157,7 +169,12 @@ impl App {
         });
         if go {
             if let Some(job) = ed.save_options.take() {
-                self.settings.jpeg_quality = job.quality;
+                if job.format == crate::save::Format::WebP {
+                    self.settings.webp_quality = job.quality;
+                    self.settings.webp_lossless = job.webp_lossless;
+                } else if job.format == crate::save::Format::Jpeg {
+                    self.settings.jpeg_quality = job.quality;
+                }
                 self.edit_start_save(ed, job);
             }
         } else if close || modal.should_close() {

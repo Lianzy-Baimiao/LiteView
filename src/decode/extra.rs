@@ -45,7 +45,7 @@ pub fn preload_fontdb() {
     }
 }
 
-pub fn svg(data: &[u8]) -> Result<Decoded, Error> {
+pub fn svg(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
     let mut opt = resvg::usvg::Options::default();
     if data.windows(5).any(|w| w == b"<text") {
         opt.fontdb = fontdb();
@@ -54,7 +54,7 @@ pub fn svg(data: &[u8]) -> Result<Decoded, Error> {
     let s = tree.size();
     let scale = SVG_SIDE / s.width().max(s.height()).max(1.0);
     let (w, h) = ((s.width() * scale).round().max(1.0) as u32, (s.height() * scale).round().max(1.0) as u32);
-    check_size(w, h)?;
+    opts.check_working(w, h, 16)?;
     let mut pix = resvg::tiny_skia::Pixmap::new(w, h).ok_or(Error::TooLarge { width: w, height: h })?;
     resvg::render(&tree, resvg::tiny_skia::Transform::from_scale(scale, scale), &mut pix.as_mut());
     let mut out = vec![0u8; (w * h * 4) as usize];
@@ -67,18 +67,30 @@ pub fn svg(data: &[u8]) -> Result<Decoded, Error> {
     Ok(d)
 }
 
-fn open_jxl(data: &[u8]) -> Result<jxl_oxide::JxlImage, Error> {
-    let mut img = jxl_oxide::JxlImage::builder().read(std::io::Cursor::new(data)).map_err(|e| Error::Corrupt(e.to_string()))?;
-    check_size(img.width(), img.height())?;
+fn open_jxl(data: &[u8], opts: &Options) -> Result<jxl_oxide::JxlImage, Error> {
+    let tracker = jxl_oxide::AllocTracker::with_limit((opts.max_alloc / 2).min(usize::MAX as u64) as usize);
+    let mut img = jxl_oxide::JxlImage::builder().alloc_tracker(tracker).read(std::io::Cursor::new(data)).map_err(jxl_error)?;
+    opts.check_working(img.width(), img.height(), 16)?;
     img.request_color_encoding(jxl_oxide::EnumColourEncoding::srgb(jxl_oxide::RenderingIntent::Relative));
     Ok(img)
 }
 
-fn jxl_frame(img: &jxl_oxide::JxlImage, index: usize) -> Result<RgbaImage, Error> {
-    let render = img.render_frame(index).map_err(|e| Error::Corrupt(e.to_string()))?;
+fn jxl_error(e: Box<dyn std::error::Error + Send + Sync>) -> Error {
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = Some(e.as_ref());
+    while let Some(error) = cause {
+        if error.to_string().starts_with("failed to allocate ") {
+            return Error::TooLarge { width: 0, height: 0 };
+        }
+        cause = error.source();
+    }
+    Error::Corrupt(e.to_string())
+}
+
+fn jxl_frame(img: &jxl_oxide::JxlImage, index: usize, opts: &Options) -> Result<RgbaImage, Error> {
+    let render = img.render_frame(index).map_err(jxl_error)?;
     let mut stream = render.stream();
     let (w, h, ch) = (stream.width(), stream.height(), stream.channels() as usize);
-    check_size(w, h)?;
+    opts.check_working(w, h, ch as u64 + 4)?;
     let mut buf = vec![0u8; w as usize * h as usize * ch];
     stream.write_to_buffer(&mut buf);
     let rgba: Vec<u8> = match ch {
@@ -90,10 +102,10 @@ fn jxl_frame(img: &jxl_oxide::JxlImage, index: usize) -> Result<RgbaImage, Error
     RgbaImage::from_raw(w, h, rgba).ok_or_else(|| Error::Corrupt("invalid JPEG XL frame size".into()))
 }
 
-pub(super) fn jxl_each_frame(data: &[u8], mut f: impl FnMut(usize, RgbaImage) -> bool) -> Result<(), Error> {
-    let img = open_jxl(data)?;
+pub(super) fn jxl_each_frame(data: &[u8], opts: &Options, mut f: impl FnMut(usize, RgbaImage) -> bool) -> Result<(), Error> {
+    let img = open_jxl(data, opts)?;
     for i in 0..img.num_loaded_keyframes() {
-        if !f(i, jxl_frame(&img, i)?) {
+        if !f(i, jxl_frame(&img, i, opts)?) {
             break;
         }
     }
@@ -101,7 +113,7 @@ pub(super) fn jxl_each_frame(data: &[u8], mut f: impl FnMut(usize, RgbaImage) ->
 }
 
 pub fn jxl(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
-    let img = open_jxl(data)?;
+    let img = open_jxl(data, opts)?;
     let anim = img.image_header().metadata.animation.as_ref();
     let tps = anim.map(|a| f64::from(a.tps_numerator) / f64::from(a.tps_denominator.max(1)));
     let delays: Vec<_> = (0..img.num_loaded_keyframes())
@@ -114,11 +126,12 @@ pub fn jxl(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
     let mut frames = Vec::new();
     let mut bytes = 0usize;
     let size = img.width() as usize * img.height() as usize * 4;
+    let cache = opts.anim_cache.min((opts.max_alloc / 4).min(usize::MAX as u64) as usize);
     for (i, &delay) in delays.iter().enumerate() {
-        if !frames.is_empty() && bytes + size > opts.anim_cache {
+        if !frames.is_empty() && bytes + size > cache {
             break;
         }
-        let image = Arc::new(jxl_frame(&img, i)?);
+        let image = Arc::new(jxl_frame(&img, i, opts)?);
         bytes += image.len();
         frames.push(Frame { image, delay });
     }
@@ -129,7 +142,7 @@ pub fn jxl(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
     let content = if delays.len() == 1 {
         Content::Still { image: first, levels: Vec::new() }
     } else {
-        let source = (frames.len() < delays.len()).then(|| Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Jxl }));
+        let source = (frames.len() < delays.len()).then(|| Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Jxl, options: *opts }));
         Content::Animation { frames, delays, plays, source }
     };
     Ok(Decoded { info, content })
@@ -204,7 +217,7 @@ fn tiff_orientation(d: &[u8]) -> Option<u8> {
 }
 
 /// PSD：文件末尾「合并后的图像」（8 位 RGB / 灰度，原始或 PackBits 压缩）
-pub fn psd(data: &[u8]) -> Result<Decoded, Error> {
+pub fn psd(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
     let bad = || Error::Corrupt("psd".into());
     let be16 = |o: usize| data.get(o..o + 2).map(|b| u16::from_be_bytes([b[0], b[1]])).ok_or_else(bad);
     let be32 = |o: usize| data.get(o..o + 4).map(|b| u32::from_be_bytes([b[0], b[1], b[2], b[3]])).ok_or_else(bad);
@@ -216,6 +229,10 @@ pub fn psd(data: &[u8]) -> Result<Decoded, Error> {
     if depth != 8 || !matches!(mode, 1 | 3) {
         return Err(Error::Unsupported);
     }
+    if channels < if mode == 1 { 1 } else { 3 } || channels > 56 {
+        return Err(bad());
+    }
+    opts.check_working(w, h, channels as u64 + 8)?;
     let mut o = 26usize;
     for _ in 0..3 {
         o += 4 + be32(o)? as usize; // 颜色模式数据、图像资源、图层信息
@@ -237,7 +254,7 @@ pub fn psd(data: &[u8]) -> Result<Decoded, Error> {
             for (r, &n) in counts.iter().enumerate() {
                 let row = data.get(src..src + n).ok_or_else(bad)?;
                 let dst = &mut planes[r / h][(r % h) * w..(r % h + 1) * w];
-                packbits(row, dst);
+                packbits(row, dst)?;
                 src += n;
             }
         }
@@ -254,25 +271,33 @@ pub fn psd(data: &[u8]) -> Result<Decoded, Error> {
     Ok(still("PSD", RgbaImage::from_raw(w as u32, h as u32, out).expect("size")))
 }
 
-fn packbits(src: &[u8], dst: &mut [u8]) {
+fn packbits(src: &[u8], dst: &mut [u8]) -> Result<(), Error> {
+    let bad = || Error::Corrupt("truncated PSD PackBits row".into());
     let (mut i, mut o) = (0, 0);
     while i < src.len() && o < dst.len() {
         let n = src[i] as i8;
         i += 1;
         if n >= 0 {
-            let len = (n as usize + 1).min(dst.len() - o).min(src.len().saturating_sub(i));
+            let len = n as usize + 1;
+            if len > dst.len() - o || len > src.len() - i {
+                return Err(bad());
+            }
             dst[o..o + len].copy_from_slice(&src[i..i + len]);
             i += n as usize + 1;
             o += len;
         } else if n != -128 {
-            let len = ((1 - n as isize) as usize).min(dst.len() - o);
-            if let Some(&v) = src.get(i) {
-                dst[o..o + len].fill(v);
+            let len = (1 - n as isize) as usize;
+            if len > dst.len() - o {
+                return Err(bad());
             }
+            let v = *src.get(i).ok_or_else(bad)?;
+            dst[o..o + len].fill(v);
             i += 1;
             o += len;
         }
     }
+    if o != dst.len() { return Err(bad()); }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -281,7 +306,7 @@ mod tests {
 
     #[test]
     fn svg_renders_at_2048() {
-        let d = svg(br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#).unwrap();
+        let d = svg(br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#, &Options::default()).unwrap();
         assert_eq!((d.info.width, d.info.height), (2048, 1024));
         assert_eq!(d.first_image().get_pixel(5, 5).0, [255, 0, 0, 255]);
     }
@@ -289,15 +314,23 @@ mod tests {
     #[test]
     fn packbits_and_psd() {
         let mut out = [0u8; 6];
-        packbits(&[0x02, 1, 2, 3, 0xFE, 9], &mut out);
+        packbits(&[0x02, 1, 2, 3, 0xFE, 9], &mut out).unwrap();
         assert_eq!(out, [1, 2, 3, 9, 9, 9]);
         // 2×1 RGB，未压缩
         let mut psd_data = b"8BPS\0\x01\0\0\0\0\0\0\0\x03\0\0\0\x01\0\0\0\x02\0\x08\0\x03".to_vec();
         psd_data.extend_from_slice(&[0; 12]);
         psd_data.extend_from_slice(&[0, 0]);
         psd_data.extend_from_slice(&[10, 20, 30, 40, 50, 60]);
-        let d = psd(&psd_data).unwrap();
+        let d = psd(&psd_data, &Options::default()).unwrap();
         assert_eq!(d.first_image().get_pixel(1, 0).0, [20, 40, 60, 255]);
+    }
+
+    #[test]
+    fn truncated_packbits_is_not_successfully_decoded_as_black() {
+        for data in [&[][..], &[2, 1], &[255], &[2, 1, 2, 3]] {
+            assert!(packbits(data, &mut [0; 2]).is_err());
+        }
+        assert!(packbits(&[128, 1, 4, 5], &mut [0; 2]).is_ok());
     }
 
     #[test]

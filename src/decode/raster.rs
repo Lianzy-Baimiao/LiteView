@@ -7,22 +7,18 @@ use image::metadata::Orientation;
 use image::{DynamicImage, ImageDecoder, ImageFormat, ImageReader, RgbaImage};
 use rayon::prelude::*;
 
-use super::{Content, Decoded, Error, Info, Options, check_size, format_name, img_error};
+use super::{Content, Decoded, Error, Info, Options, format_name, img_error};
 
 pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decoded, Error> {
     let mut reader = ImageReader::new(Cursor::new(data));
     reader.set_format(format);
-    let mut limits = image::Limits::default();
-    limits.max_alloc = Some(opts.max_alloc);
-    reader.limits(limits);
+    reader.limits(opts.image_limits());
     let mut decoder = reader.into_decoder().map_err(img_error)?;
     let (w, h) = decoder.dimensions();
-    check_size(w, h)?;
-    if u64::from(w) * u64::from(h) * 4 > opts.max_alloc {
-        return Err(Error::TooLarge { width: w, height: h });
-    }
+    // Source pixels, orientation copy and RGBA conversion can coexist.
+    opts.check_working(w, h, u64::from(decoder.color_type().bytes_per_pixel()) * 2 + 4)?;
     let exif = decoder.exif_metadata().ok().flatten();
-    let icc = decoder.icc_profile().ok().flatten();
+    let icc = if format == ImageFormat::Tiff { super::tiff_meta::icc(data, opts)? } else { decoder.icc_profile().ok().flatten() };
     let orientation = match decoder.orientation() {
         Ok(Orientation::NoTransforms) | Err(_) => exif.as_deref().and_then(Orientation::from_exif_chunk).unwrap_or(Orientation::NoTransforms),
         Ok(o) => o,

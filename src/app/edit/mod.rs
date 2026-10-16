@@ -99,9 +99,10 @@ pub(crate) struct Source {
     pub file_size: u64,
     pub jpeg_quality: Option<u8>,
     pub exif: Option<Arc<Vec<u8>>>,
-    pub icc: Option<Arc<Vec<u8>>>,
+    /// Color profile of the in-memory canvas, not the most recent output format.
+    pub canvas_icc: Option<Arc<Vec<u8>>>,
     /// 原图有透明通道：删除选区、拿起选区后原处变透明（否则填辅色）
-    pub has_alpha: bool,
+    pub canvas_alpha: bool,
 }
 
 pub(crate) struct Editor {
@@ -177,7 +178,7 @@ impl Editor {
 
     /// 删除选区、拿起选区后原处的颜色
     pub fn clear_color(&self, s: &Settings) -> [u8; 4] {
-        if self.src.has_alpha { [0, 0, 0, 0] } else { s.color2 }
+        if self.src.canvas_alpha { [0, 0, 0, 0] } else { s.color2 }
     }
 
     /// 打码的方块、模糊程度、圆圈直径：用户改过的值，否则按图片大小算

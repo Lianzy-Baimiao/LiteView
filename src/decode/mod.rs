@@ -6,12 +6,16 @@ mod anim;
 pub mod extra;
 mod jpeg_quality;
 mod raster;
+mod tiff_meta;
+#[cfg(test)]
+mod limits_tests;
 pub mod sniff;
 pub mod timing;
 #[cfg(windows)]
 mod wic;
 
 use std::path::Path;
+use std::io::Read;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -84,6 +88,7 @@ pub enum Content {
 pub struct AnimSource {
     pub data: Arc<[u8]>,
     pub format: AnimFormat,
+    pub options: Options,
 }
 
 #[derive(Clone, Copy)]
@@ -96,8 +101,8 @@ impl AnimSource {
     /// 从头顺序解码；回调返回 false 即取消，不保留已交付的 RGBA 帧。
     pub fn each_frame(&self, f: impl FnMut(usize, RgbaImage) -> bool) -> Result<(), Error> {
         match self.format {
-            AnimFormat::Raster(format) => anim::each_frame(&self.data, format, f),
-            AnimFormat::Jxl => extra::jxl_each_frame(&self.data, f),
+            AnimFormat::Raster(format) => anim::each_frame(&self.data, format, &self.options, f),
+            AnimFormat::Jxl => extra::jxl_each_frame(&self.data, &self.options, f),
         }
     }
 }
@@ -164,7 +169,9 @@ impl Decoded {
 
 #[derive(Clone, Copy, Debug)]
 pub struct Options {
-    /// 单张图解码最多用多少内存（字节）
+    /// Source bytes are bounded separately from pixel/decoder buffers.
+    pub max_source: u64,
+    /// Budget for known pixel/decoder buffers, not a process RSS limit.
     pub max_alloc: u64,
     /// 动图缓存的帧最多占多少内存（字节）
     pub anim_cache: usize,
@@ -174,7 +181,26 @@ pub struct Options {
 
 impl Default for Options {
     fn default() -> Self {
-        Self { max_alloc: 4 << 30, anim_cache: 256 << 20, pyramid: true }
+        Self { max_source: 512 << 20, max_alloc: 4 << 30, anim_cache: 256 << 20, pyramid: true }
+    }
+}
+
+impl Options {
+    pub(crate) fn image_limits(&self) -> image::Limits {
+        let mut limits = image::Limits::default();
+        limits.max_alloc = Some(self.max_alloc);
+        limits.max_image_width = Some(MAX_SIDE);
+        limits.max_image_height = Some(MAX_SIDE);
+        limits
+    }
+
+    pub(crate) fn check_working(&self, w: u32, h: u32, bytes_per_pixel: u64) -> Result<u64, Error> {
+        check_size(w, h)?;
+        let bytes = u64::from(w).checked_mul(u64::from(h)).and_then(|n| n.checked_mul(bytes_per_pixel));
+        match bytes {
+            Some(n) if n <= self.max_alloc && n <= usize::MAX as u64 => Ok(n),
+            _ => Err(Error::TooLarge { width: w, height: h }),
+        }
     }
 }
 
@@ -200,12 +226,24 @@ pub fn from_rgba(img: RgbaImage, format: &'static str) -> Decoded {
 }
 
 pub fn decode_file(path: &Path, opts: &Options) -> Result<Decoded, Error> {
-    let data = std::fs::read(path).map_err(io_error)?;
+    let file = std::fs::File::open(path).map_err(io_error)?;
+    let size = file.metadata().map_err(io_error)?.len();
+    if size > opts.max_source {
+        return Err(Error::TooLarge { width: 0, height: 0 });
+    }
+    // Bound the read as well as metadata: a file can grow while it is open.
+    let mut data = Vec::new();
+    data.try_reserve_exact(usize::try_from(size).map_err(|_| Error::TooLarge { width: 0, height: 0 })?)
+        .map_err(|_| Error::TooLarge { width: 0, height: 0 })?;
+    file.take(opts.max_source.saturating_add(1)).read_to_end(&mut data).map_err(io_error)?;
     let ext = path.extension().map(|e| e.to_string_lossy().into_owned()).unwrap_or_default();
     decode_bytes(&data, &ext, opts)
 }
 
 pub fn decode_bytes(data: &[u8], ext: &str, opts: &Options) -> Result<Decoded, Error> {
+    if data.len() as u64 > opts.max_source {
+        return Err(Error::TooLarge { width: 0, height: 0 });
+    }
     let kind = sniff::sniff(data, ext);
     let mut d = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_kind(data, kind, opts)))
         .unwrap_or_else(|_| Err(Error::Corrupt("decoder panicked".into())))?;
@@ -213,6 +251,15 @@ pub fn decode_bytes(data: &[u8], ext: &str, opts: &Options) -> Result<Decoded, E
     if opts.pyramid
         && let Content::Still { image, levels } = &mut d.content
     {
+        let mut bytes = image.len() as u64;
+        let (mut w, mut h) = image.dimensions();
+        while w.max(h) > 512 {
+            (w, h) = (w.div_ceil(2), h.div_ceil(2));
+            bytes += u64::from(w) * u64::from(h) * 4;
+        }
+        if bytes > opts.max_alloc {
+            return Err(Error::TooLarge { width: image.width(), height: image.height() });
+        }
         *levels = raster::pyramid(image);
     }
     Ok(d)
@@ -224,26 +271,34 @@ fn decode_kind(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error
             if let Some(r) = anim::decode(data, f, opts) {
                 return r;
             }
-            raster::decode(data, f, opts).or_else(|e| system(data, kind).map_err(|_| e))
+            fallback(raster::decode(data, f, opts), || system(data, kind, opts))
         }
-        Kind::Svg => extra::svg(data),
+        Kind::Svg => extra::svg(data, opts),
         Kind::Jxl => extra::jxl(data, opts),
-        Kind::Psd => extra::psd(data).or_else(|e| system(data, kind).map_err(|_| e)),
+        Kind::Psd => fallback(extra::psd(data, opts), || system(data, kind, opts)),
         // RAW：先用内嵌的 JPEG 预览（快、各平台都能看），没有时交给系统解码
-        Kind::Raw => extra::raw_preview(data, opts).or_else(|_| system(data, kind)),
-        _ => system(data, kind),
+        Kind::Raw => fallback(extra::raw_preview(data, opts), || system(data, kind, opts)),
+        _ => system(data, kind, opts),
+    }
+}
+
+fn fallback(result: Result<Decoded, Error>, next: impl FnOnce() -> Result<Decoded, Error>) -> Result<Decoded, Error> {
+    match result {
+        Err(e @ Error::TooLarge { .. }) => Err(e),
+        Err(original) => next().map_err(|e| if matches!(e, Error::TooLarge { .. } | Error::MissingCodec(_)) { e } else { original }),
+        ok => ok,
     }
 }
 
 /// 系统解码组件
-fn system(data: &[u8], kind: Kind) -> Result<Decoded, Error> {
+fn system(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error> {
     #[cfg(windows)]
     {
-        wic::decode(data, kind)
+        wic::decode(data, kind, opts)
     }
     #[cfg(not(windows))]
     {
-        let _ = (data, kind);
+        let _ = (data, kind, opts);
         Err(Error::Unsupported)
     }
 }

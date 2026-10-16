@@ -7,6 +7,7 @@ LiteView 本身以 MIT 许可发布（见 LICENSE）。程序中包含或使用�
 - Rust 依赖库保留各自的许可，并非都由 LiteView 的 MIT 许可覆盖。依赖版本见 Cargo.lock；
   发布包随附 LICENSES.html，使用 cargo-about 0.9.2 按 about.toml 的四个平台目标生成逐库归属及许可全文。
   生成命令见 docs/RELEASING.md；生成失败时发布流程停止。
+- 有损 WebP 使用 webp / libwebp-sys（MIT），Rust 包许可见 LICENSES.html；内含的 Google libwebp C 库许可及专利授权原文在 assets/licenses/LIBWEBP-COPYING.txt 与 LIBWEBP-PATENTS.txt，发布包中放在许可证同目录。无损编码仍使用 image / image-webp。
 
 MIT License（Fluent UI System Icons）
 

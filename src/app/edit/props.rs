@@ -82,7 +82,7 @@ impl App {
             Tool::Eraser => {
                 let s = &mut self.settings;
                 slider_row(ui, t.p_size, &mut s.eraser_size, 2, 400, true, " px");
-                if ed.src.has_alpha {
+                if ed.src.canvas_alpha {
                     ui.label(RichText::new(t.p_erase_to).color(p.text_weak));
                     seg(ui, &mut s.eraser_transparent, &[(true, t.p_transparent), (false, t.p_secondary)]);
                 }

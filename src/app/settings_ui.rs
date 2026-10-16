@@ -238,6 +238,12 @@ impl App {
                 let mut q = u32::from(s.jpeg_quality);
                 row(ui, t.s_jpeg_quality, |ui| number(ui, &mut q, 1.0..=100.0));
                 s.jpeg_quality = q as u8;
+                widgets::checkbox(ui, &mut s.webp_lossless, t.webp_lossless);
+                if !s.webp_lossless {
+                    let mut q = u32::from(s.webp_quality);
+                    row(ui, t.webp_quality, |ui| number(ui, &mut q, 1.0..=100.0));
+                    s.webp_quality = q as u8;
+                }
                 row(ui, t.s_undo_steps, |ui| number(ui, &mut s.undo_steps, 50.0..=500.0));
                 row(ui, t.s_undo_mb, |ui| number(ui, &mut s.undo_mb, 128.0..=4096.0));
                 row(ui, t.s_redact_default, |ui| {

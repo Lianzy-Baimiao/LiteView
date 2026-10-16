@@ -57,11 +57,15 @@ def package(binary: Path, platform: str, arch: str, version: str, output: Path) 
     executable.chmod(0o755)
     for doc in ["LICENSE", "README.md", "THIRD-PARTY-NOTICES.md", "LICENSES.html"]:
         shutil.copy2(ROOT / doc, folder / doc)
+    for doc in ["LIBWEBP-COPYING.txt", "LIBWEBP-PATENTS.txt"]:
+        shutil.copy2(ROOT / "assets/licenses" / doc, folder / doc)
     shutil.copy2(ROOT / "docs/INSTALL.md", folder / "INSTALL.md")
     if platform == "macos":
         # Keep attribution inside the app when users copy only the .app bundle.
         for doc in ["LICENSE", "THIRD-PARTY-NOTICES.md", "LICENSES.html"]:
             shutil.copy2(ROOT / doc, resources / doc)
+        for doc in ["LIBWEBP-COPYING.txt", "LIBWEBP-PATENTS.txt"]:
+            shutil.copy2(ROOT / "assets/licenses" / doc, resources / doc)
     if platform == "windows":
         archive = output / f"{name}.zip"
         with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as z:

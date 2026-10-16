@@ -156,7 +156,8 @@ impl App {
         }
         let Some(dest) = d.save_file() else { return };
         let fmt = Format::from_path(&dest).unwrap_or(Format::Png);
-        let q = self.settings.jpeg_quality;
+        let q = if fmt == Format::WebP { self.settings.webp_quality } else { self.settings.jpeg_quality };
+        let webp_lossless = self.settings.webp_lossless;
         self.spawn(move || {
             let img = match decoded.content.image_at(index) {
                 Ok(img) => save::apply_transform(&img, xf),
@@ -165,7 +166,7 @@ impl App {
                     return Some(Notice::Toast(tr().err_corrupt.to_owned()));
                 }
             };
-            Some(match save::write(&dest, &img, fmt, q) {
+            Some(match save::write_with_mode(&dest, &img, fmt, q, &save::Meta::default(), webp_lossless) {
                 Ok(()) => Notice::Saved(dest),
                 Err(e) => Notice::Toast(fill(tr().failed, &[&e])),
             })

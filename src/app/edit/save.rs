@@ -22,6 +22,7 @@ pub(crate) struct SaveJob {
     pub dest: PathBuf,
     pub format: Format,
     pub quality: u8,
+    pub webp_lossless: bool,
     pub keep_meta: bool,
     pub then: SaveThen,
 }
@@ -30,7 +31,24 @@ pub(crate) struct SaveDone {
     pub dest: PathBuf,
     pub rev: u64,
     pub then: SaveThen,
-    pub result: Result<Arc<Decoded>, String>,
+    pub result: SaveResult,
+}
+
+type SaveResult = Result<Result<Arc<Decoded>, crate::decode::Error>, String>;
+
+fn write_and_verify(img: &image::RgbaImage, job: &SaveJob, meta: &save::Meta, opts: &crate::decode::Options) -> SaveResult {
+    save::write_with_mode(&job.dest, img, job.format, job.quality, meta, job.webp_lossless)?;
+    Ok(crate::decode::decode_file(&job.dest, opts).map(Arc::new))
+}
+
+fn record_saved(ed: &mut Editor, decoded: &Decoded, rev: u64) {
+    ed.doc.mark_saved(rev);
+    ed.saved_once = true;
+    ed.overwrite_ok = true;
+    ed.src.format = decoded.info.format;
+    ed.src.file_size = decoded.info.file_size;
+    ed.src.jpeg_quality = decoded.info.jpeg_quality;
+    ed.src.exif = decoded.info.exif.clone();
 }
 
 impl App {
@@ -56,8 +74,8 @@ impl App {
             return;
         }
         let keep_meta = self.settings.keep_metadata && !ed.doc.redacted();
-        let quality = overwrite_quality(format, ed.src.jpeg_quality, self.settings.jpeg_quality);
-        let job = SaveJob { dest: ed.src.path.clone(), format, quality, keep_meta, then };
+        let quality = if format == Format::WebP { self.settings.webp_quality } else { overwrite_quality(format, ed.src.jpeg_quality, self.settings.jpeg_quality) };
+        let job = SaveJob { dest: ed.src.path.clone(), format, quality, webp_lossless: self.settings.webp_lossless, keep_meta, then };
         self.edit_start_save(ed, job);
     }
 
@@ -85,8 +103,9 @@ impl App {
         };
         let format = Format::from_path(&dest).unwrap_or(Format::Png);
         let keep_meta = self.settings.keep_metadata && !ed.doc.redacted() && ed.src.exif.is_some();
-        let job = SaveJob { dest, format, quality: self.settings.jpeg_quality, keep_meta, then };
-        if format == Format::Jpeg || (ed.src.exif.is_some() && matches!(format, Format::Jpeg | Format::Png | Format::WebP)) {
+        let quality = if format == Format::WebP { self.settings.webp_quality } else { self.settings.jpeg_quality };
+        let job = SaveJob { dest, format, quality, webp_lossless: self.settings.webp_lossless, keep_meta, then };
+        if matches!(format, Format::Jpeg | Format::WebP) || ed.src.exif.is_some() || (ed.src.canvas_icc.is_some() && !format.supports_icc()) || !format.full_alpha() {
             ed.save_options = Some(job);
         } else {
             self.edit_start_save(ed, job);
@@ -98,16 +117,12 @@ impl App {
         ed.saving = true;
         let img = ed.doc.image.clone();
         let exif = if job.keep_meta { ed.src.exif.as_deref().and_then(|e| save::clean_exif(e)) } else { None };
-        let meta = save::Meta { exif, icc: ed.src.icc.as_deref().cloned() };
+        let meta = save::Meta { exif, icc: ed.src.canvas_icc.as_deref().cloned() };
         let rev = ed.doc.rev;
         let opts = crate::app::decode_options(&self.settings);
         let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
         std::thread::spawn(move || {
-            let r = save::write_with(&job.dest, &img, job.format, job.quality, &meta).map(|()| {
-                // 读回保存的文件（JPEG 的压缩、元数据都与文件一致）
-                let d = crate::decode::decode_file(&job.dest, &opts).unwrap_or_else(|_| crate::decode::from_rgba((*img).clone(), job.format.name()));
-                Arc::new(d)
-            });
+            let r = write_and_verify(&img, &job, &meta, &opts);
             let _ = tx.send(Notice::EditSaved(Box::new(SaveDone { dest: job.dest, rev, then: job.then, result: r })));
             ctx.request_repaint();
         });
@@ -117,16 +132,21 @@ impl App {
     pub(crate) fn edit_saved(&mut self, ed: &mut Editor, done: SaveDone) {
         ed.saving = false;
         let d = match done.result {
-            Ok(d) => d,
+            Ok(Ok(d)) => d,
+            Ok(Err(e)) => {
+                ed.after = None;
+                self.loader.forget(&done.dest);
+                log::warn!("Saved {}, but read-back verification failed: {e:?}", done.dest.display());
+                self.show_toast(fill(tr().saved_unverified, &[&done.dest.display()]));
+                return;
+            }
             Err(e) => {
                 ed.after = None;
                 self.show_toast(fill(tr().failed, &[&e]));
                 return;
             }
         };
-        ed.doc.mark_saved(done.rev);
-        ed.saved_once = true;
-        ed.overwrite_ok = true;
+        record_saved(ed, &d, done.rev);
         self.self_saved.push((done.dest.clone(), std::time::Instant::now()));
         self.loader.insert(&done.dest, Ok(d.clone()));
         if ed.src.clipboard || done.dest != ed.src.path {
@@ -134,10 +154,9 @@ impl App {
             ed.src.clipboard = false;
             self.folder = crate::viewer::folder::Folder::open(&done.dest, self.settings.sort, self.settings.sort_desc, Some(self.ctx.clone()));
         }
-        ed.src.format = d.info.format;
-        ed.src.file_size = d.info.file_size;
-        ed.src.jpeg_quality = d.info.jpeg_quality;
-        ed.src.exif = d.info.exif.clone();
+        // Preserve the canvas and its color/alpha semantics, including undo history.
+        // cur.loaded stores the actual flattened/quantized file and its metadata.
+        self.info = None;
         if let Some(c) = &mut self.cur {
             c.path = done.dest;
             c.clipboard = false;
@@ -163,6 +182,48 @@ fn overwrite_quality(format: Format, original: Option<u8>, fallback: u8) -> u8 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_jpeg_does_not_destroy_canvas_alpha_profile_or_undo() {
+        let src = image::RgbaImage::from_pixel(8, 6, image::Rgba([20, 40, 60, 128]));
+        let mut doc = crate::editor::history::Doc::new(src.clone(), 100, 1 << 20);
+        doc.replace(image::RgbaImage::from_pixel(8, 6, image::Rgba([80, 40, 60, 128])));
+        let profile = Arc::new(b"canvas-profile".to_vec());
+        let source = super::super::Source {
+            path: "input.png".into(), clipboard: false, format: "PNG", file_size: 0,
+            jpeg_quality: None, exif: None, canvas_icc: Some(profile.clone()), canvas_alpha: true,
+        };
+        let mut ed = Editor::new(doc, source, super::super::Tool::Select, Default::default());
+        let bytes = save::encode(&ed.doc.image, Format::Jpeg, 90).unwrap();
+        let saved = crate::decode::decode_bytes(&bytes, "jpg", &Default::default()).unwrap();
+        let rev = ed.doc.rev;
+        record_saved(&mut ed, &saved, rev);
+        assert!(!saved.info.has_alpha);
+        assert!(saved.info.icc.is_none());
+        assert!(ed.src.canvas_alpha);
+        assert_eq!(ed.src.canvas_icc, Some(profile));
+        assert_eq!(ed.doc.image.get_pixel(0, 0)[3], 128);
+        let png = save::encode(&ed.doc.image, Format::Png, 90).unwrap();
+        let png = crate::decode::decode_bytes(&png, "png", &Default::default()).unwrap();
+        assert_eq!(png.first_image().as_ref(), ed.doc.image.as_ref());
+        assert!(ed.doc.undo());
+        assert_eq!(ed.doc.image.as_ref(), &src);
+        assert!(ed.doc.modified());
+    }
+
+    #[test]
+    fn successful_write_and_failed_verification_are_distinct() {
+        let dir = std::env::temp_dir().join(format!("liteview-verify-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let job = SaveJob { dest: dir.join("output.png"), format: Format::Png, quality: 90, webp_lossless: true, keep_meta: false, then: SaveThen::Stay };
+        let image = image::RgbaImage::new(8, 6);
+        let opts = crate::decode::Options { max_source: 0, ..Default::default() };
+        let result = write_and_verify(&image, &job, &save::Meta::default(), &opts);
+        assert!(matches!(result, Ok(Err(crate::decode::Error::TooLarge { .. }))));
+        assert!(crate::decode::decode_file(&job.dest, &Default::default()).is_ok());
+        std::fs::remove_file(&job.dest).unwrap();
+        std::fs::remove_dir(dir).unwrap();
+    }
 
     #[test]
     fn jpeg_overwrite_preserves_detected_quality_instead_of_using_default() {

@@ -42,8 +42,8 @@ impl App {
             file_size: d.info.file_size,
             jpeg_quality: d.info.jpeg_quality,
             exif: d.info.exif.clone(),
-            icc: d.info.icc.clone(),
-            has_alpha: d.info.has_alpha,
+            canvas_icc: d.info.icc.clone(),
+            canvas_alpha: d.info.has_alpha,
         };
         self.view.xf = Default::default();
         self.shown = Some(Shown { width: doc.width(), height: doc.height(), has_alpha: true });

@@ -27,14 +27,20 @@ class Packages(unittest.TestCase):
                         self.assertIn(f"{prefix}/LiteView.portable", z.namelist())
                         self.assertEqual(z.read(f"{prefix}/LiteView.exe"), binary.read_bytes())
                         self.assertIn(f"{prefix}/LICENSES.html", z.namelist())
+                        self.assertIn(f"{prefix}/LIBWEBP-COPYING.txt", z.namelist())
+                        self.assertIn(f"{prefix}/LIBWEBP-PATENTS.txt", z.namelist())
                 else:
                     with tarfile.open(archive) as tar:
                         suffix = "LiteView.app/Contents/MacOS/LiteView" if platform == "macos" else "LiteView"
                         self.assertTrue(tar.getmember(f"{prefix}/{suffix}").mode & 0o111)
                         self.assertIn(f"{prefix}/LICENSES.html", tar.getnames())
+                        self.assertIn(f"{prefix}/LIBWEBP-COPYING.txt", tar.getnames())
+                        self.assertIn(f"{prefix}/LIBWEBP-PATENTS.txt", tar.getnames())
                         self.assertNotIn(f"{prefix}/LiteView.portable", tar.getnames())
                         if platform == "macos":
                             self.assertIn(f"{prefix}/LiteView.app/Contents/Resources/LICENSES.html", tar.getnames())
+                            self.assertIn(f"{prefix}/LiteView.app/Contents/Resources/LIBWEBP-COPYING.txt", tar.getnames())
+                            self.assertIn(f"{prefix}/LiteView.app/Contents/Resources/LIBWEBP-PATENTS.txt", tar.getnames())
                             plist = plistlib.load(tar.extractfile(f"{prefix}/LiteView.app/Contents/Info.plist"))
                             self.assertEqual(plist["CFBundleExecutable"], "LiteView")
                             self.assertEqual(plist["CFBundleShortVersionString"], "0.1.0")

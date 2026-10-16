@@ -14,8 +14,9 @@ static SEQ: AtomicU32 = AtomicU32::new(0);
 /// 用 `write` 生成内容并安全地替换 `path`
 pub fn atomic_write(path: &Path, write: impl FnOnce(&mut dyn Write) -> io::Result<()>) -> io::Result<()> {
     let tmp = temp_path(path);
+    let file = File::options().write(true).create_new(true).open(&tmp)?;
     let result = (|| {
-        let mut w = BufWriter::new(File::create(&tmp)?);
+        let mut w = BufWriter::new(file);
         write(&mut w)?;
         let f = w.into_inner().map_err(|e| e.into_error())?;
         f.sync_all()?;
@@ -84,5 +85,45 @@ mod tests {
         assert_eq!(std::fs::read(&p).unwrap(), b"original");
         assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
         let _ = std::fs::remove_dir_all(d);
+    }
+
+    #[test]
+    fn storage_failure_after_partial_write_keeps_original() {
+        let d = dir();
+        let p = d.join("full-disk.bin");
+        std::fs::write(&p, b"original").unwrap();
+        let result = atomic_write(&p, |w| {
+            w.write_all(b"partial replacement")?;
+            Err(io::Error::from(io::ErrorKind::StorageFull))
+        });
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::StorageFull);
+        assert_eq!(std::fs::read(&p).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        std::fs::remove_file(p).unwrap();
+        std::fs::remove_dir(d).unwrap();
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn readonly_and_exclusively_open_files_remain_unchanged() {
+        use std::os::windows::fs::OpenOptionsExt;
+        let d = dir();
+        let p = d.join("protected.bin");
+        std::fs::write(&p, b"original").unwrap();
+        let original_permissions = std::fs::metadata(&p).unwrap().permissions();
+        let mut readonly = original_permissions.clone();
+        readonly.set_readonly(true);
+        std::fs::set_permissions(&p, readonly).unwrap();
+        let result = atomic_write(&p, |w| w.write_all(b"replacement"));
+        std::fs::set_permissions(&p, original_permissions).unwrap();
+        assert!(result.is_err());
+        assert_eq!(std::fs::read(&p).unwrap(), b"original");
+        let locked = File::options().read(true).share_mode(0).open(&p).unwrap();
+        assert!(atomic_write(&p, |w| w.write_all(b"replacement")).is_err());
+        drop(locked);
+        assert_eq!(std::fs::read(&p).unwrap(), b"original");
+        assert_eq!(std::fs::read_dir(&d).unwrap().count(), 1);
+        std::fs::remove_file(p).unwrap();
+        std::fs::remove_dir(d).unwrap();
     }
 }

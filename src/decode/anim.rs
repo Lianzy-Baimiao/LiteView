@@ -11,7 +11,7 @@ use image::codecs::webp::WebPDecoder;
 use image::metadata::LoopCount;
 use image::{AnimationDecoder, ImageDecoder, ImageFormat};
 
-use super::{Content, Decoded, Error, Frame, Info, Options, check_size, img_error};
+use super::{Content, Decoded, Error, Frame, Info, Options, img_error};
 
 /// 不是动图时返回 None（交给静态图解码）
 pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result<Decoded, Error>> {
@@ -19,21 +19,30 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result
     match format {
         ImageFormat::Gif => Some(gif(data, opts)),
         ImageFormat::Png => {
-            let d = PngDecoder::new(cur()).ok()?;
+            let d = match PngDecoder::with_limits(cur(), opts.image_limits()) {
+                Ok(d) => d,
+                Err(e) => return Some(Err(img_error(e))),
+            };
             if !d.is_apng().unwrap_or(false) {
                 return None;
             }
             let (w, h) = d.dimensions();
+            if let Err(e) = opts.check_working(w, h, 20) {
+                return Some(Err(e));
+            }
             let apng = d.apng().ok()?;
             let plays = plays_of(apng.loop_count());
             Some(collect(apng.into_frames(), w, h, ImageFormat::Png, plays, opts, data))
         }
         ImageFormat::WebP => {
-            let d = WebPDecoder::new(cur()).ok()?;
+            let mut d = WebPDecoder::new(cur()).ok()?;
             if !d.has_animation() {
                 return None;
             }
             let (w, h) = d.dimensions();
+            if let Err(e) = opts.check_working(w, h, 20).and_then(|_| d.set_limits(opts.image_limits()).map_err(img_error)) {
+                return Some(Err(e));
+            }
             let plays = plays_of(d.loop_count());
             Some(collect(d.into_frames(), w, h, ImageFormat::WebP, plays, opts, data))
         }
@@ -42,21 +51,40 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Option<Result
 }
 
 fn gif(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
-    let d = GifDecoder::new(Cursor::new(data)).map_err(img_error)?;
+    let mut d = GifDecoder::new(Cursor::new(data)).map_err(img_error)?;
     let (w, h) = d.dimensions();
+    opts.check_working(w, h, 20)?;
+    d.set_limits(opts.image_limits()).map_err(img_error)?;
     collect(d.into_frames(), w, h, ImageFormat::Gif, gif_plays(data), opts, data)
 }
 
 /// 从头逐帧解码（每帧已经合成好）；f 返回 false 时停下
-pub fn each_frame(data: &[u8], format: ImageFormat, mut f: impl FnMut(usize, image::RgbaImage) -> bool) -> Result<(), Error> {
+pub fn each_frame(data: &[u8], format: ImageFormat, opts: &Options, mut f: impl FnMut(usize, image::RgbaImage) -> bool) -> Result<(), Error> {
     let cur = || Cursor::new(data);
     let frames = match format {
-        ImageFormat::Gif => GifDecoder::new(cur()).map(|d| d.into_frames()),
-        ImageFormat::Png => PngDecoder::new(cur()).and_then(|d| d.apng()).map(|a| a.into_frames()),
-        ImageFormat::WebP => WebPDecoder::new(cur()).map(|d| d.into_frames()),
+        ImageFormat::Gif => {
+            let mut d = GifDecoder::new(cur()).map_err(img_error)?;
+            let (w, h) = d.dimensions();
+            opts.check_working(w, h, 20)?;
+            d.set_limits(opts.image_limits()).map_err(img_error)?;
+            d.into_frames()
+        }
+        ImageFormat::Png => {
+            let d = PngDecoder::with_limits(cur(), opts.image_limits()).map_err(img_error)?;
+            let (w, h) = d.dimensions();
+            opts.check_working(w, h, 20)?;
+            d.apng().map_err(img_error)?.into_frames()
+        }
+        ImageFormat::WebP => {
+            let mut d = WebPDecoder::new(cur()).map_err(img_error)?;
+            let (w, h) = d.dimensions();
+            opts.check_working(w, h, 20)?;
+            d.set_limits(opts.image_limits()).map_err(img_error)?;
+            d.into_frames()
+        }
         _ => return Err(Error::Unsupported),
     };
-    for (i, fr) in frames.map_err(img_error)?.enumerate() {
+    for (i, fr) in frames.enumerate() {
         if !f(i, fr.map_err(img_error)?.into_buffer()) {
             break;
         }
@@ -65,7 +93,8 @@ pub fn each_frame(data: &[u8], format: ImageFormat, mut f: impl FnMut(usize, ima
 }
 
 fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: ImageFormat, plays: Option<u32>, opts: &Options, data: &[u8]) -> Result<Decoded, Error> {
-    check_size(w, h)?;
+    let working = opts.check_working(w, h, 20)?;
+    let cache = opts.anim_cache.min((opts.max_alloc - working) as usize);
     let mut out: Vec<Frame> = Vec::new();
     let (mut bytes, mut truncated) = (0usize, false);
     for f in frames {
@@ -76,7 +105,7 @@ fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: ImageFormat, plays
             Err(_) => break,
         };
         let size = w as usize * h as usize * 4;
-        if !out.is_empty() && bytes + size > opts.anim_cache {
+        if !out.is_empty() && bytes + size > cache {
             truncated = true;
             break;
         }
@@ -101,7 +130,7 @@ fn collect(frames: image::Frames<'_>, w: u32, h: u32, format: ImageFormat, plays
         let source = if truncated {
             super::timing::frame_delays(data, format).filter(|all| all.len() > out.len()).map(|all| {
                 delays.extend_from_slice(&all[out.len()..]);
-                Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Raster(format) })
+                Arc::new(super::AnimSource { data: data.into(), format: super::AnimFormat::Raster(format), options: *opts })
             })
         } else {
             None

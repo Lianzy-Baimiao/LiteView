@@ -14,12 +14,41 @@ pub type Loaded = Result<Arc<Decoded>, Error>;
 struct Job {
     path: PathBuf,
     current: bool,
+    version: u64,
 }
 
 #[derive(Default)]
 struct Queue {
     jobs: VecDeque<Job>,
     busy: Vec<PathBuf>,
+    stopped: bool,
+    versions: HashMap<PathBuf, u64>,
+    next_version: u64,
+}
+
+impl Queue {
+    fn job(&mut self, path: &Path, current: bool) -> Job {
+        self.next_version += 1;
+        self.versions.insert(path.to_path_buf(), self.next_version);
+        Job { path: path.to_path_buf(), current, version: self.next_version }
+    }
+
+    fn retain_jobs(&mut self, keep: impl Fn(&Job) -> bool) {
+        self.jobs.retain(|job| {
+            if keep(job) { return true; }
+            if self.versions.get(&job.path) == Some(&job.version) { self.versions.remove(&job.path); }
+            false
+        });
+    }
+}
+
+impl Drop for Loader {
+    fn drop(&mut self) {
+        let mut queue = self.shared.queue.lock().expect("lock");
+        queue.stopped = true;
+        queue.jobs.clear();
+        self.shared.cv.notify_all();
+    }
 }
 
 struct Shared {
@@ -37,7 +66,7 @@ struct Entry {
 
 pub struct Loader {
     shared: Arc<Shared>,
-    rx: Receiver<(PathBuf, Loaded)>,
+    rx: Receiver<(PathBuf, u64, Loaded)>,
     cache: HashMap<PathBuf, Entry>,
     tick: u64,
     budget: usize,
@@ -75,7 +104,11 @@ impl Loader {
     /// 把解码线程送回来的结果收进缓存
     fn drain(&mut self) -> Vec<PathBuf> {
         let mut done = Vec::new();
-        while let Ok((path, result)) = self.rx.try_recv() {
+        while let Ok((path, version, result)) = self.rx.try_recv() {
+            let mut queue = self.shared.queue.lock().expect("lock");
+            if queue.versions.get(&path) != Some(&version) { continue; }
+            queue.versions.remove(&path);
+            drop(queue);
             let bytes = result.as_ref().map_or(0, |d| d.bytes());
             self.tick += 1;
             self.cache.insert(path.clone(), Entry { result, bytes, used: self.tick });
@@ -95,9 +128,10 @@ impl Loader {
             return Some(e.result.clone());
         }
         let mut q = self.shared.queue.lock().expect("lock");
-        q.jobs.retain(|j| !j.current && j.path != path);
-        if !q.busy.iter().any(|p| p == path) {
-            q.jobs.push_front(Job { path: path.to_path_buf(), current: true });
+        q.retain_jobs(|j| !j.current && j.path != path);
+        if !q.versions.contains_key(path) {
+            let job = q.job(path, true);
+            q.jobs.push_front(job);
             self.shared.cv.notify_one();
         }
         None
@@ -106,10 +140,11 @@ impl Loader {
     /// 预读：替换掉排队中的旧预读
     pub fn preload(&mut self, paths: &[PathBuf]) {
         let mut q = self.shared.queue.lock().expect("lock");
-        q.jobs.retain(|j| j.current);
+        q.retain_jobs(|j| j.current);
         for p in paths {
-            if !self.cache.contains_key(p) && !q.busy.contains(p) && !q.jobs.iter().any(|j| &j.path == p) {
-                q.jobs.push_back(Job { path: p.clone(), current: false });
+            if !self.cache.contains_key(p) && !q.versions.contains_key(p) {
+                let job = q.job(p, false);
+                q.jobs.push_back(job);
             }
         }
         self.shared.cv.notify_all();
@@ -130,6 +165,7 @@ impl Loader {
 
     /// 放进已解码好的结果（改名后沿用）
     pub fn insert(&mut self, path: &Path, result: Loaded) {
+        self.forget(path);
         let bytes = result.as_ref().map_or(0, |d| d.bytes());
         self.tick += 1;
         self.cache.insert(path.to_path_buf(), Entry { result, bytes, used: self.tick });
@@ -138,6 +174,9 @@ impl Loader {
     /// 文件变了或被删了：丢掉缓存
     pub fn forget(&mut self, path: &Path) {
         self.cache.remove(path);
+        let mut queue = self.shared.queue.lock().expect("lock");
+        queue.versions.remove(path);
+        queue.jobs.retain(|job| job.path != path);
     }
 
     fn evict(&mut self, keep: Option<&Path>) {
@@ -155,24 +194,28 @@ impl Loader {
     }
 }
 
-fn worker(shared: &Shared, tx: &Sender<(PathBuf, Loaded)>) {
+fn worker(shared: &Shared, tx: &Sender<(PathBuf, u64, Loaded)>) {
     loop {
-        let path = {
+        let job = {
             let mut q = shared.queue.lock().expect("lock");
             loop {
+                if q.stopped {
+                    return;
+                }
                 if let Some(job) = q.jobs.pop_front() {
                     q.busy.push(job.path.clone());
-                    break job.path;
+                    break job;
                 }
                 q = shared.cv.wait(q).expect("lock");
             }
         };
+        let path = job.path;
         let opts = *shared.opts.lock().expect("lock");
         let t = Instant::now();
         let result = decode::decode_file(&path, &opts).map(Arc::new);
         log::debug!("解码 {} 用时 {:.1} ms", path.display(), t.elapsed().as_secs_f64() * 1000.0);
         shared.queue.lock().expect("lock").busy.retain(|p| p != &path);
-        if tx.send((path, result)).is_err() {
+        if tx.send((path, job.version, result)).is_err() {
             return;
         }
         if let Some(ctx) = shared.ctx.lock().expect("lock").as_ref() {
@@ -184,6 +227,40 @@ fn worker(shared: &Shared, tx: &Sender<(PathBuf, Loaded)>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dropping_loader_releases_idle_workers() {
+        let loader = Loader::new(2, Options::default(), 1 << 20);
+        let shared = Arc::downgrade(&loader.shared);
+        drop(loader);
+        let start = Instant::now();
+        while shared.strong_count() != 0 {
+            assert!(start.elapsed().as_secs() < 5, "idle workers leaked");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+
+    #[test]
+    fn old_decode_cannot_replace_newly_saved_or_reloaded_pixels() {
+        let mut loader = Loader::new(0, Options::default(), 1 << 20);
+        let (tx, rx) = channel();
+        loader.rx = rx;
+        let path = PathBuf::from("image.png");
+        assert!(loader.request(&path).is_none());
+        let old = loader.shared.queue.lock().unwrap().jobs.pop_front().unwrap();
+        let image = |red| Ok(Arc::new(decode::from_rgba(image::RgbaImage::from_pixel(2, 1, image::Rgba([red, 0, 0, 255])), "PNG")));
+        loader.insert(&path, image(200));
+        tx.send((path.clone(), old.version, image(10))).unwrap();
+        assert!(loader.poll(Some(&path)).is_empty());
+        assert_eq!(loader.get(&path).unwrap().unwrap().first_image().get_pixel(0, 0)[0], 200);
+        loader.forget(&path);
+        assert!(loader.request(&path).is_none());
+        let new = loader.shared.queue.lock().unwrap().jobs.pop_front().unwrap();
+        tx.send((path.clone(), old.version, image(10))).unwrap();
+        tx.send((path.clone(), new.version, image(150))).unwrap();
+        assert_eq!(loader.poll(Some(&path)), vec![path.clone()]);
+        assert_eq!(loader.get(&path).unwrap().unwrap().first_image().get_pixel(0, 0)[0], 150);
+    }
 
     #[test]
     fn decodes_in_background_and_caches() {

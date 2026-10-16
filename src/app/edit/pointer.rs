@@ -154,7 +154,7 @@ impl App {
                     Tool::Pencil => (Effect::Paint(color), s.pencil_size as f32, Tip::Hard),
                     Tool::Brush if s.highlighter => (Effect::Paint([color[0], color[1], color[2], 96]), s.paint_size as f32, Tip::Round),
                     Tool::Brush => (Effect::Paint([color[0], color[1], color[2], (s.paint_opacity.min(100) * 255 / 100) as u8]), s.paint_size as f32, Tip::Round),
-                    _ if s.eraser_transparent && ed.src.has_alpha => (Effect::Erase, s.eraser_size as f32, Tip::Hard),
+                    _ if s.eraser_transparent && ed.src.canvas_alpha => (Effect::Erase, s.eraser_size as f32, Tip::Hard),
                     _ => (Effect::Paint(s.color2), s.eraser_size as f32, Tip::Hard),
                 };
                 let mut st = Stroke::brush(effect, size, tip);

@@ -19,6 +19,26 @@ pub fn all_exts() -> Vec<String> {
     GROUPS.iter().flat_map(|g| g.iter()).map(|s| s.to_string()).collect()
 }
 
+pub fn validate_extensions(exts: &[String]) -> Result<(), String> {
+    for ext in exts {
+        if !GROUPS.iter().any(|group| group.contains(&ext.as_str())) {
+            return Err(format!("Unsupported file association extension: {ext:?}"));
+        }
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod validation_tests {
+    #[test]
+    fn invalid_association_settings_fail_before_registry_access() {
+        assert!(super::validate_extensions(&super::all_exts()).is_ok());
+        for ext in ["png\\other", "..", "", "PNG", "exe"] {
+            assert!(super::validate_extensions(&[ext.into()]).is_err());
+        }
+    }
+}
+
 #[cfg(windows)]
 pub use imp::*;
 
@@ -110,6 +130,7 @@ mod imp {
     const VERBS: [(&str, &str); 2] = [("LiteView.edit", "--edit"), ("LiteView.mosaic", "--mosaic")];
 
     pub fn register(exts: &[String]) -> Result<(), String> {
+        super::validate_extensions(exts)?;
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let exe = exe.to_string_lossy();
         let t = crate::i18n::tr();

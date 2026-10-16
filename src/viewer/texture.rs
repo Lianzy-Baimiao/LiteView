@@ -69,7 +69,7 @@ impl StillTextures {
         let ready = self.exact.as_ref().is_some_and(|e| same(e.zoom));
         let max = ctx.input(|i| i.max_texture_side) as u32;
         let fits = tw <= max && th <= max && u64::from(tw) * u64::from(th) <= 40_000_000;
-        if !ready && settled && fits && !self.pending.as_ref().is_some_and(|(z, _)| same(*z)) {
+        if !ready && settled && fits && self.pending.is_none() {
             let src = self.levels.iter().rev().find(|l| l.image.width() >= tw && l.image.height() >= th).unwrap_or(&self.levels[0]).image.clone();
             let (tx, rx) = channel();
             let ctx2 = ctx.clone();

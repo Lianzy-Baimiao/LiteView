@@ -157,6 +157,7 @@ pub fn run() -> eframe::Result {
             crate::platform::assoc::unregister();
         } else if let Err(e) = crate::platform::assoc::register(&settings.assoc_exts) {
             log::warn!("注册文件关联失败：{e}");
+            return Err(eframe::Error::AppCreation(std::io::Error::other(format!("File association registration failed: {e}")).into()));
         }
         return Ok(());
     }

@@ -9,7 +9,7 @@ use rayon::prelude::*;
 use windows::Win32::Graphics::Imaging::*;
 use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED, CoCreateInstance, CoInitializeEx};
 
-use super::{Content, Decoded, Error, Info, Kind, check_size};
+use super::{Content, Decoded, Error, Info, Kind, Options};
 
 thread_local! {
     static FACTORY: RefCell<Option<IWICImagingFactory>> = const { RefCell::new(None) };
@@ -27,26 +27,31 @@ fn factory() -> Option<IWICImagingFactory> {
     })
 }
 
-pub fn decode(data: &[u8], kind: Kind) -> Result<Decoded, Error> {
+pub fn decode(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error> {
     let fac = factory().ok_or(Error::Unsupported)?;
-    let missing = || match kind {
-        Kind::Heif | Kind::Avif => Error::MissingCodec(kind),
-        _ => Error::Unsupported,
+    let codec_error = |e: windows::core::Error| match e.code() {
+        windows::Win32::Foundation::WINCODEC_ERR_COMPONENTNOTFOUND if matches!(kind, Kind::Heif | Kind::Avif) => Error::MissingCodec(kind),
+        windows::Win32::Foundation::WINCODEC_ERR_COMPONENTNOTFOUND => Error::Unsupported,
+        windows::Win32::Foundation::E_OUTOFMEMORY => Error::TooLarge { width: 0, height: 0 },
+        _ => Error::Corrupt(e.message()),
     };
     unsafe {
         let stream = fac.CreateStream().map_err(|_| Error::Unsupported)?;
         stream.InitializeFromMemory(data).map_err(|_| Error::Unsupported)?;
-        let decoder = fac.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand).map_err(|_| missing())?;
+        let decoder = fac.CreateDecoderFromStream(&stream, std::ptr::null(), WICDecodeMetadataCacheOnDemand).map_err(codec_error)?;
         let container = decoder.GetContainerFormat().unwrap_or_default();
-        let frame = decoder.GetFrame(0).map_err(|_| missing())?;
-        let conv = fac.CreateFormatConverter().map_err(|_| Error::Unsupported)?;
-        conv.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom).map_err(|_| missing())?;
+        let frame = decoder.GetFrame(0).map_err(codec_error)?;
         let (mut w, mut h) = (0u32, 0u32);
+        frame.GetSize(&mut w, &mut h).map_err(|e| Error::Corrupt(e.message()))?;
+        // WIC codecs have no allocator-limit API; reserve conversion headroom.
+        opts.check_working(w, h, 16)?;
+        let conv = fac.CreateFormatConverter().map_err(|_| Error::Unsupported)?;
+        conv.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom).map_err(codec_error)?;
         conv.GetSize(&mut w, &mut h).map_err(|e| Error::Corrupt(e.message()))?;
-        check_size(w, h)?;
+        opts.check_working(w, h, 16)?;
         let stride = w * 4;
         let mut buf = vec![0u8; stride as usize * h as usize];
-        conv.CopyPixels(std::ptr::null(), stride, &mut buf).map_err(|_| missing())?;
+        conv.CopyPixels(std::ptr::null(), stride, &mut buf).map_err(codec_error)?;
         let has_alpha = buf.par_chunks(4).any(|p| p[3] != 255);
         let image = RgbaImage::from_raw(w, h, buf).ok_or(Error::Corrupt("size".into()))?;
         Ok(Decoded {

@@ -53,6 +53,13 @@ pub fn fill(template: &str, args: &[&dyn std::fmt::Display]) -> String {
 }
 
 strings! {
+    webp_lossless: "WebP 无损压缩", "Lossless WebP";
+    webp_quality: "WebP 有损品质", "Lossy WebP quality";
+    saved_unverified: "文件已写入 {}，但读回校验失败。编辑内容仍保留，请检查文件后再关闭。", "File written to {}, but verification failed. Edits are kept; check the file before closing.";
+    save_drops_exif: "此格式不保留 EXIF。", "This format does not preserve EXIF.";
+    save_drops_icc: "此格式不保留 ICC 色彩配置，其他软件中的颜色可能不同。", "This format does not preserve ICC profiles; colors may differ in other apps.";
+    save_flattens_alpha: "透明区域保存为白色背景；当前画布及撤销记录保留透明度。", "Transparency is flattened onto white in the file; the canvas and undo history keep alpha.";
+    save_binary_alpha: "GIF 仅支持全透明或不透明，半透明像素会被量化。", "GIF only supports binary transparency; partial alpha is quantized.";
     app_name: "LiteView", "LiteView";
     // 工具栏
     prev: "上一张", "Previous";

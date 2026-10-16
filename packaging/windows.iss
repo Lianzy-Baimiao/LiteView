@@ -1,6 +1,6 @@
-; Compile: ISCC /DAppVersion=0.1.0 /DBinaryDir=... packaging/windows.iss
+; Compile: ISCC /DAppVersion=0.1.1 /DBinaryDir=... packaging/windows.iss
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef BinaryDir
   #define BinaryDir "..\target\release"
@@ -40,6 +40,8 @@ Source: "..\LICENSE"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\THIRD-PARTY-NOTICES.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\LICENSES.html"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\licenses\LIBWEBP-COPYING.txt"; DestDir: "{app}"; Flags: ignoreversion
+Source: "..\assets\licenses\LIBWEBP-PATENTS.txt"; DestDir: "{app}"; Flags: ignoreversion
 Source: "..\docs\INSTALL.md"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]

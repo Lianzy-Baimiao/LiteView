@@ -2,6 +2,7 @@
 //! JPEG 保存旋转时只改 EXIF 方向标记，画质无损。
 
 mod gif;
+mod webp;
 
 use std::io::Cursor;
 use std::path::Path;
@@ -50,6 +51,18 @@ impl Format {
         let e = p.extension()?.to_str()?.to_ascii_lowercase();
         Format::ALL.into_iter().find(|f| f.exts().contains(&e.as_str()))
     }
+
+    pub fn supports_exif(self) -> bool {
+        matches!(self, Self::Png | Self::Jpeg | Self::WebP)
+    }
+
+    pub fn supports_icc(self) -> bool {
+        matches!(self, Self::Png | Self::Jpeg | Self::WebP | Self::Tiff)
+    }
+
+    pub fn full_alpha(self) -> bool {
+        matches!(self, Self::Png | Self::WebP | Self::Tiff)
+    }
 }
 
 /// 写进文件的元数据
@@ -82,34 +95,35 @@ pub fn encode_with(img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta) -> Re
     };
     let (w, h) = img.dimensions();
     let mut out = Cursor::new(Vec::new());
-    let add_meta = |enc: &mut dyn ImageEncoderMeta| {
+    let add_meta = |enc: &mut dyn ImageEncoderMeta| -> Result<(), String> {
         if let Some(icc) = &meta.icc {
-            enc.icc(icc.clone());
+            enc.icc(icc.clone())?;
         }
         if let Some(exif) = &meta.exif {
-            enc.exif(exif.clone());
+            enc.exif(exif.clone())?;
         }
+        Ok(())
     };
     let r = match fmt {
         Format::Jpeg => {
             let mut enc = image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, quality.clamp(1, 100));
-            add_meta(&mut enc);
+            add_meta(&mut enc)?;
             enc.write_image(bytes, w, h, color)
         }
         Format::Png => {
             let mut enc = image::codecs::png::PngEncoder::new(&mut out);
-            add_meta(&mut enc);
+            add_meta(&mut enc)?;
             enc.write_image(bytes, w, h, color)
         }
         Format::WebP => {
             let mut enc = image::codecs::webp::WebPEncoder::new_lossless(&mut out);
-            add_meta(&mut enc);
+            add_meta(&mut enc)?;
             enc.write_image(img.as_raw(), w, h, image::ExtendedColorType::Rgba8)
         }
         Format::Tiff => {
             let mut enc = image::codecs::tiff::TiffEncoder::new(&mut out);
             if let Some(icc) = &meta.icc {
-                let _ = enc.set_icc_profile(icc.clone());
+                enc.set_icc_profile(icc.clone()).map_err(|e| e.to_string())?;
             }
             enc.write_image(bytes, w, h, color)
         }
@@ -120,18 +134,22 @@ pub fn encode_with(img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta) -> Re
     Ok(out.into_inner())
 }
 
-/// 各编码器设置元数据（不支持时忽略）
+pub fn encode_with_mode(img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta, webp_lossless: bool) -> Result<Vec<u8>, String> {
+    if fmt == Format::WebP && !webp_lossless { webp::lossy(img, quality, meta) } else { encode_with(img, fmt, quality, meta) }
+}
+
+/// Metadata errors from formats that claim support must not be ignored.
 trait ImageEncoderMeta {
-    fn icc(&mut self, icc: Vec<u8>);
-    fn exif(&mut self, exif: Vec<u8>);
+    fn icc(&mut self, icc: Vec<u8>) -> Result<(), String>;
+    fn exif(&mut self, exif: Vec<u8>) -> Result<(), String>;
 }
 
 impl<T: image::ImageEncoder> ImageEncoderMeta for T {
-    fn icc(&mut self, icc: Vec<u8>) {
-        let _ = self.set_icc_profile(icc);
+    fn icc(&mut self, icc: Vec<u8>) -> Result<(), String> {
+        self.set_icc_profile(icc).map_err(|e| e.to_string())
     }
-    fn exif(&mut self, exif: Vec<u8>) {
-        let _ = self.set_exif_metadata(exif);
+    fn exif(&mut self, exif: Vec<u8>) -> Result<(), String> {
+        self.set_exif_metadata(exif).map_err(|e| e.to_string())
     }
 }
 
@@ -180,7 +198,11 @@ pub fn write(path: &Path, img: &RgbaImage, fmt: Format, quality: u8) -> Result<(
 
 /// 编码后安全写入（临时文件 → 替换原文件）
 pub fn write_with(path: &Path, img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta) -> Result<(), String> {
-    let data = encode_with(img, fmt, quality, meta)?;
+    write_with_mode(path, img, fmt, quality, meta, true)
+}
+
+pub fn write_with_mode(path: &Path, img: &RgbaImage, fmt: Format, quality: u8, meta: &Meta, webp_lossless: bool) -> Result<(), String> {
+    let data = encode_with_mode(img, fmt, quality, meta, webp_lossless)?;
     crate::fsutil::atomic_write(path, |w| w.write_all(&data)).map_err(|e| e.to_string())
 }
 
@@ -425,6 +447,23 @@ mod tests {
             let data = encode(&img, f, 90).unwrap();
             let d = crate::decode::decode_bytes(&data, f.exts()[0], &crate::decode::Options::default()).unwrap();
             assert_eq!((d.info.width, d.info.height), (5, 3), "{f:?}");
+        }
+    }
+
+    #[test]
+    fn format_capabilities_match_encoded_metadata_and_alpha() {
+        let img = RgbaImage::from_pixel(8, 6, image::Rgba([20, 40, 60, 128]));
+        let meta = Meta { exif: clean_exif(&sample_exif()), icc: Some(b"test ICC profile".to_vec()) };
+        for fmt in Format::ALL {
+            let bytes = encode_with(&img, fmt, 90, &meta).unwrap();
+            let decoded = crate::decode::decode_bytes(&bytes, fmt.exts()[0], &Default::default()).unwrap();
+            assert_eq!(decoded.info.exif.is_some(), fmt.supports_exif(), "{fmt:?}");
+            assert_eq!(decoded.info.icc.is_some(), fmt.supports_icc(), "{fmt:?}");
+            if fmt.full_alpha() {
+                assert_eq!(decoded.first_image().as_ref(), &img, "{fmt:?}");
+            } else if fmt != Format::Gif {
+                assert!(decoded.first_image().pixels().all(|p| p[3] == 255));
+            }
         }
     }
 }

@@ -130,6 +130,8 @@ pub struct Settings {
     pub accent: Option<[u8; 3]>,
     pub confirm_overwrite: bool,
     pub jpeg_quality: u8,
+    pub webp_lossless: bool,
+    pub webp_quality: u8,
     pub window: WindowState,
     /// 文件关联要注册的扩展名
     pub assoc_exts: Vec<String>,
@@ -201,6 +203,8 @@ impl Default for Settings {
             accent: None,
             confirm_overwrite: true,
             jpeg_quality: 90,
+            webp_lossless: true,
+            webp_quality: 90,
             window: WindowState::default(),
             assoc_exts: crate::platform::assoc::default_exts(),
             undo_steps: 100,

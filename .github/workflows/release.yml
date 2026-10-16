@@ -59,6 +59,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -70,6 +72,7 @@ jobs:
       - name: Linux packages
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+      - run: cargo clippy --locked --release --all-targets -- -D warnings
       - run: cargo test --locked --release --lib
       - run: cargo build --locked --release
       - uses: actions/download-artifact@v4
@@ -135,4 +138,8 @@ jobs:
           RELEASE_TAG: ${{ github.ref_name }}
         run: |
           (cd release && sha256sum * > SHA256SUMS.txt)
-          gh release create "$RELEASE_TAG" release/* --verify-tag --title "$RELEASE_TAG" --notes-file docs/release-notes.md
+          release_args=(--verify-tag --title "$RELEASE_TAG" --notes-file docs/release-notes.md)
+          if [[ "$RELEASE_TAG" == v0.* || "$RELEASE_TAG" == *-* ]]; then
+            release_args+=(--prerelease --latest=false)
+          fi
+          gh release create "$RELEASE_TAG" release/* "${release_args[@]}"

@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"
@@ -34,6 +34,7 @@ kamadak-exif = "=0.6.1"
 jxl-oxide = "=0.12.6"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 notify = "=8.2.0"
+webp = { version = "=0.3.1", default-features = false }
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"

@@ -3,5 +3,6 @@
 <style>body{font:16px system-ui;max-width:1000px;margin:40px auto;padding:0 24px}pre{white-space:pre-wrap;overflow-wrap:anywhere}section{border-top:1px solid #ddd;margin-top:32px}</style>
 <h1>LiteView — third-party licenses</h1>
 <p>Generated from Cargo.lock with cargo-about. Includes dependencies for Windows, Linux and macOS. LiteView and its original artwork use the MIT license; Fluent icons are attributed separately in THIRD-PARTY-NOTICES.md.</p>
+<p>The bundled Google libwebp C library has separate <a href="LIBWEBP-COPYING.txt">BSD license terms</a> and an <a href="LIBWEBP-PATENTS.txt">additional patent grant</a>, included alongside this file.</p>
 {{#each licenses}}<section><h2>{{name}}</h2><ul>{{#each used_by}}<li>{{crate.name}} {{crate.version}}</li>{{/each}}</ul><pre>{{text}}</pre></section>{{/each}}
 </html>
