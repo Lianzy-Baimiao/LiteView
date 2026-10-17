@@ -1,0 +1,111 @@
+{
+  "version": "1.0.0",
+  "binary_sha256": "21ddc58f7d9d9e3d5589566e725fce1fc209288bfe82018adaaac6eaf058ac6a",
+  "capture": "Actual client frame via LITEVIEW_SCRIPT; unpackaged binary identical to the MSIX payload; not MSIX GUI validation",
+  "screenshots": [
+    {
+      "language": "zh-cn",
+      "scene": "viewer",
+      "path": "zh-cn-viewer.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "c8e36d95cefc1a55cb509c35a9dbb6aa81a753cc15060ff1c087807d77a5c0c8",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "exit_code": 0
+    },
+    {
+      "language": "zh-cn",
+      "scene": "editor",
+      "path": "zh-cn-editor.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "54d2d3bf6502a20be8707ee72790d0b10e2e35766715075d4fde0e9e9de30f4c",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "3d868ff7ffe13d56f7f4f96e6f92e80fe4ddac7eb4b34ae09d2409ca28e80371",
+      "exit_code": 0
+    },
+    {
+      "language": "zh-cn",
+      "scene": "redaction",
+      "path": "zh-cn-redaction.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "c5ee69f559e9f8456942b8fa65d36d2d55f39917417a63a9dfb37b8592ed6073",
+      "source_before": "33d8b629a980649767a9cb8bc17663972a02eb343b3f41c00bfdf006bf614229",
+      "source_after": "c8e681da037486ea7e694cbdfae4a2b348ce082a1196c1efec778c6f4389c633",
+      "exit_code": 0
+    },
+    {
+      "language": "zh-cn",
+      "scene": "animation",
+      "path": "zh-cn-animation.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "d2ba8ec0026644c4f1da9e934664ca21d21983bff77a2f540759326ce4288918",
+      "source_before": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "source_after": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "exit_code": 0
+    },
+    {
+      "language": "en-us",
+      "scene": "viewer",
+      "path": "en-us-viewer.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "c8e36d95cefc1a55cb509c35a9dbb6aa81a753cc15060ff1c087807d77a5c0c8",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "exit_code": 0
+    },
+    {
+      "language": "en-us",
+      "scene": "editor",
+      "path": "en-us-editor.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "2e11739a903102ace452615fb6dd977fd0b8139341899610bd37c59c79f3e874",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "ed9097151f55b1b82d5f1f9117163028e3362400fb1e5fa7f73ab8978f0c10fa",
+      "exit_code": 0
+    },
+    {
+      "language": "en-us",
+      "scene": "redaction",
+      "path": "en-us-redaction.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "2108034f432ab2062e164c77ac2818c9aa287bcc58065a83b7bffec283f6eab5",
+      "source_before": "33d8b629a980649767a9cb8bc17663972a02eb343b3f41c00bfdf006bf614229",
+      "source_after": "c8e681da037486ea7e694cbdfae4a2b348ce082a1196c1efec778c6f4389c633",
+      "exit_code": 0
+    },
+    {
+      "language": "en-us",
+      "scene": "animation",
+      "path": "en-us-animation.png",
+      "dimensions": [
+        1500,
+        975
+      ],
+      "sha256": "d2ba8ec0026644c4f1da9e934664ca21d21983bff77a2f540759326ce4288918",
+      "source_before": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "source_after": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "exit_code": 0
+    }
+  ]
+}

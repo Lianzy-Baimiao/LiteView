@@ -20,26 +20,32 @@ Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、
 
 ## 界面预览
 
-以下为 Windows 功能界面的真实运行截图（2026-10-14），不是界面设计稿；截图拍摄自开发版本，核心查看和编辑布局沿用至 1.0。
-图片为原创演示素材，客户资料为虚构数据；编辑示例中的新增文字、箭头，以及打码效果均由 LiteView 实际操作生成。
+以下截图来自已发布的 Windows 1.0.0 正式版（2026-10-17），不是界面设计稿。
+图片为原创演示素材，资料卡为虚构数据；文字、箭头和马赛克均由 LiteView 实际操作生成。[截图来源与复现方法](docs/images/store-v1.0.0/README.md)
 
 ### 看图 · 深色主题
 
 内容优先，底部浮动工具栏提供翻图、缩放、旋转与编辑入口。
 
-![LiteView 深色看图界面：原创山湖插画与底部浮动工具栏](docs/images/preview-viewer.png)
+![LiteView 深色看图界面：原创山湖插画与底部浮动工具栏](docs/images/store-v1.0.0/zh-cn-viewer.png)
 
 ### 编辑 · 文字与箭头标注
 
 在同一窗口进入编辑，添加中文文字、绘制箭头，并调整形状控制点。
 
-![LiteView 浅色编辑界面：在图片上添加中文文字和可调整的箭头](docs/images/preview-editor.png)
+![LiteView 编辑界面：在图片上添加中文文字和可调整的箭头](docs/images/store-v1.0.0/zh-cn-editor.png)
 
 ### 打码 · 框选马赛克
 
 框选需要遮挡的区域，可切换画笔或框选、马赛克或模糊，并调整强度。
 
-![LiteView 打码界面：用框选马赛克遮挡虚构联系电话和邮箱](docs/images/preview-redaction.png)
+![LiteView 打码界面：用框选马赛克遮挡虚构联系电话和邮箱](docs/images/store-v1.0.0/zh-cn-redaction.png)
+
+### 动图 · 暂停与逐帧查看
+
+暂停 GIF，前后逐帧查看，也可以单独导出当前帧。
+
+![LiteView 动图界面：暂停在 GIF 第 4 帧，显示逐帧按钮、时间轴和速度](docs/images/store-v1.0.0/zh-cn-animation.png)
 
 ## 功能
 
