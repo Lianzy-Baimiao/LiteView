@@ -132,6 +132,17 @@ def capture(binary, root, language, scene, *, installed_config=None, minimum_siz
     script = directory / "replay.txt"
     script.write_text("\n".join(steps) + "\n", encoding="utf-8")
     env = {**os.environ, "LITEVIEW_CONFIG_DIR": str(config), "LITEVIEW_SCRIPT": str(script)}
+    runtime = None
+    if installed_config is not None:
+        # The explicit test override wins even in MSIX. Remove it so these GUI
+        # children really exercise the package's default WinRT settings path.
+        env.pop("LITEVIEW_CONFIG_DIR", None)
+        diagnostics = directory / "diagnostics.json"
+        diagnostic_env = {key: value for key, value in env.items() if key != "LITEVIEW_SCRIPT"}
+        subprocess.run([str(binary), "--diagnostics", str(diagnostics)], env=diagnostic_env, timeout=30, check=True)
+        runtime = json.loads(diagnostics.read_text(encoding="utf-8"))
+        if not runtime["packaged"] or Path(runtime["config_dir"]).resolve() != installed_config:
+            raise RuntimeError("GUI replay environment lost the package identity or default settings path")
     args.append(str(image))
     # This calls the app-owned test harness; it does not send OS-level input.
     with (directory / "process.log").open("w", encoding="utf-8") as log:
@@ -143,7 +154,10 @@ def capture(binary, root, language, scene, *, installed_config=None, minimum_siz
         dimensions = list(shot.size)
     if scene in ("editor", "redaction") and sha256(image) == original_hash:
         raise RuntimeError(f"Editing did not change the generated sample: {scene}")
-    return {"language": language, "scene": scene, "path": str(screenshot.relative_to(root)), "dimensions": dimensions, "sha256": sha256(screenshot), "source_before": original_hash, "source_after": sha256(image), "exit_code": result.returncode}
+    record = {"language": language, "scene": scene, "path": str(screenshot.relative_to(root)), "dimensions": dimensions, "sha256": sha256(screenshot), "source_before": original_hash, "source_after": sha256(image), "exit_code": result.returncode}
+    if runtime is not None:
+        record["runtime"] = runtime
+    return record
 
 
 def main():
