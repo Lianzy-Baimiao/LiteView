@@ -3,9 +3,13 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v0.1.2 开发预览版，不是 v1.0 正式发布。需求见 [PRD](docs/PRD.md)，进展及真实未完成项见 [TODO](docs/TODO.md)。
+> v1.0.0 正式版。Windows 看图、编辑和打码是本版的主要使用范围；系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
 
-### v0.1.2 更新
+### v1.0.0 更新
+
+- 转为正式版本，保留原有设置和独立安装版/绿色版的使用方式。
+- 新增 Microsoft Store MSIX 打包：使用正式产品身份，提供多倍率图标、中英文系统菜单和清单管理的图片关联。商店版尚需提交审核，不代表已上架。
+- 商店版使用独立配置目录和单实例通道；不会修改或移除独立版的格式注册。
 
 - 文件关联页增加常用/全部格式选择、完成进度和待设置筛选；从系统设置返回后自动刷新。
 - 登记格式改为增量操作，不会因取消勾选而删除已有注册。Windows 默认应用仍由用户在系统设置中确认。
@@ -16,7 +20,7 @@ Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、
 
 ## 界面预览
 
-以下为 Windows 当前开发预览版的真实运行截图（2026-10-14），不是界面设计稿。
+以下为 Windows 功能界面的真实运行截图（2026-10-14），不是界面设计稿；截图拍摄自开发版本，核心查看和编辑布局沿用至 1.0。
 图片为原创演示素材，客户资料为虚构数据；编辑示例中的新增文字、箭头，以及打码效果均由 LiteView 实际操作生成。
 
 ### 看图 · 深色主题
@@ -47,11 +51,12 @@ Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、
 
 ## 下载与平台
 
-[v0.1.2 开发预览](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v0.1.2) · [全部版本](https://github.com/Lianzy-Baimiao/LiteView/releases) · [安装说明](docs/INSTALL.md)
+[v1.0.0 正式版](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.0.0) · [全部版本](https://github.com/Lianzy-Baimiao/LiteView/releases) · [安装说明](docs/INSTALL.md)
 
 Windows 10 / 11 优先。本仓库包含 Windows 绿色包与用户级安装包、Linux x64 归档、macOS Intel / Apple Silicon 应用包的构建流程。
 某个平台的包只有对应 CI 成功后才可用；添加打包脚本不等于已经在该系统实测。
 发布包附第三方许可和 SHA-256 校验值。当前未做代码签名或 macOS 公证。
+Microsoft Store 产品名称已预留，MSIX 尚未通过商店审核；未签名的提交候选包不会作为普通 GitHub 安装包提供。[隐私政策](docs/PRIVACY.md)
 
 ## 快捷键
 

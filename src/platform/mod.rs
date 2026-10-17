@@ -1,6 +1,7 @@
 //! 各系统专有的部分。公共代码只调用这里的函数，不直接用系统接口。
 
 pub mod assoc;
+pub mod package;
 #[cfg(windows)]
 pub mod windows;
 

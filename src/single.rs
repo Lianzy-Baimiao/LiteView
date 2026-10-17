@@ -28,7 +28,8 @@ fn user() -> String {
 
 #[cfg(windows)]
 fn name() -> String {
-    format!(r"\\.\pipe\LiteView-{}", user())
+    let family = crate::platform::package::identity().map(|identity| identity.family.as_str());
+    format!(r"\\.\pipe\{}", crate::platform::package::instance_name(&user(), family))
 }
 
 #[cfg(not(windows))]

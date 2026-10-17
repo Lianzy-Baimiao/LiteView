@@ -1,6 +1,6 @@
-; Compile: ISCC /DAppVersion=0.1.2 /DBinaryDir=... packaging/windows.iss
+; Compile: ISCC /DAppVersion=1.0.0 /DBinaryDir=... packaging/windows.iss
 #ifndef AppVersion
-  #define AppVersion "0.1.2"
+  #define AppVersion "1.0.0"
 #endif
 #ifndef BinaryDir
   #define BinaryDir "..\target\release"

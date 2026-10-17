@@ -310,6 +310,9 @@ strings! {
     a_registered: "已添加到系统「打开方式」。勾选不会取消已有的默认设置。", "Added to Open with. Changing this selection does not undo existing defaults.";
     a_not_registered: "尚未注册；仅勾选格式不会修改系统。", "Not registered. Selecting formats alone makes no system changes.";
     a_note: "先选想用 LiteView 打开的格式，再去 Windows 确认。已设好的不用重复选。", "Choose formats, then confirm in Windows. Formats already set need no further action.";
+    a_packaged_note: "商店版已随安装登记图片格式。这里勾选的是要检查的范围，默认应用仍由你在 Windows 中确认。", "The Store package registers image formats at installation. Select a checklist here, then confirm defaults in Windows.";
+    a_packaged_steps: "点击前往商店版 LiteView 的默认应用设置。若打开的是首页，请搜索 LiteView；与安装版并存时，请注意区分。", "Open default-app settings for the Store edition. If the overview opens, search for LiteView. Choose the Store edition if both editions are installed.";
+    a_packaged_managed: "格式和右键菜单由 Windows 随商店包安装、更新和卸载，无需手动注册。", "Windows manages formats and context menus when installing, updating or uninstalling the Store package.";
     a_groups: "常用|更多格式|专业|相机 RAW", "Common|More|Professional|Camera RAW";
     a_open_settings: "前往系统设置", "Open Windows Settings";
     a_choose_formats: "选择图片格式", "Choose image formats";

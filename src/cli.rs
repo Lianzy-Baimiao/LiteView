@@ -14,6 +14,8 @@ pub struct Args {
     pub register: bool,
     /// 删除文件关联后退出
     pub unregister: bool,
+    /// Write local runtime diagnostics to the specified path, then exit without opening a window.
+    pub diagnostics: bool,
 }
 
 pub fn parse(args: impl IntoIterator<Item = OsString>) -> Args {
@@ -24,6 +26,7 @@ pub fn parse(args: impl IntoIterator<Item = OsString>) -> Args {
             Some("--mosaic") => out.mosaic = true,
             Some("--register") => out.register = true,
             Some("--unregister") => out.unregister = true,
+            Some("--diagnostics") => out.diagnostics = true,
             Some(s) if s.starts_with("--") => {}
             _ if out.path.is_none() => {
                 let p = PathBuf::from(arg);
@@ -50,5 +53,8 @@ mod tests {
         assert!(a.path.unwrap().ends_with("a.png"));
         assert_eq!(p(&[]), Args::default());
         assert!(p(&["--register"]).register);
+        let report = p(&["--diagnostics", "report with spaces.json"]);
+        assert!(report.diagnostics);
+        assert!(report.path.unwrap().ends_with("report with spaces.json"));
     }
 }

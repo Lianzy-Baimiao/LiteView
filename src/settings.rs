@@ -1,6 +1,6 @@
 //! 设置：JSON，原子写入并保留 `.bak`，损坏时自动回退。
 //! 位置：Windows `%APPDATA%\LiteView\`、macOS `~/Library/Application Support/LiteView/`、
-//! Linux `~/.config/liteview/`；程序旁有 `LiteView.portable` 时存程序旁的 `config` 目录。
+//! Linux `~/.config/liteview/`；绿色版存程序旁 `config`，MSIX 使用包的 LocalFolder。
 
 use std::path::PathBuf;
 
@@ -277,6 +277,19 @@ fn file() -> PathBuf {
 pub fn config_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("LITEVIEW_CONFIG_DIR") {
         return PathBuf::from(d);
+    }
+    #[cfg(windows)]
+    if crate::platform::package::is_packaged() {
+        if let Some(dir) = crate::platform::package::local_data_dir() {
+            return dir;
+        }
+        // Never write beside the read-only executable, even if a marker was added.
+        return std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("Packages")
+            .join(&crate::platform::package::identity().expect("package identity is cached").family)
+            .join("LocalState");
     }
     if let Some(dir) = std::env::current_exe().ok().and_then(|e| e.parent().map(|p| p.to_path_buf()))
         && dir.join("LiteView.portable").exists()

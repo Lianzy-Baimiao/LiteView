@@ -47,14 +47,14 @@ pub(super) fn show(ui: &mut Ui, s: &mut Settings) -> Option<String> {
     if focused {
         ui.ctx().request_repaint_after(Duration::from_secs(2));
     }
-    let msg = content(ui, s, &mut state, tr());
+    let msg = content(ui, s, &mut state, tr(), crate::platform::package::is_packaged());
     ui.data_mut(|data| data.insert_temp(id, state));
     msg
 }
 
-fn content(ui: &mut Ui, s: &mut Settings, state: &mut State, t: &crate::i18n::Strings) -> Option<String> {
+fn content(ui: &mut Ui, s: &mut Settings, state: &mut State, t: &crate::i18n::Strings, packaged: bool) -> Option<String> {
     let p = theme::palette(ui.ctx());
-    ui.label(RichText::new(t.a_note).color(p.text_weak).size(12.0));
+    ui.label(RichText::new(if packaged { t.a_packaged_note } else { t.a_note }).color(p.text_weak).size(12.0));
     ui.add_space(6.0);
     ui.horizontal_wrapped(|ui| {
         if ui.link(t.a_common).clicked() {
@@ -97,7 +97,7 @@ fn content(ui: &mut Ui, s: &mut Settings, state: &mut State, t: &crate::i18n::St
             state.refresh();
         }
     });
-    ui.label(RichText::new(t.a_system_steps).color(p.text_weak).size(12.0));
+    ui.label(RichText::new(if packaged { t.a_packaged_steps } else { t.a_system_steps }).color(p.text_weak).size(12.0));
     if let Some(error) = &state.error {
         ui.label(RichText::new(error).color(p.danger));
     }
@@ -140,8 +140,8 @@ fn content(ui: &mut Ui, s: &mut Settings, state: &mut State, t: &crate::i18n::St
         }
     }
     ui.add_space(8.0);
-    ui.label(RichText::new(if state.registered { t.a_registered } else { t.a_not_registered }).color(p.text_weak).size(12.0));
-    if state.registered {
+    ui.label(RichText::new(if packaged { t.a_packaged_managed } else if state.registered { t.a_registered } else { t.a_not_registered }).color(p.text_weak).size(12.0));
+    if state.registered && !packaged {
         if ui.link(t.a_unregister).clicked() {
             state.confirm_remove = true;
         }
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn association_page_wraps_in_both_languages_without_system_actions() {
-        for t in [&crate::i18n::ZH, &crate::i18n::EN] {
+        for (t, packaged) in [(&crate::i18n::ZH, false), (&crate::i18n::EN, false), (&crate::i18n::ZH, true), (&crate::i18n::EN, true)] {
             for width in [316.0, 490.0] {
                 for (exts, defaults, only_pending) in [
                     (assoc::all_exts(), Vec::new(), false),
@@ -207,7 +207,7 @@ mod tests {
                     let mut state = State { defaults, only_pending, registered: true, confirm_remove: true, ..Default::default() };
                     let input = egui::RawInput { screen_rect: Some(egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(width, 2000.0))), ..Default::default() };
                     let _ = ctx.run_ui(input, |ui| {
-                        assert!(content(ui, &mut settings, &mut state, t).is_none());
+                        assert!(content(ui, &mut settings, &mut state, t, packaged).is_none());
                         assert!(ui.min_rect().width() <= width + 1.0, "content width {} exceeds {width}", ui.min_rect().width());
                     });
                 }

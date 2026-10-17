@@ -34,8 +34,15 @@ fn is_liteview_prog_id(id: &str) -> bool {
 }
 
 #[cfg(any(windows, test))]
-fn launch_default_settings(build: u32, mut launch: impl FnMut(&str) -> Result<(), String>) -> Result<(), String> {
-    if build >= 22621 && launch("ms-settings:defaultapps?registeredAppUser=LiteView").is_ok() {
+fn launch_default_settings(build: u32, application_id: Option<&str>, mut launch: impl FnMut(&str) -> Result<(), String>) -> Result<(), String> {
+    let uri = application_id.map_or_else(
+        || "ms-settings:defaultapps?registeredAppUser=LiteView".to_owned(),
+        |id| {
+            let encoded: String = id.bytes().map(|b| if b.is_ascii_alphanumeric() || b"-_.~".contains(&b) { char::from(b).to_string() } else { format!("%{b:02X}") }).collect();
+            format!("ms-settings:defaultapps?registeredAUMID={encoded}")
+        },
+    );
+    if build >= 22621 && launch(&uri).is_ok() {
         return Ok(());
     }
     launch("ms-settings:defaultapps")
@@ -80,7 +87,7 @@ mod validation_tests {
     #[test]
     fn settings_launch_falls_back_and_reports_failure() {
         let mut urls = Vec::new();
-        let result = super::launch_default_settings(26200, |uri| {
+        let result = super::launch_default_settings(26200, None, |uri| {
             urls.push(uri.to_string());
             if urls.len() == 1 { Err("unavailable".into()) } else { Ok(()) }
         });
@@ -88,23 +95,39 @@ mod validation_tests {
         assert_eq!(urls, ["ms-settings:defaultapps?registeredAppUser=LiteView", "ms-settings:defaultapps"]);
         urls.clear();
         assert!(
-            super::launch_default_settings(19045, |uri| {
+            super::launch_default_settings(19045, None, |uri| {
                 urls.push(uri.to_string());
                 Ok(())
             })
             .is_ok()
         );
         assert_eq!(urls, ["ms-settings:defaultapps"]);
-        assert_eq!(super::launch_default_settings(26200, |_| Err("failed".into())), Err("failed".into()));
+        assert_eq!(super::launch_default_settings(26200, None, |_| Err("failed".into())), Err("failed".into()));
         let mut calls = 0;
         assert!(
-            super::launch_default_settings(26200, |_| {
+            super::launch_default_settings(26200, None, |_| {
                 calls += 1;
                 Ok(())
             })
             .is_ok()
         );
         assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn packaged_settings_target_the_package_not_the_classic_registration() {
+        let mut urls = Vec::new();
+        super::launch_default_settings(26200, Some("ice.LiteView_test!LiteView"), |uri| {
+            urls.push(uri.to_owned());
+            Ok(())
+        }).unwrap();
+        assert_eq!(urls, ["ms-settings:defaultapps?registeredAUMID=ice.LiteView_test%21LiteView"]);
+        urls.clear();
+        super::launch_default_settings(19045, Some("ice.LiteView_test!LiteView"), |uri| {
+            urls.push(uri.to_owned());
+            Ok(())
+        }).unwrap();
+        assert_eq!(urls, ["ms-settings:defaultapps"]);
     }
 }
 
@@ -115,7 +138,7 @@ pub use imp::*;
 mod imp {
     use windows::Win32::Foundation::ERROR_SUCCESS;
     use windows::Win32::System::Registry::*;
-    use windows::Win32::UI::Shell::{ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_PROGID, AssocQueryStringW, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW};
+    use windows::Win32::UI::Shell::{ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR, ASSOCSTR_APPID, ASSOCSTR_PROGID, AssocQueryStringW, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
     use windows::core::{PCWSTR, PWSTR, w};
 
@@ -200,6 +223,10 @@ mod imp {
 
     pub fn register(exts: &[String]) -> Result<(), String> {
         super::validate_extensions(exts)?;
+        if crate::platform::package::is_packaged() {
+            // Package deployment owns associations. Never touch a side-by-side classic install.
+            return Ok(());
+        }
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
         let exe = exe.to_string_lossy();
         let t = crate::i18n::tr();
@@ -259,6 +286,9 @@ mod imp {
 
     /// 删除本软件写入的所有注册信息
     pub fn unregister() {
+        if crate::platform::package::is_packaged() {
+            return;
+        }
         for ext in GROUPS.iter().flat_map(|g| g.iter()) {
             remove_ext(ext);
         }
@@ -272,22 +302,33 @@ mod imp {
     }
 
     pub fn is_registered() -> bool {
-        get(HKEY_CURRENT_USER, r"Software\RegisteredApplications", APP).is_some()
+        crate::platform::package::is_packaged() || get(HKEY_CURRENT_USER, r"Software\RegisteredApplications", APP).is_some()
     }
 
     /// 查询系统实际解析出的默认处理程序，不把无效或过期的 UserChoice 当成成功。
     pub fn is_default(ext: &str) -> bool {
+        if let Some(identity) = crate::platform::package::identity() {
+            return identity.application_id.as_ref().zip(query_association(ext, ASSOCSTR_APPID)).is_some_and(|(expected, actual)| expected.eq_ignore_ascii_case(&actual));
+        }
+        query_association(ext, ASSOCSTR_PROGID).is_some_and(|id| super::is_liteview_prog_id(&id))
+    }
+
+    fn query_association(ext: &str, kind: ASSOCSTR) -> Option<String> {
         let ext = wstr(&format!(".{ext}"));
         let mut buf = [0u16; 512];
         let mut len = buf.len() as u32;
-        let result = unsafe { AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_PROGID, PCWSTR(ext.as_ptr()), PCWSTR::null(), Some(PWSTR(buf.as_mut_ptr())), &mut len) };
-        result.0 == 0 && len > 0 && len as usize <= buf.len() && super::is_liteview_prog_id(&String::from_utf16_lossy(&buf[..len as usize - 1]))
+        let result = unsafe { AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, kind, PCWSTR(ext.as_ptr()), PCWSTR::null(), Some(PWSTR(buf.as_mut_ptr())), &mut len) };
+        (result.0 == 0 && len > 0 && len as usize <= buf.len()).then(|| String::from_utf16_lossy(&buf[..len as usize - 1]))
     }
 
     /// 打开系统「默认应用」；Win11 22H2 起直接到本软件的页面
     pub fn open_default_apps() -> Result<(), String> {
         let build: u32 = get(HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber").and_then(|b| b.parse().ok()).unwrap_or(0);
-        super::launch_default_settings(build, |uri| {
+        let identity = crate::platform::package::identity();
+        let application_id = identity.and_then(|identity| identity.application_id.as_deref());
+        // If Windows could not supply the packaged AUMID, only open the overview.
+        let build = if identity.is_some() && application_id.is_none() { 0 } else { build };
+        super::launch_default_settings(build, application_id, |uri| {
             let u = wstr(uri);
             let result = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(u.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
             let code = result.0 as isize;

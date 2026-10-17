@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "0.1.2"
+version = "1.0.0"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"
@@ -39,10 +39,12 @@ webp = { version = "=0.3.1", default-features = false }
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"
 features = [
+    "Storage_Search",
     "Win32_Foundation",
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Imaging",
     "Win32_Storage_FileSystem",
+    "Win32_Storage_Packaging_Appx",
     "Win32_System_Com",
     "Win32_Security",
     "Win32_System_IO",
@@ -51,6 +53,7 @@ features = [
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_WinRT",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",

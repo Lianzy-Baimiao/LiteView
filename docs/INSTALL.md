@@ -8,6 +8,12 @@
 - 注册为增量操作：切换勾选不会移除以前注册的格式或破坏已有默认设置。「移除打开方式注册」才会清理 LiteView 的注册，并需要再次确认。Windows 的默认应用仍由用户决定，不破解 UserChoice，也不模拟系统点击。
 - 卸载不删除用户图片及配置。安装包未签名时 Windows 可能提示未知发布者；请先核对来源及 SHA256SUMS.txt，勿关闭系统安全功能。
 
+### Microsoft Store 版（待上架）
+
+商店版尚未提交审核，当前不要把仓库中的 MSIX 测试包当作普通安装包使用。
+该渠道最低为 Windows 10 2004（19041）x64；图片格式随包安装登记，设置页中的勾选只是待检查范围。默认应用仍需用户在 Windows 中确认。
+商店版与 GitHub 版使用独立配置和单实例通道，二者并存时不会互相移除格式注册。包的安装/卸载由 Windows 管理，不提供手动注销入口。
+
 ## Linux (x64)
 
 解压 linux-x64.tar.gz 后运行 ./LiteView。二进制在 Ubuntu 22.04 构建；更旧的 glibc 系统可能需要从源码构建。
@@ -27,9 +33,12 @@
 ## 配置与隐私
 
 - Windows 安装版：%APPDATA%\LiteView\settings.json
+- Windows 商店版：Windows 为该包提供的 LocalFolder（通常为 `%LOCALAPPDATA%\Packages\ice.LiteView_rz8m2sa64m4em\LocalState`）；卸载通常会删除这部分设置，与独立版的保留行为不同
 - Linux：~/.config/liteview/settings.json（或 XDG_CONFIG_HOME）
 - macOS：~/Library/Application Support/LiteView/settings.json
 - 绿色模式：程序旁 config/settings.json
+
+需要排查安装环境时可主动运行 `LiteView.exe --diagnostics <新报告文件.json>`，仅输出版本、包身份和配置目录并退出，不修改默认应用。输出文件必须不存在，不会覆盖已有文件；报告含本机路径，公开分享前请检查。详细数据处理说明见 [隐私政策](PRIVACY.md)。
 
 程序运行时不联网、不上传图片。图像缓存仅在内存；「设为桌面背景」会按用户操作保存一份壁纸。
 动图缓存限制约束预缓存的 RGBA 帧；大动图还需要压缩源文件、解码器合成缓冲和少量当前/待显示帧内存，不等于进程总内存上限。

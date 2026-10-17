@@ -31,12 +31,19 @@ public static class LiteViewResourceProbe {
     private static extern IntPtr LockResource(IntPtr resource);
     [DllImport("kernel32.dll")]
     private static extern bool FreeLibrary(IntPtr module);
+    private delegate bool ResourceNameCallback(IntPtr module, IntPtr type, IntPtr name, IntPtr parameter);
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern bool EnumResourceNames(IntPtr module, IntPtr type, ResourceNameCallback callback, IntPtr parameter);
 
     public static byte[] ReadManifest(string file) {
         // DATAFILE | IMAGE_RESOURCE: map resources without executing any code.
         IntPtr module = LoadLibraryEx(file, IntPtr.Zero, 0x22);
         if (module == IntPtr.Zero) throw new Win32Exception();
         try {
+            int manifestCount = 0;
+            ResourceNameCallback count = (m, t, n, p) => { manifestCount++; return true; };
+            if (!EnumResourceNames(module, new IntPtr(24), count, IntPtr.Zero) || manifestCount != 1)
+                throw new InvalidOperationException("Expected exactly one application manifest, found " + manifestCount + ".");
             IntPtr resource = FindResource(module, new IntPtr(1), new IntPtr(24));
             if (resource == IntPtr.Zero) throw new InvalidOperationException("Missing application manifest #1.");
             uint length = SizeofResource(module, resource);
@@ -87,10 +94,12 @@ $manifest.XmlResolver = $null
 $manifest.LoadXml([Text.Encoding]::UTF8.GetString([LiteViewResourceProbe]::ReadManifest($Binary)))
 $namespaces = New-Object System.Xml.XmlNamespaceManager($manifest.NameTable)
 $namespaces.AddNamespace('asm', 'urn:schemas-microsoft-com:asm.v1')
+$namespaces.AddNamespace('asm3', 'urn:schemas-microsoft-com:asm.v3')
 $namespaces.AddNamespace('dpi', 'http://schemas.microsoft.com/SMI/2016/WindowsSettings')
 $checks = @{
     '//dpi:dpiAwareness' = 'PerMonitorV2'
     '//dpi:longPathAware' = 'true'
+    '//asm3:requestedExecutionLevel/@level' = 'asInvoker'
     '/asm:assembly/asm:assemblyIdentity/@name' = 'LiteView'
     '//asm:dependentAssembly/asm:assemblyIdentity/@name' = 'Microsoft.Windows.Common-Controls'
 }

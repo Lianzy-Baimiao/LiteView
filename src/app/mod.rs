@@ -152,6 +152,11 @@ pub fn run() -> eframe::Result {
     let args = crate::cli::parse(std::env::args_os().skip(1));
     let settings = Settings::load();
     crate::i18n::set_language(settings.language);
+    if args.diagnostics {
+        let result = args.path.as_deref().ok_or_else(|| std::io::Error::other("--diagnostics requires an output file"))
+            .and_then(crate::devtools::write_diagnostics);
+        return result.map_err(|error| eframe::Error::AppCreation(error.into()));
+    }
     // 给安装程序用：注册 / 删除文件关联后退出
     #[cfg(windows)]
     if args.register || args.unregister {

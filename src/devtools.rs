@@ -8,6 +8,25 @@ use std::time::{Duration, Instant};
 
 use egui::{Event, Key, Modifiers, PointerButton, Pos2, pos2};
 
+/// Opt-in local report for packaged activation tests; no settings or associations are changed.
+pub fn write_diagnostics(path: &std::path::Path) -> std::io::Result<()> {
+    let identity = crate::platform::package::identity();
+    #[cfg(windows)]
+    let package_local_folder = crate::platform::package::local_data_dir();
+    #[cfg(not(windows))]
+    let package_local_folder: Option<std::path::PathBuf> = None;
+    let report = serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "packaged": identity.is_some(),
+        "package_family": identity.map(|id| &id.family),
+        "application_id": identity.and_then(|id| id.application_id.as_ref()),
+        "config_dir": crate::settings::config_dir(),
+        "package_local_folder": package_local_folder,
+    });
+    let file = std::fs::OpenOptions::new().write(true).create_new(true).open(path)?;
+    serde_json::to_writer_pretty(file, &report).map_err(std::io::Error::other)
+}
+
 #[derive(Debug)]
 enum Step {
     Wait(Duration),

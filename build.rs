@@ -46,6 +46,14 @@ fn main() {
         }
         let status = cmd.status().unwrap_or_else(|e| panic!("run Windows resource compiler {windres}: {e}"));
         assert!(status.success(), "Windows resource compilation failed: {status}");
+        // Some GCC versions append default-manifest.o even when Rust supplies its own
+        // startup objects. Shadow it with a resource-free object; link our resources once.
+        let empty_source = out.join("empty-manifest.c");
+        std::fs::write(&empty_source, "/* The application manifest is linked explicitly. */\n").expect("write empty manifest shim");
+        let gcc = bin.as_ref().map_or("gcc".to_owned(), |b| format!("{b}/gcc.exe"));
+        let status = Command::new(&gcc).current_dir(&out).args(["-c", "empty-manifest.c", "-o", "default-manifest.o"]).status().expect("compile default manifest shim");
+        assert!(status.success(), "Default manifest shim compilation failed: {status}");
+        println!("cargo:rustc-link-arg-bin=LiteView=-B{}/", out.display());
         println!("cargo:rustc-link-arg-bin=LiteView={}", obj.display());
     } else {
         embed_resource::compile_for(&rc_path, ["LiteView"], embed_resource::NONE).manifest_required().expect("compile required Windows resources");

@@ -56,6 +56,7 @@ jobs:
     timeout-minutes: 60
     env:
       MACOSX_DEPLOYMENT_TARGET: "11.0"
+      RUSTFLAGS: ${{ runner.os == 'Windows' && '-C target-feature=+crt-static' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -107,6 +108,26 @@ jobs:
           $version = python -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'])"
           $previous = Join-Path $env:RUNNER_TEMP 'liteview-previous-installer'
           ./packaging/test_windows_installer.ps1 -Installer "dist/LiteView-v$version-windows-x64-setup.exe" -PreviousInstaller "$previous/LiteView-v0.0.0-windows-x64-setup.exe" -Binary "target/release/LiteView.exe" -Version $version
+      - name: Windows Store MSIX build and isolated lifecycle
+        if: runner.os == 'Windows'
+        timeout-minutes: 8
+        shell: pwsh
+        run: |
+          $version = python -c "import tomllib; print(tomllib.load(open('Cargo.toml','rb'))['package']['version'].split('-')[0])"
+          $sdk = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\makeappx.exe" | Sort-Object FullName -Descending | Select-Object -First 1
+          if (-not $sdk) { throw 'Windows SDK MakeAppx is required' }
+          python packaging/msix.py --binary target/release/LiteView.exe --store-version "$version.0" --makeappx $sdk.FullName
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          ./packaging/test_msix_lifecycle.ps1 -Package "dist/store/LiteView-store-$version.0-x64.msix" -Binary target/release/LiteView.exe -MakeAppx $sdk.FullName -SignTool (Join-Path $sdk.DirectoryName 'signtool.exe')
+      - name: Store submission candidate (not a public download)
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Store-submission-x64
+          path: |
+            dist/store/*.msix
+            dist/store/*.json
+          if-no-files-found: error
       - name: Installer smoke test logs
         if: always() && runner.os == 'Windows'
         uses: actions/upload-artifact@v4
@@ -145,5 +166,7 @@ jobs:
           release_args=(--verify-tag --title "$RELEASE_TAG" --notes-file docs/release-notes.md)
           if [[ "$RELEASE_TAG" == v0.* || "$RELEASE_TAG" == *-* ]]; then
             release_args+=(--prerelease --latest=false)
+          else
+            release_args+=(--latest)
           fi
           gh release create "$RELEASE_TAG" release/* "${release_args[@]}"

@@ -18,7 +18,7 @@ Windows 资源生成失败现在会阻止构建，不能再交付无图标、无
 
 Windows 安装包需 Inno Setup 6：
 
-    ISCC /DAppVersion=0.1.2 /DBinaryDir=ABSOLUTE_BINARY_DIRECTORY packaging/windows.iss
+    ISCC /DAppVersion=1.0.0 /DBinaryDir=ABSOLUTE_BINARY_DIRECTORY packaging/windows.iss
 
 程序不需要管理员权限；安装包也按当前用户安装。请用隔离账户或虚拟机验证安装、升级、注册关联、卸载。
 不要为了测试在开发者的日常账户里改默认应用。
@@ -31,8 +31,30 @@ Windows 安装包需 Inno Setup 6：
 - Windows 打包门禁在一次性 GitHub runner 上运行 `packaging/test_windows_installer.ps1`：用户级安装、同 AppId 从合成的 0.0.0 安装包升级、卸载、保留配置和用户图片、跳过关联/绿色版后来接管关联时不误删注册信息。使用 `Start-Process -Wait` 等待整个进程树，不用启动进程退出或卸载注册表项消失代替清理完成；独立生命周期步骤限时 5 分钟。脚本拒绝本机日常账户运行，也拒绝覆盖既有注册。此测试不等于旧版本程序数据迁移、交互式安装向导或系统默认应用验收。
 - 推送与 Cargo.toml 完全匹配的 vX.Y.Z 标签后，生成第三方许可，在 Windows x64、Linux x64、macOS arm64 / x64 执行 release Clippy（全 targets、零警告）、测试并构建。
 - 只有全部发布构建成功才创建 GitHub Release；附所有平台包与 SHA256SUMS.txt。不接受用 macOS 的 continue-on-error 掩盖发布失败。
-- `v0.*` 及含预发布后缀的标签自动标记为 GitHub Pre-release，且不设置为 Latest。v0.1.2 是开发预览，不代表 v1.0 功能或原生验收全部完成；已有公开版本保留，不覆盖旧标签或旧附件。
+- `v0.*` 及含预发布后缀的标签自动标记为 GitHub Pre-release，且不设置为 Latest。`v1.0.0` 使用正式 Release / Latest；v0.1.2 等历史预览版保留，不覆盖旧标签或旧附件。版本号不是全部 PRD 门禁已通过的声明，当前范围见 PRD §15.5。
 - 当前没有 Windows 签名或 macOS 公证。拿到证书并加入安全的 CI 凭据之前，不得宣称已签名。
+
+## Microsoft Store MSIX
+
+产品身份来自已经预留的 LiteView（Store ID `9PCG7D394JFC`），源清单位于 `packaging/msix/AppxManifest.xml`。产品版本 `1.0.0` 对应包版本 `1.0.0.0`；商店包第一段必须非零、第四段必须为零。每次已提交版本更新应使用更高版本，不覆盖旧包。
+
+Windows MSVC 的 CI 和 Release 使用 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 VC 运行库。MSIX 打包器读取 PE 导入表，拒绝未附带的 VCRUNTIME/MSVCP/MinGW 运行库；不因为开发机装了运行库就假设用户也有。
+
+```powershell
+$env:RUSTFLAGS = '-C target-feature=+crt-static' # MSVC
+cargo build --locked --release
+cargo about generate --locked -o LICENSES.html packaging/licenses.hbs
+python -m unittest discover -s packaging -p 'test_*.py'
+python packaging/msix.py --binary target/release/LiteView.exe --store-version 1.0.0.0 --makeappx 'C:\Program Files (x86)\Windows Kits\10\bin\<SDK版本>\x64\makeappx.exe'
+```
+
+MakePri 与 MakeAppx 必须来自 Windows SDK。默认在同目录寻找 MakePri，也可显式传 `--makepri`。打包器不安装任何包/证书，不关闭验证，不需要商用证书；输出未签名的商店提交候选及 JSON 记录（版本、身份、SHA-256、导入DLL和暂存路径）。输出目录默认 `dist/store`，已有同名产物会拒绝覆盖；本地重试用新的 `--output`。暂存布局保留，不递归删除已有目录。
+
+图标已由应用使用的 SVG 生成并入库，包含100/125/150/200/400%倍率；只有改图标时才需要 `cargo run --locked --release --example store_assets`。不依赖 Python 图像库。MakePri 把中英文字符串及所有倍率放在一个包里；MakeAppx 执行默认语义校验。
+
+发布工作流在一次性 GitHub Windows runner 上额外执行 `packaging/test_msix_lifecycle.ps1`。脚本拒绝在日常本机执行；使用两天有效期、不可导出私钥的临时测试证书，只信任在该 runner 的 TrustedPeople（非 Root），只签测试副本。验证真实包身份启动、WinRT配置路径、普通版注册保留、升级、卸载，并在 finally 中清理包和证书。临时签名绝不能冒充公众信任签名，测试副本绝不能上传商店或公开分发。
+
+正式未签名 MSIX 只保存为 `Store-submission-x64` Actions artifact，不合并进 GitHub Release 附件。仍需 Windows 10/11 人工测试、WACK、商店资料确认与微软审核。软件不会写 UserChoice、模拟默认应用点击或替用户安装根证书。
 
 ## 发布前仍需人工验证
 
