@@ -37,3 +37,7 @@ jobs:
         run: cargo test --locked --release --lib
       - name: Build
         run: cargo build --locked --release
+      - name: Windows executable resources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/test_windows_resources.ps1 -Binary target/release/LiteView.exe

@@ -39,7 +39,7 @@ $oldLog = $env:LITEVIEW_LOG
 $env:LITEVIEW_CONFIG_DIR = $config
 $env:LITEVIEW_SCRIPT = $null
 $env:LITEVIEW_LOG = Join-Path $root 'app.log'
-Set-Content -LiteralPath (Join-Path $config 'settings.json') -Encoding utf8 -Value '{"single_instance":false,"ask_default_app":false}'
+Set-Content -LiteralPath (Join-Path $config 'settings.json') -Encoding ascii -Value '{"single_instance":false,"ask_default_app":false}'
 Set-Content -LiteralPath (Join-Path $config 'user-sentinel.txt') -Value 'preserve my settings'
 $expectedHash = (Get-FileHash -LiteralPath $Binary).Hash
 $seq = 0
@@ -107,6 +107,15 @@ try {
     Invoke-Checked $portableExe @('--register')
     $portableCommand = Get-OpenCommand
     Assert-True ($portableCommand -eq ('"' + $portableExe + '" "%1"')) 'Portable registration failed.'
+    # Selecting a smaller set is not an instruction to delete existing ProgIDs.
+    Set-Content -LiteralPath (Join-Path $config 'settings.json') -Encoding ascii -Value '{"single_instance":false,"ask_default_app":false,"assoc_exts":["png"]}'
+    Invoke-Checked $portableExe @('--register')
+    foreach ($ext in @('jpg', 'png', 'avif')) {
+        $progCommand = "HKCU:\Software\Classes\LiteView.$ext\shell\open\command"
+        Assert-True ((Get-Item -LiteralPath $progCommand).GetValue('') -eq $portableCommand) "Subset registration broke .$ext handler."
+        Assert-True ((Get-Item -LiteralPath "$capabilitiesKey\Capabilities\FileAssociations").GetValue(".$ext") -eq "LiteView.$ext") "Subset registration removed .$ext capability."
+    }
+    Set-Content -LiteralPath (Join-Path $config 'settings.json') -Encoding ascii -Value '{"single_instance":false,"ask_default_app":false}'
     Install-Test $Installer $false
     Assert-True ((Get-OpenCommand) -eq $portableCommand) 'No-association install changed portable registration.'
     Uninstall-Test

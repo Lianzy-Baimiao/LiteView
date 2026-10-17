@@ -9,9 +9,9 @@ fn candidates() -> Vec<(std::path::PathBuf, u32)> {
     #[cfg(windows)]
     {
         let dir = std::path::PathBuf::from(std::env::var_os("WINDIR").unwrap_or_else(|| "C:\\Windows".into())).join("Fonts");
-        // 微软雅黑 UI（序号 1）的西文部分就是 Segoe UI 风格，行距比「微软雅黑」紧凑
-        v.push((dir.join("msyh.ttc"), 1));
+        // 西文优先用原生 UI 字体；中文回退到微软雅黑 UI，避免西文也走中文字体。
         v.push((dir.join("segoeui.ttf"), 0));
+        v.push((dir.join("msyh.ttc"), 1));
         v.push((dir.join("malgun.ttf"), 0));
         v.push((dir.join("seguisym.ttf"), 0));
     }
@@ -59,7 +59,7 @@ pub fn map_cached(path: &std::path::Path) -> Option<&'static [u8]> {
     Some(b)
 }
 
-pub fn install(ctx: &egui::Context) {
+fn definitions() -> FontDefinitions {
     let mut defs = FontDefinitions::default();
     let mut names = Vec::new();
     for (i, (path, index)) in candidates().into_iter().enumerate() {
@@ -67,6 +67,11 @@ pub fn install(ctx: &egui::Context) {
         let name = format!("system-{i}");
         let mut data = FontData::from_static(bytes);
         data.index = index;
+        // 雅黑的小字号 hinting 在分数缩放下会撑粗笔画；保留轮廓的灰度抗锯齿。
+        #[cfg(windows)]
+        if path.ends_with("msyh.ttc") {
+            data.tweak.hinting = Some(false);
+        }
         defs.font_data.insert(name.clone(), data.into());
         names.push(name);
     }
@@ -80,5 +85,60 @@ pub fn install(ctx: &egui::Context) {
             list.insert(at + k, n.clone());
         }
     }
-    ctx.set_fonts(defs);
+    defs
+}
+
+pub fn install(ctx: &egui::Context) {
+    ctx.set_fonts(definitions());
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::*;
+
+    fn ink_and_soft_edges(defs: FontDefinitions) -> (f64, f64) {
+        let ctx = egui::Context::default();
+        ctx.set_theme(egui::Theme::Light);
+        ctx.set_pixels_per_point(1.25);
+        ctx.set_fonts(defs);
+        let mut result = (0.0, 0.0);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            result = ui.ctx().fonts_mut(|f| {
+                let galley = f.layout_no_wrap("打开图片 文件关联 常用格式 默认应用".into(), egui::FontId::proportional(14.0), egui::Color32::BLACK);
+                let atlas = f.image();
+                let (mut coverage, mut soft, mut ink) = (0.0, 0, 0);
+                for row in &galley.rows {
+                    for glyph in &row.glyphs {
+                        let uv = glyph.uv_rect;
+                        for y in uv.min[1]..uv.max[1] {
+                            for x in uv.min[0]..uv.max[0] {
+                                let alpha = atlas[(x as usize, y as usize)].a();
+                                if alpha > 0 {
+                                    coverage += f64::from(alpha) / 255.0;
+                                    ink += 1;
+                                    if alpha < 255 {
+                                        soft += 1;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                (coverage, f64::from(soft) / f64::from(ink))
+            });
+        });
+        result
+    }
+
+    #[test]
+    fn chinese_body_text_avoids_heavy_grid_fitting_at_125_percent() {
+        let Some((i, _)) = candidates().iter().enumerate().find(|(_, (p, _))| p.ends_with("msyh.ttc") && p.is_file()) else { return };
+        let actual = definitions();
+        let mut baseline = actual.clone();
+        std::sync::Arc::make_mut(baseline.font_data.get_mut(&format!("system-{i}")).unwrap()).tweak.hinting = Some(true);
+        let (ink, edges) = ink_and_soft_edges(actual);
+        let (baseline_ink, baseline_edges) = ink_and_soft_edges(baseline);
+        assert!(edges > baseline_edges + 0.05, "soft edges: {edges:.3}, baseline: {baseline_edges:.3}");
+        assert!(ink < baseline_ink && ink > baseline_ink * 0.8, "ink: {ink:.1}, baseline: {baseline_ink:.1}");
+    }
 }

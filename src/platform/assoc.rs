@@ -19,6 +19,28 @@ pub fn all_exts() -> Vec<String> {
     GROUPS.iter().flat_map(|g| g.iter()).map(|s| s.to_string()).collect()
 }
 
+pub fn common_exts() -> Vec<String> {
+    GROUPS[0].iter().map(|s| s.to_string()).collect()
+}
+
+/// 按界面顺序去重，忽略旧配置中不支持的扩展名。
+pub fn selected_exts(exts: &[String]) -> Vec<String> {
+    all_exts().into_iter().filter(|ext| exts.contains(ext)).collect()
+}
+
+#[cfg(any(windows, test))]
+fn is_liteview_prog_id(id: &str) -> bool {
+    id.eq_ignore_ascii_case(r"Applications\LiteView.exe") || GROUPS.iter().flat_map(|g| g.iter()).any(|ext| id.eq_ignore_ascii_case(&format!("{APP}.{ext}")))
+}
+
+#[cfg(any(windows, test))]
+fn launch_default_settings(build: u32, mut launch: impl FnMut(&str) -> Result<(), String>) -> Result<(), String> {
+    if build >= 22621 && launch("ms-settings:defaultapps?registeredAppUser=LiteView").is_ok() {
+        return Ok(());
+    }
+    launch("ms-settings:defaultapps")
+}
+
 pub fn validate_extensions(exts: &[String]) -> Result<(), String> {
     for ext in exts {
         if !GROUPS.iter().any(|group| group.contains(&ext.as_str())) {
@@ -37,6 +59,53 @@ mod validation_tests {
             assert!(super::validate_extensions(&[ext.into()]).is_err());
         }
     }
+
+    #[test]
+    fn selection_preserves_group_order_without_duplicates() {
+        assert_eq!(super::selected_exts(&["webp".into(), "jpg".into(), "jpg".into(), "exe".into()]), ["jpg", "webp"]);
+        assert!(super::selected_exts(&[]).is_empty());
+        assert_eq!(super::common_exts().len(), 8);
+    }
+
+    #[test]
+    fn default_status_matches_only_our_known_prog_ids() {
+        for id in ["LiteView.jpg", "liteview.PNG", r"Applications\LiteView.exe"] {
+            assert!(super::is_liteview_prog_id(id));
+        }
+        for id in ["OtherLiteView.png", "LiteView.png.backup", "LiteView.exe", "", "Photos.jpg"] {
+            assert!(!super::is_liteview_prog_id(id));
+        }
+    }
+
+    #[test]
+    fn settings_launch_falls_back_and_reports_failure() {
+        let mut urls = Vec::new();
+        let result = super::launch_default_settings(26200, |uri| {
+            urls.push(uri.to_string());
+            if urls.len() == 1 { Err("unavailable".into()) } else { Ok(()) }
+        });
+        assert!(result.is_ok());
+        assert_eq!(urls, ["ms-settings:defaultapps?registeredAppUser=LiteView", "ms-settings:defaultapps"]);
+        urls.clear();
+        assert!(
+            super::launch_default_settings(19045, |uri| {
+                urls.push(uri.to_string());
+                Ok(())
+            })
+            .is_ok()
+        );
+        assert_eq!(urls, ["ms-settings:defaultapps"]);
+        assert_eq!(super::launch_default_settings(26200, |_| Err("failed".into())), Err("failed".into()));
+        let mut calls = 0;
+        assert!(
+            super::launch_default_settings(26200, |_| {
+                calls += 1;
+                Ok(())
+            })
+            .is_ok()
+        );
+        assert_eq!(calls, 1);
+    }
 }
 
 #[cfg(windows)]
@@ -46,9 +115,9 @@ pub use imp::*;
 mod imp {
     use windows::Win32::Foundation::ERROR_SUCCESS;
     use windows::Win32::System::Registry::*;
-    use windows::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW};
+    use windows::Win32::UI::Shell::{ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_PROGID, AssocQueryStringW, SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW};
     use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
-    use windows::core::{PCWSTR, w};
+    use windows::core::{PCWSTR, PWSTR, w};
 
     use super::{APP, GROUPS};
 
@@ -140,11 +209,10 @@ mod imp {
         set(r"Software\RegisteredApplications", APP, &caps)?;
         set(&format!(r"{APP_KEY}\shell\open\command"), "", &format!("\"{exe}\" \"%1\""))?;
         set(&format!(r"{APP_KEY}\DefaultIcon"), "", &format!("\"{exe}\",0"))?;
-        for ext in GROUPS.iter().flat_map(|g| g.iter()).filter(|e| !exts.iter().any(|x| x == *e)) {
-            remove_ext(ext);
-        }
-        for ext in exts {
-            let id = prog_id(ext);
+        // 注册是增量操作；保留已有格式，并更新它们的路径以支持移动绿色版或升级。
+        let registered = super::all_exts().into_iter().filter(|ext| exts.contains(ext) || exists(&format!(r"Software\Classes\{}", prog_id(ext))));
+        for ext in registered {
+            let id = prog_id(&ext);
             let base = format!(r"Software\Classes\{id}");
             set(&base, "", &format!("{} ({APP})", ext.to_uppercase()))?;
             set(&format!(r"{base}\DefaultIcon"), "", &format!("\"{exe}\",0"))?;
@@ -207,22 +275,24 @@ mod imp {
         get(HKEY_CURRENT_USER, r"Software\RegisteredApplications", APP).is_some()
     }
 
-    /// 这个扩展名的默认程序是不是本软件（读系统记录的用户选择，只读）
+    /// 查询系统实际解析出的默认处理程序，不把无效或过期的 UserChoice 当成成功。
     pub fn is_default(ext: &str) -> bool {
-        get(HKEY_CURRENT_USER, &format!(r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.{ext}\UserChoice"), "ProgId")
-            .is_some_and(|p| p.to_ascii_lowercase().contains("liteview"))
+        let ext = wstr(&format!(".{ext}"));
+        let mut buf = [0u16; 512];
+        let mut len = buf.len() as u32;
+        let result = unsafe { AssocQueryStringW(ASSOCF_INIT_IGNOREUNKNOWN, ASSOCSTR_PROGID, PCWSTR(ext.as_ptr()), PCWSTR::null(), Some(PWSTR(buf.as_mut_ptr())), &mut len) };
+        result.0 == 0 && len > 0 && len as usize <= buf.len() && super::is_liteview_prog_id(&String::from_utf16_lossy(&buf[..len as usize - 1]))
     }
 
     /// 打开系统「默认应用」；Win11 22H2 起直接到本软件的页面
-    pub fn open_default_apps() {
-        let build: u32 = get(HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber")
-            .and_then(|b| b.parse().ok())
-            .unwrap_or(0);
-        let uri = if build >= 22621 { format!("ms-settings:defaultapps?registeredAppUser={APP}") } else { "ms-settings:defaultapps".to_owned() };
-        let u = wstr(&uri);
-        unsafe {
-            ShellExecuteW(None, w!("open"), PCWSTR(u.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL);
-        }
+    pub fn open_default_apps() -> Result<(), String> {
+        let build: u32 = get(HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", "CurrentBuildNumber").and_then(|b| b.parse().ok()).unwrap_or(0);
+        super::launch_default_settings(build, |uri| {
+            let u = wstr(uri);
+            let result = unsafe { ShellExecuteW(None, w!("open"), PCWSTR(u.as_ptr()), PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+            let code = result.0 as isize;
+            if code > 32 { Ok(()) } else { Err(format!("Windows Settings (ShellExecute: {code})")) }
+        })
     }
 
     fn notify() {

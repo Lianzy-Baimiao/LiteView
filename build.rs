@@ -16,10 +16,7 @@ fn main() {
     }
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     for f in ["app.ico", "app.manifest"] {
-        if std::fs::copy(PathBuf::from("assets").join(f), out.join(f)).is_err() {
-            println!("cargo:warning=缺少 assets/{f}（cargo run --example icon 生成图标），程序将不带资源");
-            return;
-        }
+        std::fs::copy(PathBuf::from("assets").join(f), out.join(f)).unwrap_or_else(|e| panic!("copy required Windows resource assets/{f}: {e}"));
     }
     let version = std::env::var("CARGO_PKG_VERSION").unwrap_or_default();
     let mut n: Vec<u16> = version.split(['.', '-']).filter_map(|s| s.parse().ok()).collect();
@@ -36,11 +33,9 @@ fn main() {
     let rc_path = out.join("app.rc");
     std::fs::write(&rc_path, rc).expect("write rc");
     if target.contains("gnu") {
-        // MinGW 的 gcc 每次链接都会带上自己的 default-manifest.o（只有 longPathAware），与我们的清单重复。
-        // 把资源编译成同名文件放进单独的目录，用 -B 让 gcc 找到我们的这个，代替默认的
-        let dir = out.join("res");
-        let _ = std::fs::create_dir_all(&dir);
-        let obj = dir.join("default-manifest.o");
+        // rustc 的 -nostartfiles 会跳过 GCC 的默认资源，不能只用 -B 替换搜索目录。
+        // 显式链接资源对象，确保图标、版本和 DPI 清单都进入最终 EXE。
+        let obj = out.join("app-resource.o");
         let bin = std::env::var("LITEVIEW_MINGW_BIN").ok();
         let windres = bin.as_ref().map_or("windres".to_string(), |b| format!("{b}/windres.exe"));
         let mut cmd = Command::new(&windres);
@@ -49,11 +44,10 @@ fn main() {
             let path = std::env::var("PATH").unwrap_or_default();
             cmd.env("PATH", format!("{b};{path}"));
         }
-        match cmd.status() {
-            Ok(s) if s.success() => println!("cargo:rustc-link-arg-bins=-B{}/", dir.display()),
-            _ => println!("cargo:warning=windres 不可用，程序将不带图标与清单"),
-        }
+        let status = cmd.status().unwrap_or_else(|e| panic!("run Windows resource compiler {windres}: {e}"));
+        assert!(status.success(), "Windows resource compilation failed: {status}");
+        println!("cargo:rustc-link-arg-bin=LiteView={}", obj.display());
     } else {
-        let _ = embed_resource::compile_for(&rc_path, ["LiteView"], embed_resource::NONE).manifest_optional();
+        embed_resource::compile_for(&rc_path, ["LiteView"], embed_resource::NONE).manifest_required().expect("compile required Windows resources");
     }
 }

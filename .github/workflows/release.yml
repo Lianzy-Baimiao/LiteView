@@ -75,6 +75,10 @@ jobs:
       - run: cargo clippy --locked --release --all-targets -- -D warnings
       - run: cargo test --locked --release --lib
       - run: cargo build --locked --release
+      - name: Windows executable resources
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./packaging/test_windows_resources.ps1 -Binary target/release/LiteView.exe
       - uses: actions/download-artifact@v4
         with:
           name: licenses

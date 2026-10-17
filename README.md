@@ -3,14 +3,14 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v0.1.1 开发预览版，不是 v1.0 正式发布。需求见 [PRD](docs/PRD.md)，进展及真实未完成项见 [TODO](docs/TODO.md)。
+> v0.1.2 开发预览版，不是 v1.0 正式发布。需求见 [PRD](docs/PRD.md)，进展及真实未完成项见 [TODO](docs/TODO.md)。
 
-### v0.1.1 更新
+### v0.1.2 更新
 
-- 补齐源文件大小和各解码入口的像素预算检查；资源超限不再通过系统解码回退绕过。
-- WebP 可选择无损或有损压缩，有损品质独立设置；默认仍为无损。
-- 保存时提示格式的 EXIF / ICC / 透明度限制；保留编辑画布及撤销历史，明确区分保存失败与保存后读回校验失败。
-- 修复小尺寸 TIFF 的 ICC 读取、旧后台解码结果覆盖新保存图片，以及退出后空闲解码线程未释放的问题。
+- 文件关联页增加常用/全部格式选择、完成进度和待设置筛选；从系统设置返回后自动刷新。
+- 登记格式改为增量操作，不会因取消勾选而删除已有注册。Windows 默认应用仍由用户在系统设置中确认。
+- 改善 Windows 小字号中文在 125% 缩放下偏厚、边缘发硬的问题；英文与数字优先使用 Segoe UI，字号不变。
+- 修复 Windows GNU 构建漏嵌 EXE 图标、版本信息和 DPI 清单的问题；新增成品资源检查。
 
 预算不是整个进程的内存硬上限；系统解码器内部、SVG 解析/滤镜、GPU 与并行预读仍有独立开销，详见 PRD 的 OPT-01。
 
@@ -47,7 +47,7 @@ Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、
 
 ## 下载与平台
 
-[v0.1.1 开发预览](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v0.1.1) · [全部版本](https://github.com/Lianzy-Baimiao/LiteView/releases) · [安装说明](docs/INSTALL.md)
+[v0.1.2 开发预览](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v0.1.2) · [全部版本](https://github.com/Lianzy-Baimiao/LiteView/releases) · [安装说明](docs/INSTALL.md)
 
 Windows 10 / 11 优先。本仓库包含 Windows 绿色包与用户级安装包、Linux x64 归档、macOS Intel / Apple Silicon 应用包的构建流程。
 某个平台的包只有对应 CI 成功后才可用；添加打包脚本不等于已经在该系统实测。

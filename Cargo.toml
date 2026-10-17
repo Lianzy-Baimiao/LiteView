@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"

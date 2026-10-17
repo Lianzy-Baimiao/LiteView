@@ -2,6 +2,8 @@
 //! `menu` 右键菜单与确认框，`actions` 复制、粘贴、删除、另存为等。
 
 mod actions;
+#[cfg(windows)]
+mod assoc_ui;
 mod canvas;
 mod chrome;
 pub(crate) mod edit;
