@@ -2,7 +2,7 @@
 
 核查日期：2026-10-17。本文是环境与执行方法调查，**不是 WACK 通过报告，也不是 Microsoft Store 认证结果**。
 
-当前已知状态：主机为 Windows 11 Pro，build 26200；`HyperVisorPresent=False`；尚未找到 Windows App Certification Kit（WACK）。正式 MSIX 已上传商店草稿，但尚未认证。本次没有安装 SDK、导入证书、启用虚拟化或运行 WACK。
+调查时已知状态：主机为 Windows 11 Pro，build 26200；`HyperVisorPresent=False`；尚未找到 Windows App Certification Kit（WACK）。本次调查没有安装 SDK、导入证书、启用虚拟化或运行 WACK。后续用户已于 2026-10-17 自行提交商店审核，最后核对进入预处理；送审不代替本地测试。
 
 ## 1. 工具从哪里来
 
@@ -117,4 +117,4 @@ CI 可先用于构建、清单和包结构检查、辅助回归。如果尝试 W
 - Required failures、optional warnings、not run/inapplicable 分别统计；灰色或不适用测试不能算通过。
 - 安装、启动、图片打开/关联、更新和卸载的独立人工回归记录。
 
-**当前结论：WACK 尚未运行；本地认证未完成；Microsoft Store 草稿未认证。WACK 通过也不等于商店审核通过，商店可能运行本地未覆盖的测试。**
+**当前结论：WACK 尚未运行；本地验收未完成；Microsoft Store 已由用户提交审核，但尚未通过认证。WACK 通过也不等于商店审核通过，商店可能运行本地未覆盖的测试。**

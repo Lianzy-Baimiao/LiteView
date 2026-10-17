@@ -2,7 +2,7 @@
 
 以下是提交草稿使用的审核指引，不是测试通过报告。软件不需要账号、订阅、付款或测试登录凭据；无需提供用户个人图片。
 
-2026-10-17：下方 English reviewer notes 部分共 1807 字符，已保存到 Partner Center 的 Additional Testing Info；重新加载后逐字核对一致，凭据表保持为空。没有点击 Review and publish 或提交认证。
+2026-10-17：下方 English reviewer notes 部分共 1807 字符，已保存到 Partner Center 的 Additional Testing Info；重新加载后逐字核对一致，凭据表保持为空。保存说明时未送审；同日用户随后在后台自行提交，核对状态已进入预处理。
 
 ## English reviewer notes
 
@@ -22,5 +22,5 @@ Store screenshots show the actual 1.0.0 viewer/editor, with original demo artwor
 
 - 安装、升级、卸载及 AUMID 激活的 CI 证据见 `RELEASE-1.0.0-VALIDATION.md`；本机新增的八次截图回放只覆盖说明中的基础界面场景，并不是以上所有步骤的人工验收。
 - WACK 尚未运行；准备方法见 `WACK-VALIDATION-NOTES.md`。
-- IARC 年龄分级已于 2026-10-17 经用户最后确认保存，Microsoft Store / IARC / PEGI 为 3+、ESRB 为 E；后台当前分级 ID 仍为“待定”。详见 `STORE-LISTING.md`，不冒充正式分级证书或商店认证结果。
-- 商店仍保留人工发布开关；保存审核说明不等于提交认证。
+- IARC 年龄分级已于 2026-10-17 经用户最后确认保存，Microsoft Store / IARC / PEGI 为 3+、ESRB 为 E；送审前核对分级 ID 为“待定”。详见 `STORE-LISTING.md`，不冒充正式分级证书或商店认证结果。
+- 用户已提交认证，后台仍保留人工发布开关；审核尚未通过，未发布。保存审核说明或送审不等于本地验收通过。
