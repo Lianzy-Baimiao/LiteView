@@ -22,5 +22,5 @@ Store screenshots show the actual 1.0.0 viewer/editor, with original demo artwor
 
 - 安装、升级、卸载及 AUMID 激活的 CI 证据见 `RELEASE-1.0.0-VALIDATION.md`；本机新增的八次截图回放只覆盖说明中的基础界面场景，并不是以上所有步骤的人工验收。
 - WACK 尚未运行；准备方法见 `WACK-VALIDATION-NOTES.md`。
-- IARC 年龄分级等待用户授权向 IARC 共享发布者显示名称和开发者账号邮箱，尚未填写或提交。
+- IARC 年龄分级已于 2026-10-17 经用户最后确认保存，Microsoft Store / IARC / PEGI 为 3+、ESRB 为 E；后台当前分级 ID 仍为“待定”。详见 `STORE-LISTING.md`，不冒充正式分级证书或商店认证结果。
 - 商店仍保留人工发布开关；保存审核说明不等于提交认证。
