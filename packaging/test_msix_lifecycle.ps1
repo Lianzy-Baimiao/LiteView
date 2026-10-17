@@ -51,9 +51,18 @@ function Invoke-Classic([string]$Arguments) {
 }
 function Invoke-Packaged([string]$Arguments) {
     $processId = [LiteViewActivation]::Run($aumid, $Arguments)
-    try { $process = [Diagnostics.Process]::GetProcessById($processId) } catch { return }
-    if (-not $process.WaitForExit(30000)) { throw "Package activation did not exit: $Arguments" }
-    Assert-True ($process.ExitCode -eq 0) "Packaged command failed: $Arguments"
+    $process = [Diagnostics.Process]::GetProcessById($processId)
+    try {
+        # GetProcessById is lazy: retain a queryable handle before the process exits.
+        # WaitForExit alone may leave ExitCode null for an externally started process.
+        $null = $process.Handle
+        if (-not $process.WaitForExit(30000)) { throw "Package activation did not exit: $Arguments" }
+        $exitCode = $process.ExitCode
+        Assert-True ($null -ne $exitCode) "Cannot read packaged process exit status (pid=$processId): $Arguments"
+        Assert-True ($exitCode -eq 0) "Packaged command failed (pid=$processId, exit=$exitCode, hex=0x$($exitCode.ToString('X8'))): $Arguments"
+    } finally {
+        $process.Dispose()
+    }
 }
 function Get-Diagnostics([string]$Label) {
     $report = Join-Path $root "$Label.json"

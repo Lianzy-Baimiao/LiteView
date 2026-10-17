@@ -54,6 +54,8 @@ MakePri 与 MakeAppx 必须来自 Windows SDK。默认在同目录寻找 MakePri
 
 发布工作流在一次性 GitHub Windows runner 上额外执行 `packaging/test_msix_lifecycle.ps1`。脚本拒绝在日常本机执行；使用两天有效期、不可导出私钥的临时测试证书，只信任在该 runner 的 TrustedPeople（非 Root），只签测试副本。验证真实包身份启动、WinRT配置路径、普通版注册保留、升级、卸载，并在 finally 中清理包和证书。临时签名绝不能冒充公众信任签名，测试副本绝不能上传商店或公开分发。
 
+`packaging/test_msix_process.ps1` 用合成进程覆盖激活等待逻辑，不安装包或修改注册表；在 PowerShell 7 / 5.1 验证退出 0 成功、退出 7 失败。通过 PID 获取的 Process 必须先持有可查询句柄再等待，否则进程退出后 ExitCode 可能为 null，不能误判为程序错误，更不能忽略。生命周期测试保留 installed/upgraded JSON；失败时另外保留原始 EXE、未签名 MSIX 与许可证供诊断，绝不上传临时签名副本或私钥。
+
 正式未签名 MSIX 只保存为 `Store-submission-x64` Actions artifact，不合并进 GitHub Release 附件。仍需 Windows 10/11 人工测试、WACK、商店资料确认与微软审核。软件不会写 UserChoice、模拟默认应用点击或替用户安装根证书。
 
 ## 发布前仍需人工验证

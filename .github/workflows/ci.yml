@@ -27,6 +27,16 @@ jobs:
         timeout-minutes: 2
         shell: powershell
         run: ./packaging/test_installer_process.ps1
+      - name: MSIX activation process regression (PowerShell 7)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: pwsh
+        run: ./packaging/test_msix_process.ps1
+      - name: MSIX activation process regression (Windows PowerShell)
+        if: runner.os == 'Windows'
+        timeout-minutes: 2
+        shell: powershell
+        run: ./packaging/test_msix_process.ps1
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
