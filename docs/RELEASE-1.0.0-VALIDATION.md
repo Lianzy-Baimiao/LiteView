@@ -32,11 +32,11 @@
 | Windows 主 EXE（包内） | `21ddc58f7d9d9e3d5589566e725fce1fc209288bfe82018adaaac6eaf058ac6a` |
 | 商店候选 `LiteView-store-1.0.0.0-x64.msix` | `2130cb363d94fce37d06f0cef4222dc84795c408a4bda6d0c8a91103eb925b06` |
 
-未签名 MSIX 只在 `Store-submission-x64` artifact；公共下载附件没有 MSIX、证书或测试签名副本。
+未签名 MSIX 构建副本保存在 `Store-submission-x64` artifact，后续经用户确认上传至商店草稿；公共下载附件没有 MSIX、证书或测试签名副本。
 
 ## 未完成事项
 
-- Partner Center 产品仍为草稿，未点击“开始提交”，未上传包、填写上架资料或提交审核。
-- 商店版 Windows 10/11 人工界面与系统默认应用检查、WACK、年龄评级、免费定价/市场与资料确认仍需完成。
+- 发布后的跟进：用户确认后，已上传该 MSIX 并保存 CNY 0 定价、应用属性、中英文文案和受限能力用途说明；Partner Center 仍为草稿，没有提交审核，且设置为审核通过后仍需手动发布。进度见 `STORE-LISTING.md`。
+- 商店版 Windows 10/11 人工界面与系统默认应用检查、WACK、当前版本截图、年龄评级、市场与最终资料确认仍需完成。
 - GitHub 公众信任代码签名与 macOS 公证尚未办理；微软商店签名不能代替独立 EXE 签名。
 - 其余已知限制继续按 `release-notes.md` 与 `TODO.md` 追踪；正式版编号不表示这些项目已经完成。

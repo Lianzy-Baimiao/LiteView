@@ -43,7 +43,7 @@ Authenticode 数字签名让 Windows 验证发布者身份和签名后的文件�
 
 这些是包身份元数据，不是签名私钥或凭据。后续 MSIX 清单应使用后台分配的值，不能把显示名称 `LiteView` 直接当作 Package Identity。后台地址：[LiteView 产品概述](https://partner.microsoft.com/zh-CN/dashboard/products/9PCG7D394JFC/overview)。
 
-预留页面提示必须在三个月内提交应用，否则会丢失保留名称。当前尚未点击“开始提交”，也未上传软件包或发布商店页面；后台明确显示商店深层链接和 Web Store URL 在产品上线后才可用。本次只验证了产品草稿与包身份，未核实账号类型、国家/地区或身份审核状态。
+预留页面提示必须在三个月内提交应用，否则会丢失保留名称。用户随后确认上传包并填写免费上架草稿，2026-10-17 已创建 Submission 1：包显示 `Validated`，CNY 0 定价、应用属性、中英文文案和 runFullTrust 用途说明已保存；设置为认证后仍需手动选择发布。没有提交认证或发布商店页面，截图、IARC、WACK 和人工验收仍未完成。完整进度见 `STORE-LISTING.md`。商店深层链接和 Web Store URL 在产品上线后才可用；本次未核实账号类型、国家/地区或身份审核状态。
 
 ## 方案 A：新增 MSIX 商店版（优先推荐）
 
