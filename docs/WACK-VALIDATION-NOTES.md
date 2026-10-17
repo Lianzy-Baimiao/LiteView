@@ -117,4 +117,18 @@ CI 可先用于构建、清单和包结构检查、辅助回归。如果尝试 W
 - Required failures、optional warnings、not run/inapplicable 分别统计；灰色或不适用测试不能算通过。
 - 安装、启动、图片打开/关联、更新和卸载的独立人工回归记录。
 
+## 6. 一次性 runner 的补充验证脚本
+
+手动工作流 `.github/workflows/store-validation.yml` 只下载已发布工作流 `39027759847` 的 `Store-submission-x64`，不重建、不发布、不替换已送审的包。`packaging/test_store_wack.ps1` 同时固定正式 MSIX 与内部 EXE 哈希，并核对身份；测试签名后再次核对清单与 EXE 未变。
+
+- 入口有 `GITHUB_ACTIONS`、`RUNNER_ENVIRONMENT=github-hosted` 和 Windows 三重保护，禁止在日常电脑执行。
+- WACK 缺失时只在临时 runner 安装已核验的微软组件；安装器必须同时通过固定 SHA-256 和 Microsoft Authenticode 签名检查。记录工具版本、操作系统、会话 ID、镜像版本和完整命令。
+- 仅对副本临时签名，非导出私钥；仅信任到 runner 的 `TrustedPeople`。测试后清理包与证书。证书、私钥和签名副本不在 artifact 上传目录内。
+- WACK 有 30 分钟进程超时，工作流保存原始 XML/HTML、标准输出/错误和失败阶段。缺报告、未知结果、超时都不能视为通过。
+- `packaging/wack_report.py` 的 `reported-pass` 仅代表报告明确写出 PASS 且进程退出 0；它不代表 Windows 10/11 验收、全部子测试执行或微软商店认证。
+
+判读依据不是猜测 XML 节点：[Microsoft TemplateStudio 固定版本源码](https://github.com/microsoft/TemplateStudio/blob/062d0c12519bcab0e0b4ac146ee2ad163140b344/code/test/TemplateStudioForWPF.Tests/WACK/Wpf/WindowsAppCertKitTests.cs) 同时要求退出码 0 与 **`OVERALL_RESULT="PASS"` 属性**；[Microsoft React Native Windows 的测试脚本](https://github.com/microsoft/react-native-windows/blob/56d0ff9e9e3677f2e00b8faaa5f2bef1cef5d846/.ado/scripts/TestWACK.ps1) 读取 `REPORT.REQUIREMENTS.REQUIREMENT` 和 `TEST.MESSAGES.MESSAGE.TEXT`。这两份源码不是稳定的完整 schema 契约，因此脚本保留原始报告，required/optional/not-run 分类须按实际报告复核。
+
+后续如果增加包身份 GUI 回放，[`Invoke-CommandInDesktopPackage`](https://learn.microsoft.com/en-us/powershell/module/appx/invoke-commandindesktoppackage?view=windowsserver2025-ps) 可以给任意 EXE 分配包身份，`-PreventBreakaway` 保持子进程上下文，但微软明确其 token 与真实 AppId 启动不完全相同。应在包内 bootstrap 中设置脚本环境，再由普通子进程运行原始 EXE，不依赖 cmdlet 继承调用方环境，也不把回放当成真实 AUMID 激活。根据 [MSIX 排障文档](https://learn.microsoft.com/en-us/windows/msix/manage/troubleshoot-msix-container)，Developer Mode 只对 Windows 10 build 18922 之前的这条调试路径有要求；不应为 Server 2025 回放启用它。
+
 **当前结论：WACK 尚未运行；本地验收未完成；Microsoft Store 已由用户提交审核，但尚未通过认证。WACK 通过也不等于商店审核通过，商店可能运行本地未覆盖的测试。**

@@ -1,0 +1,44 @@
+name: Supplemental Store validation
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: store-validation-v1.0.0
+  cancel-in-progress: false
+
+jobs:
+  wack:
+    runs-on: windows-2025
+    timeout-minutes: 55
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Report parser regression tests
+        run: python -m unittest discover -s packaging -p test_wack_report.py
+      - name: Download the unchanged submitted 1.0.0 candidate
+        uses: actions/download-artifact@v4
+        with:
+          name: Store-submission-x64
+          run-id: '39027759847'
+          github-token: ${{ github.token }}
+          path: ${{ runner.temp }}/store-candidate
+      - name: WACK on a disposable runner (not Windows 10/11 acceptance)
+        timeout-minutes: 48
+        shell: pwsh
+        run: |
+          ./packaging/test_store_wack.ps1 -Package "$env:RUNNER_TEMP/store-candidate/LiteView-store-1.0.0.0-x64.msix" -Output "$env:RUNNER_TEMP/liteview-wack-reports"
+      - name: Preserve raw results even on failure
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: wack-reports
+          path: ${{ runner.temp }}/liteview-wack-reports/
+          if-no-files-found: warn
+          retention-days: 30
