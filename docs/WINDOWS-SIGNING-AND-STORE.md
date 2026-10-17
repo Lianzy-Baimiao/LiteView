@@ -22,6 +22,7 @@ Authenticode 数字签名让 Windows 验证发布者身份和签名后的文件�
 这些是本次技术检查结果，不是微软对软件的认证：
 
 - v0.1.2 的主 EXE 与 Inno Setup 安装器，Authenticode 检查结果均为 `NotSigned`。
+- v1.0.0 已于 2026-10-17 发布为正式版 / Latest；从该次发布产物下载的主 EXE 与安装器仍为 `NotSigned`。MSIX 已通过一次性 runner 的安装、激活、升级和卸载测试，但没有提交商店审核；完整证据见 `RELEASE-1.0.0-VALIDATION.md`。
 - 软件是 MIT 开源的普通 Win32 桌面应用，日常运行不要求管理员权限，命令行可以接收图片路径。
 - 默认配置保存在用户 `APPDATA` 下；带 portable 标记时才写到程序旁边。
 - 初次核查时仓库没有 MSIX 清单。后续已新增 `packaging/msix/AppxManifest.xml`、`packaging/msix.py`、多倍率图标和中英文资源；本机 MakePri/MakeAppx 已实际生成通过默认语义校验的未签名候选包，仍不等于安装验收或商店认证。

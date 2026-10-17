@@ -2,6 +2,8 @@
 
 状态：供用户确认，尚未填写或提交 Partner Center；页面预留不代表已上架。
 
+2026-10-17：GitHub v1.0.0 已作为正式版 / Latest 发布。对应的 MSIX 已在一次性 Windows runner 完成安装、真实 AUMID 启动、独立配置、升级和卸载检查，并下载核对 SHA-256；未签名候选仅保存在 Actions artifact，不是公开侧载安装包。尚缺 Windows 10/11 商店版人工验收、WACK、上架资料确认及微软审核。证据见 `RELEASE-1.0.0-VALIDATION.md`。
+
 - 产品名称：LiteView
 - Store ID：9PCG7D394JFC
 - 产品版本：1.0.0；MSIX 版本：1.0.0.0
@@ -9,8 +11,8 @@
 - 建议分类：照片与视频（以后台可选项为准）
 - 建议定价：免费（提交前确认）
 - 支持地址：https://github.com/Lianzy-Baimiao/LiteView/issues
-- 隐私政策拟用地址：https://github.com/Lianzy-Baimiao/LiteView/blob/main/docs/PRIVACY.md
-- 隐私政策需先提交到公开仓库并验证可匿名访问，才能填写为有效公开地址。
+- 隐私政策地址：https://raw.githubusercontent.com/Lianzy-Baimiao/LiteView/main/docs/PRIVACY.md
+- 隐私政策已提交到公开仓库，并于 2026-10-17 验证可匿名访问；商店表单中尚未填写。
 
 ## 中文描述
 
