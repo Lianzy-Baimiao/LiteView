@@ -1,0 +1,208 @@
+{
+  "status": "reported-pass",
+  "exit_code": 0,
+  "overall_results": [
+    "PASS"
+  ],
+  "observed_results": [],
+  "tests": [
+    {
+      "requirement": "Digitally signed file test",
+      "name": "Install signed driver and executable files",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "User account control (UAC) test",
+      "name": "User account control run level",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "Application count",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "App manifest",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "File association verbs",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "Registry checks",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "Enterprise Features",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package compliance test",
+      "name": "Resource Packages",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows security features test",
+      "name": "Banned file analyzer",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows security features test",
+      "name": "Private code signing",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "App manifest resources tests",
+      "name": "App resources",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "App manifest resources tests",
+      "name": "Branding",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Debug configuration test",
+      "name": "Debug configuration",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "App Capabilities test",
+      "name": "Special use capabilities",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "ExclusiveTo attribute",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "Type location",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "Type name case-sensitivity",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "Type name correctness",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "General metadata correctness",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Windows Runtime metadata validation",
+      "name": "Properties",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package sanity test",
+      "name": "Archive files usage",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "Package sanity test",
+      "name": "Blocked executables",
+      "kind": "optional",
+      "result": "FAIL",
+      "messages": [
+        "File LiteView.exe contains a reference to a \"Launch Process\" related API kernel32.dll!CreateProcessW",
+        "File LiteView.exe contains a reference to a \"Launch Process\" related API shell32.dll!ShellExecuteW",
+        "File LiteView.exe contains a blocked executable reference to \"CmD\".",
+        "File LiteView.exe contains a blocked executable reference to \"ReG\".",
+        "File LiteView.exe contains a blocked executable reference to \"cmd.exe\".",
+        "File LiteView.exe contains a blocked executable reference to \"cdB\"."
+      ]
+    },
+    {
+      "requirement": "Package sanity test",
+      "name": "Platform appropriate files",
+      "kind": "optional",
+      "result": "PASS",
+      "messages": []
+    },
+    {
+      "requirement": "High-DPI support",
+      "name": "DPIAwarenessValidation",
+      "kind": "required",
+      "result": "PASS",
+      "messages": []
+    }
+  ],
+  "test_counts": {
+    "required": {
+      "pass": 13,
+      "fail": 0,
+      "not-run": 0,
+      "unknown": 0
+    },
+    "optional": {
+      "pass": 10,
+      "fail": 1,
+      "not-run": 0,
+      "unknown": 0
+    },
+    "unknown": {
+      "pass": 0,
+      "fail": 0,
+      "not-run": 0,
+      "unknown": 0
+    }
+  },
+  "reason": "WACK PASS, exit 0, 13 required tests passed; 1 optional failures preserved for review",
+  "scope": "Supplemental runner check, not Windows 10/11 acceptance or Store certification",
+  "partial_run": "FALSE"
+}

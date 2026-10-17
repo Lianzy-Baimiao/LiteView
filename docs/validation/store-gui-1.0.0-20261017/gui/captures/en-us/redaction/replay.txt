@@ -1,0 +1,13 @@
+waitimage
+wait 1200
+drag 345 397 615 438 15
+wait 200
+drag 345 492 625 531 20
+wait 350
+move 600 725
+wait 250
+shot D:/a/_temp/liteview-wack-reports/gui/captures/en-us/redaction/redaction.png
+wait 350
+key ctrl+s
+wait 1800
+quit

@@ -1,3 +1,4 @@
 # Preserve the exact bytes of certification evidence and its recorded hashes.
 docs/validation/**/wack.xml -text whitespace=cr-at-eol
 docs/validation/**/*.stdout.txt -text whitespace=cr-at-eol,-blank-at-eof
+docs/validation/store-gui-1.0.0-20261017/** -text whitespace=cr-at-eol,-blank-at-eof

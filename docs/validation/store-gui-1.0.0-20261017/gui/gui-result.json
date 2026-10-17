@@ -1,0 +1,99 @@
+{
+  "status": "pass",
+  "identity": {
+    "application_id": "ice.LiteView_rz8m2sa64m4em!LiteView",
+    "config_dir": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+    "package_family": "ice.LiteView_rz8m2sa64m4em",
+    "package_local_folder": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+    "packaged": true,
+    "version": "1.0.0"
+  },
+  "binary_sha256": "21ddc58f7d9d9e3d5589566e725fce1fc209288bfe82018adaaac6eaf058ac6a",
+  "scenes": [
+    {
+      "language": "en-us",
+      "scene": "viewer",
+      "path": "en-us\\viewer\\viewer.png",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "sha256": "6af1c956475a02faa65cb2478093c4d9f4e1e598161adeea86257605dbe7ab5e",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "exit_code": 0,
+      "runtime": {
+        "application_id": "ice.LiteView_rz8m2sa64m4em!LiteView",
+        "config_dir": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "package_family": "ice.LiteView_rz8m2sa64m4em",
+        "package_local_folder": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "packaged": true,
+        "version": "1.0.0"
+      }
+    },
+    {
+      "language": "en-us",
+      "scene": "editor",
+      "path": "en-us\\editor\\editor.png",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "sha256": "bbc74d272825d5fd678eabd04692dafc61ba959a52ae179140680de98fdd3d16",
+      "source_before": "324a1a05c8d3b755fbc1c40af7791eaf787adaddc722c349b70a5c4b63b3885c",
+      "source_after": "5b8a9ec71a792797dda83ee65e6b94da08d3c409b9f0bf39a8c4d54ad15bfa54",
+      "exit_code": 0,
+      "runtime": {
+        "application_id": "ice.LiteView_rz8m2sa64m4em!LiteView",
+        "config_dir": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "package_family": "ice.LiteView_rz8m2sa64m4em",
+        "package_local_folder": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "packaged": true,
+        "version": "1.0.0"
+      }
+    },
+    {
+      "language": "en-us",
+      "scene": "redaction",
+      "path": "en-us\\redaction\\redaction.png",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "sha256": "ba3907e8fbcf232a99e14a982e223caae6975bb10f4e369e0df461f7537e2043",
+      "source_before": "33d8b629a980649767a9cb8bc17663972a02eb343b3f41c00bfdf006bf614229",
+      "source_after": "9901f75f230d799e1f77592b2c916d8f3b3a898a45c7e3fc90c11f4883331734",
+      "exit_code": 0,
+      "runtime": {
+        "application_id": "ice.LiteView_rz8m2sa64m4em!LiteView",
+        "config_dir": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "package_family": "ice.LiteView_rz8m2sa64m4em",
+        "package_local_folder": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "packaged": true,
+        "version": "1.0.0"
+      }
+    },
+    {
+      "language": "en-us",
+      "scene": "animation",
+      "path": "en-us\\animation\\animation.png",
+      "dimensions": [
+        1024,
+        768
+      ],
+      "sha256": "d5ae7934cd52603f4e623d3bc49943328079c413d34bc7027845c1febd5ad24a",
+      "source_before": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "source_after": "a349f0436086a206c66a5cf58e3b6f1df19cb6df08b21a5726da5f90bcab3875",
+      "exit_code": 0,
+      "runtime": {
+        "application_id": "ice.LiteView_rz8m2sa64m4em!LiteView",
+        "config_dir": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "package_family": "ice.LiteView_rz8m2sa64m4em",
+        "package_local_folder": "C:\\Users\\runneradmin\\AppData\\Local\\Packages\\ice.LiteView_rz8m2sa64m4em\\LocalState",
+        "packaged": true,
+        "version": "1.0.0"
+      }
+    }
+  ],
+  "scope": "Installed MSIX identity replay on a disposable runner; not Windows 10/11 human acceptance"
+}

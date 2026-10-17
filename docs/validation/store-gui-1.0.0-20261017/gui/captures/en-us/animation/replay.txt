@@ -1,0 +1,11 @@
+waitimage
+wait 1200
+key period
+key period
+key period
+wait 350
+move 600 725
+wait 250
+shot D:/a/_temp/liteview-wack-reports/gui/captures/en-us/animation/animation.png
+wait 350
+quit

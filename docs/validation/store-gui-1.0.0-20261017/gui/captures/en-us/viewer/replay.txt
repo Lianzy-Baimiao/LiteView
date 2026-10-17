@@ -1,0 +1,7 @@
+waitimage
+wait 1200
+move 600 725
+wait 250
+shot D:/a/_temp/liteview-wack-reports/gui/captures/en-us/viewer/viewer.png
+wait 350
+quit

@@ -1,0 +1,20 @@
+waitimage
+wait 1200
+key t
+wait 450
+click 690 345
+text Snow on the ridge
+wait 350
+key escape
+wait 200
+key u
+wait 200
+drag 725 395 465 323 20
+wait 350
+move 600 725
+wait 250
+shot D:/a/_temp/liteview-wack-reports/gui/captures/en-us/editor/editor.png
+wait 350
+key ctrl+s
+wait 1800
+quit

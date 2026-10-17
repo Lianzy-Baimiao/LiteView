@@ -1,0 +1,14 @@
+{
+  "os": "Microsoft Windows Server 2025 Datacenter",
+  "version": "10.0.26100",
+  "build": "26100",
+  "session_id": 2,
+  "user_interactive": true,
+  "administrator": true,
+  "runner_os": "Windows",
+  "image_os": "win25-vs2026",
+  "image_version": "20261007.264.1",
+  "powershell": "7.6.6",
+  "commit": "73f02ed1e73dc50a67fb91a88b66f6877eb0b2b5",
+  "run_id": "39037154456"
+}
