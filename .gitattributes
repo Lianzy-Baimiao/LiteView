@@ -1,0 +1,3 @@
+# Preserve the exact bytes of certification evidence and its recorded hashes.
+docs/validation/**/wack.xml -text whitespace=cr-at-eol
+docs/validation/**/*.stdout.txt -text whitespace=cr-at-eol,-blank-at-eof

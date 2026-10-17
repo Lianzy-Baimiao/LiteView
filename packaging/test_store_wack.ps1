@@ -1,6 +1,7 @@
 param(
     [Parameter(Mandatory = $true)][string]$Package,
-    [Parameter(Mandatory = $true)][string]$Output
+    [Parameter(Mandatory = $true)][string]$Output,
+    [switch]$GuiReplay
 )
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
@@ -28,7 +29,7 @@ $state = [ordered]@{
     status = 'inconclusive'; stage = 'preflight'; error = $null; cleanup_errors = @()
     scope = 'Supplemental GitHub Windows runner only; not Windows 10/11 acceptance or Store certification'
     original_msix_sha256 = $expectedPackageHash; binary_sha256 = $expectedBinaryHash
-    source_release_run = '39027759847'; signed_copy_sha256 = $null
+    source_release_run = '39027759847'; signed_copy_sha256 = $null; gui_status = 'not-run'
 }
 function Save-Json($Value, [string]$Name) {
     $Value | ConvertTo-Json -Depth 12 | Set-Content -LiteralPath (Join-Path $Output $Name) -Encoding utf8
@@ -145,8 +146,15 @@ try {
     $summary = Get-Content -LiteralPath (Join-Path $Output 'wack-summary.json') -Raw | ConvertFrom-Json
     $state.status = $summary.status
     if ($summaryCode -ne 0) { throw "WACK $($summary.status): $($summary.reason)" }
+    if ($GuiReplay) {
+        $state.stage = 'installed-gui-replay'
+        Add-AppxPackage -Path $signed
+        & (Join-Path $PSScriptRoot 'test_store_gui.ps1') -Output (Join-Path $Output 'gui')
+        $state.gui_status = 'pass'
+    }
     $state.stage = 'completed'
 } catch {
+    if ($state.stage -eq 'installed-gui-replay') { $state.gui_status = 'fail' }
     $state.error = $_.Exception.Message
     throw
 } finally {

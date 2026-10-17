@@ -1,0 +1,75 @@
+    Beginning execution of task Detect app type from package.
+    Task Detect app type from package execution result was success.
+    Note: Test application type - Centennial.
+    Note: Running tests without application deployment.
+    Beginning execution of task Clear the network isolation loopback exemption.
+    Beginning execution of task Extract files from package.
+    Task Clear the network isolation loopback exemption execution result was success.
+    Task Extract files from package execution result was success.
+    Beginning execution of task Performs app package deployment/cleanup in the IDE scenario..
+    Beginning execution of task Modify status of the TAEF service.
+    Task Modify status of the TAEF service execution result was success.
+    Task Performs app package deployment/cleanup in the IDE scenario. execution result was success.
+    Beginning execution of task Program inventory.
+    Task Program inventory execution result was success.
+    Beginning execution of task App resources.
+    Beginning execution of task File association verbs.
+    Task App resources execution result was success.
+    Task File association verbs execution result was success.
+    Beginning execution of task Registry checks.
+    Beginning execution of task Decompress app files.
+    Task Decompress app files execution result was success.
+    Task Registry checks execution result was success.
+    Beginning execution of task ExclusiveTo attribute.
+    Beginning execution of task Type location.
+    Task Type location execution result was success.
+    Task ExclusiveTo attribute execution result was success.
+    Beginning execution of task Type name case-sensitivity.
+    Beginning execution of task Type name correctness.
+    Task Type name case-sensitivity execution result was success.
+    Task Type name correctness execution result was success.
+    Beginning execution of task General metadata correctness.
+    Beginning execution of task Properties.
+    Task Properties execution result was success.
+    Task General metadata correctness execution result was success.
+    Beginning execution of task Banned file analyzer.
+    Beginning execution of task Resource Packages.
+    Task Resource Packages execution result was success.
+    Task Banned file analyzer execution result was success.
+    Beginning execution of task Install signed driver and executable files.
+    Beginning execution of task Special use capabilities.
+    Task Special use capabilities execution result was success.
+    Task Install signed driver and executable files execution result was success.
+    Beginning execution of task User account control run level.
+    Task User account control run level execution result was success.
+    Beginning execution of task Archive files usage.
+    Beginning execution of task Dependency information.
+    Task Archive files usage execution result was success.
+    Task Dependency information execution result was success.
+    Beginning execution of task Platform appropriate files.
+    Task Platform appropriate files execution result was success.
+    Beginning execution of task Application count.
+    Beginning execution of task App manifest.
+    Task Application count execution result was success.
+    Task App manifest execution result was success.
+    Beginning execution of task Branding.
+    Beginning execution of task Debug configuration.
+    Task Debug configuration execution result was success.
+    Task Branding execution result was success.
+    Beginning execution of task Blocked executables.
+    Beginning execution of task DPIAwarenessValidation.
+    Task DPIAwarenessValidation execution result was success.
+    Task Blocked executables execution result was success.
+    Beginning execution of task Enterprise Features.
+    Beginning execution of task Private code signing.
+    Task Enterprise Features execution result was success.
+    Task Private code signing execution result was success.
+    Beginning execution of task Decompress app files.
+    Beginning execution of task Extract files from package.
+    Task Decompress app files execution result was success.
+    Task Extract files from package execution result was success.
+    Beginning execution of task Performs app package deployment/cleanup in the IDE scenario..
+    Beginning execution of task Modify status of the TAEF service.
+    Task Modify status of the TAEF service execution result was success.
+    Task Performs app package deployment/cleanup in the IDE scenario. execution result was success.
+Windows App Certification Kit has finished testing your app. Please verify the results generated at D:\a\_temp\liteview-wack-reports\wack.xml before submitting your app to the Microsoft Store.

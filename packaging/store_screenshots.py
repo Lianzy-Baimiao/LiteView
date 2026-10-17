@@ -91,7 +91,7 @@ def animation(path):
     frames[0].save(path, save_all=True, append_images=frames[1:], duration=80, loop=0, optimize=False)
 
 
-def capture(binary, root, language, scene):
+def capture(binary, root, language, scene, *, installed_config=None, minimum_size=(1366, 768)):
     directory = root / language / scene
     directory.mkdir(parents=True)
     config = directory / "config"
@@ -105,7 +105,11 @@ def capture(binary, root, language, scene):
         "shape": "Arrow", "shape_width": 6, "color1": [245, 138, 69, 255],
         "text_size": 42, "text_bold": False, "confirm_overwrite": False,
     }
-    (config / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+    settings_json = json.dumps(settings)
+    (config / "settings.json").write_text(settings_json, encoding="utf-8")
+    if installed_config is not None:
+        # Only the disposable packaged replay supplies its verified WinRT LocalFolder.
+        (installed_config / "settings.json").write_text(settings_json, encoding="utf-8")
     image = directory / ("Orbit.gif" if scene == "animation" else "Contact-demo.png" if scene == "redaction" else "Alpine-lake.png")
     {"animation": animation, "redaction": contact}.get(scene, landscape)(image)
     original_hash = sha256(image)
@@ -134,7 +138,7 @@ def capture(binary, root, language, scene):
         result = subprocess.run(args, env=env, cwd=directory, stdout=log, stderr=subprocess.STDOUT, timeout=45, check=True)
     with Image.open(screenshot) as shot:
         uniform = all(low == high for low, high in shot.convert("RGB").getextrema())
-        if shot.width < 1366 or shot.height < 768 or uniform:
+        if shot.width < minimum_size[0] or shot.height < minimum_size[1] or uniform:
             raise RuntimeError(f"Invalid screenshot dimensions or blank image: {screenshot}")
         dimensions = list(shot.size)
     if scene in ("editor", "redaction") and sha256(image) == original_hash:

@@ -1,0 +1,11 @@
+{
+  "status": "reported-pass",
+  "stage": "completed",
+  "error": null,
+  "cleanup_errors": [],
+  "scope": "Supplemental GitHub Windows runner only; not Windows 10/11 acceptance or Store certification",
+  "original_msix_sha256": "2130cb363d94fce37d06f0cef4222dc84795c408a4bda6d0c8a91103eb925b06",
+  "binary_sha256": "21ddc58f7d9d9e3d5589566e725fce1fc209288bfe82018adaaac6eaf058ac6a",
+  "source_release_run": "39027759847",
+  "signed_copy_sha256": "1596fc1e541ad65c708756e4d5ea01ff387353bb75c0cdede289d0705a875d3a"
+}

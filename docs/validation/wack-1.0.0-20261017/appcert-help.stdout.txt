@@ -1,0 +1,47 @@
+Windows App Certification Kit
+(C) Microsoft Corporation. All rights reserved.
+
+Welcome to Windows App Certification Kit.
+
+This kit will help validate application compliance with Windows App Certification Kit requirements.
+For best results please run this kit on a clean install of Windows. Also make sure all tests are run in the same session - reboots and/or log off will be recorded as failures.
+Please ensure that you have run your application(s) at least once and dismissed license agreements and first-time prompts to avoid unnecessary failures while testing.
+Please run 'appcert reset' before start of a new validation.
+
+USAGE:
+
+appcert.exe [ test | finalizereport | reset | querytestids] [options]
+
+Verbs:
+
+test                                     Executes the testing session.
+finalizereport                           In case of any waiver instructions, you will need to exercise this option. The output of "test" will indicate if report finalization is required.
+reset                                    Resets the testing process.
+querytestids                             Prints list of test names and corresponding test ids for Microsoft Store Certification.
+
+Options (test)
+-packagefullname <packagefullname>       Specifies the installed package full name (Microsoft Store Apps only).
+-appxpackagepath <path>                  Specifies the full path to the app package that will be tested (Microsoft Store Apps only).
+-testid [testid1,testid2,testid3, ...]   Specifies the (optional) list of comma separated test ids to execute during the test.
+
+Options (finalizereport)
+-reportfilepath <name>                   Specifies the full path (including file name) of the report that has to be finalized.
+
+Examples:
+appcert test -packagefullname microsoft.devx.appx.helloworld_1.0.0.0_neutral_NorthAmerica_ac4zc6fex2zjp -reportoutputpath c:\Output\MyReport.xml
+appcert test -appxpackagepath C:\Input\myapp_helloworld.msix -reportoutputpath C:\Output\MyReport.xml
+appcert test -appxpackagepath C:\Input\myapp_helloworld.appx -reportoutputpath C:\Output\MyReport.xml
+appcert test -testid [21,47,31] -packagefullname microsoft.devx.appx.helloworld_1.0.0.0_neutral_NorthAmerica_ac4zc6fex2zjp -reportoutputpath c:\Output\MyReport.xml
+appcert querytestids
+appcert finalizereport -reportfilepath c:\Output\MyReport.xml
+appcert reset
+
+Return codes:
+   0 = The verb executed successfully.
+   1 = The verb executed successfully but needs report finalization.
+  -1 = Invalid command line error occurred.
+  -2 = Infrastructure error occurred.
+  -3 = User initiated error occurred.
+  -4 = App installation error occurred.
+  -5 = App unpackaging error occurred.
+

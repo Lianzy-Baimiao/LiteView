@@ -1,0 +1,9 @@
+{
+  "file": "C:\\Program Files (x86)\\Windows Kits\\10\\App Certification Kit\\appcert.exe",
+  "arguments": "test -appxpackagepath \"D:\\a\\_temp\\liteview-wack-private-9c408e71e0bd41d093fa5a3128ac8c7a\\LiteView-test-only.msix\" -reportoutputpath \"D:\\a\\_temp\\liteview-wack-reports\\wack.xml\"",
+  "started_utc": "2026-10-17T13:24:04.3454692Z",
+  "timeout_seconds": 1800,
+  "timed_out": false,
+  "exit_code": 0,
+  "finished_utc": "2026-10-17T13:24:51.8338548Z"
+}

@@ -1,0 +1,10 @@
+{
+  "path": "C:\\Program Files (x86)\\Windows Kits\\10\\App Certification Kit\\appcert.exe",
+  "file_version": "10.0.26100.8249 (WinBuild.160101.0800)",
+  "signature": {
+    "status": "Valid",
+    "subject": "CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US",
+    "thumbprint": "6ACE61BAE3F09F4DD2697806D73E022CBFE70EB4",
+    "sha256": "92ACE57869DA3A630E74A39E98A0D1B62579F320A0204607E224C9BE48543568"
+  }
+}
