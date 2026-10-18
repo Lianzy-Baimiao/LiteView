@@ -1,6 +1,6 @@
 # LiteView 商店提交记录
 
-状态：2026-10-17 用户在 Partner Center 自行提交首次上架申请。随后核对后台：产品状态为“正在认证”，提交步骤已完成、预处理正在进行、认证和发布步骤尚未开始。尚未通过认证或上架。
+状态：2026-10-18 已核实 LiteView **通过微软认证**。用户随后自行点击“立即发布”，后台已变为**正在发布**；发布步骤正在进行，尚未核实商店页面可访问、搜索收录或实际下载安装。不要重复点击发布、取消认证或将“正在发布”表述为全球分发已经完成。
 
 2026-10-17：GitHub v1.0.0 已作为正式版 / Latest 发布。对应的 MSIX 已在一次性 Windows runner 完成安装、真实 AUMID 启动、独立配置、升级和卸载检查，并下载核对 SHA-256；经用户确认上传商店草稿后，后台显示 Validated。未签名候选不是公开侧载安装包。当前版本的中英文截图已补齐，Store 一览显示“完成”；年龄分级已保存，Microsoft Store 为 3+。用户已提交微软审核；送审后补跑的 Server 2025 WACK 总体 PASS、13 必需项全过，保留 1 可选失败。本地 Windows 10/11 商店版人工验收仍未完成，不能因已送审或 CI 检查通过而将其标为通过。证据见 `RELEASE-1.0.0-VALIDATION.md`。
 
@@ -13,6 +13,14 @@
 - 支持地址：https://github.com/Lianzy-Baimiao/LiteView/issues
 - 隐私政策地址：https://raw.githubusercontent.com/Lianzy-Baimiao/LiteView/main/docs/PRIVACY.md
 - 隐私政策已提交到公开仓库，并于 2026-10-17 验证可匿名访问；商店属性中已填写。
+
+## 发布进度（2026-10-18）
+
+- 产品 **LiteView / 9PCG7D394JFC**，Submission 1 **1152921505702157204**，已认证包为 `LiteView-store-1.0.0.0-x64.msix`。核对的是 LiteView，不是 FeatherMD。
+- 发布前 Partner Center 明确显示“你的产品已通过认证过程”，状态为“准备发布”，“立即发布”可用。只读定价页核对：全球 **240** 个现有市场、公开可发现、**CNY 0**；原有未来市场选项仍启用，未作修改。
+- 用户亲自点击“立即发布”后，重新核对显示“正在发布”，并说明“你的产品已通过认证过程。它已开始发布，并将很快在 Microsoft Store 中提供”；进度条为提交/预处理/认证完成、发布进行中。助手没有重复点击、撤销或重建/替换提交包。
+- 产品标识展开区的 Microsoft Store 深层链接与 Web Store URL 仍显示“产品上线后可用”。因此不提供虚构的已上线链接、不承诺立即搜索可见，也不把本次状态检查说成商店签名包已下载安装验收。下一步只需核对实际发布完成和公开商店交付，不重新送审当前版本。
+- 状态证据保存在忽略的 `dist/store-publication-20261018/`：`approved-awaiting-publication.txt/.jpg`、`pricing-before-publication.txt`、`publishing.txt/.jpg`。本次没有修改 GitHub v1.0.0 发行附件、运行本机原生测试或改动 FeatherMD；没有创建自动监控。
 
 ## 提交资料及进度（2026-10-17）
 

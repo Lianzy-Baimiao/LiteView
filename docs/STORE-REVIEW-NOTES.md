@@ -24,4 +24,4 @@ Store screenshots show the actual 1.0.0 viewer/editor, with original demo artwor
 - 送审后已补充 Server 2025 runner 的 WACK：总体 PASS，13 必需项全过，保留 1 可选失败；没有修改已提交的上方英文说明。它不代替 Windows 10/11 实机或商店认证，见 `WACK-VALIDATION-NOTES.md`。
 - 随后补齐已安装包的四场景 GUI 回放及真实 AUMID 诊断，使用实际 WinRT LocalFolder；证据见 `validation/store-gui-1.0.0-20261017/README.md`。未将这些补测资料重新提交后台或改变当前认证流程。
 - IARC 年龄分级已于 2026-10-17 经用户最后确认保存，Microsoft Store / IARC / PEGI 为 3+、ESRB 为 E；送审前核对分级 ID 为“待定”。详见 `STORE-LISTING.md`，不冒充正式分级证书或商店认证结果。
-- 用户已提交认证，后台仍保留人工发布开关；审核尚未通过，未发布。保存审核说明或送审不等于本地验收通过。
+- 2026-10-18 已从 Partner Center 核实认证通过；用户自行点击“立即发布”后状态为“正在发布”。尚未核实公开商店交付完成，详见 `STORE-LISTING.md`。此结果不将既有未完成的本地人工验收倒记为通过，也没有修改已送审的英文说明。
