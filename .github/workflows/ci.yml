@@ -17,6 +17,18 @@ jobs:
       RUSTFLAGS: ${{ startsWith(matrix.os, 'windows') && '-C target-feature=+crt-static' || '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: Windows support report privacy fixtures
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./packaging/test_windows_support.ps1
+          ./packaging/test_windows_probe_result.ps1
+      - name: Windows support report privacy fixtures (Windows PowerShell)
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: |
+          ./packaging/test_windows_support.ps1
+          ./packaging/test_windows_probe_result.ps1
       - name: Installer process regression (PowerShell 7)
         if: runner.os == 'Windows'
         timeout-minutes: 2
@@ -53,3 +65,29 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: ./packaging/test_windows_resources.ps1 -Binary target/release/LiteView.exe
+      - name: Windows startup validation dependencies
+        if: runner.os == 'Windows'
+        run: python -m pip install -r packaging/requirements-windows-validation.txt
+      - name: Windows real startup and missing-runtime controls
+        if: runner.os == 'Windows'
+        timeout-minutes: 4
+        shell: pwsh
+        env:
+          LITEVIEW_TEST_BINARY: target/release/LiteView.exe
+          LITEVIEW_TEST_OUTPUT: ${{ runner.temp }}/liteview-startup
+          LITEVIEW_CORPUS_BINARY: target/release/LiteView.exe
+          LITEVIEW_CORPUS_OUTPUT: ${{ runner.temp }}/liteview-corpus
+        run: python -m unittest discover -s packaging -p "test_windows_*.py" -v
+      - name: Windows startup evidence
+        if: always() && runner.os == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-startup-evidence
+          path: |
+            ${{ runner.temp }}/liteview-startup/**/*.json
+            ${{ runner.temp }}/liteview-startup/**/*.log
+            ${{ runner.temp }}/liteview-startup/**/frame.png
+            ${{ runner.temp }}/liteview-corpus/**/*.json
+            ${{ runner.temp }}/liteview-corpus/**/*.log
+            ${{ runner.temp }}/liteview-corpus/**/frame.png
+          if-no-files-found: ignore

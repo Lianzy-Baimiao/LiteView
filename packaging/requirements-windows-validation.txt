@@ -1,0 +1,3 @@
+# Developer/CI tools only; never shipped with LiteView.
+pefile==2024.8.26
+Pillow==12.3.0
