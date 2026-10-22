@@ -281,7 +281,7 @@ python packaging/windows_corpus_probe.py --binary $env:LITEVIEW_CORPUS_BINARY --
 
 看似 `visible` 的只有 winit 内部消息窗口；1.0.0 在所有故障场景中 LiteView 主窗口始终不可见。
 
-### 修复（源码，未发布）
+### 修复（随 v1.1.0 发布）
 
 - `src/gpu.rs` + `src/app/mod.rs::run`：按 Vulkan → DX12 → GL 逐个试；窗口显示前 `run_native` 返回错误或 panic，就在本进程换下一个接口重试（界面状态尚未使用）。`WGPU_BACKEND` 指定时只用它。**默认首选仍是 Vulkan，没有改默认顺序。**
 - `src/startup.rs`：启动前在配置目录 `startup.json` 记下接口与进程；第二帧开始时确认。上次没确认就退出或超过 8 秒仍未确认（卡住）→ 该接口排到最后。崩溃在解码扩展模块或工作线程上时不怪显卡接口。成功后从失败名单移除；换版本重新从首选试；全部失败时清空名单。
@@ -303,3 +303,7 @@ python packaging/windows_corpus_probe.py --binary $env:LITEVIEW_CORPUS_BINARY --
 - 报告用户机器上的具体触发；发布修复版后，用户若仍遇到问题，“关于”页的接口与上次问题即可作为故障签名。
 - 第一次崩溃本身仍会发生（之后才会自动换接口）；`__fastfail`、栈溢出不经过未处理异常过滤器，不会有模块记录；卡住的进程不会被结束，留在后台直到重启或手动结束；正在启动的另一个实例卡住时，第二次双击最多等 8 秒。
 - 商店签名包身份与真实文件关联激活下的修复版、硬件 GPU 以外的真实厂商驱动（Intel / NVIDIA）、HEIC 解码扩展崩溃分支、“菜单图标模糊”仍待验证。
+
+### v1.1.0 正式包复核（2026-10-22）
+
+GitHub Release v1.1.0（Actions 运行 39815282764，四目标构建与发布全部成功）中的 Windows EXE 为 MSVC 静态 CRT 构建，SHA256 `603753626bb9b6b7a6930cc9a4d56fcbaa3e76d962a8408246902519aa7775c3`，与商店候选 `LiteView-store-1.1.0.0-x64.msix` 内的 EXE 逐字节相同。用同一故障注入矩阵（Medium IL、私有 desktop）复测这个正式 EXE：12 个场景结果与本机 GNU 修复版一致——表面不受支持 / 建设备失败 / 交换链失败本进程换 DX12；驱动与隐式层崩溃再启动换 DX12，崩溃记录为 `0xC0000005 lvfault.dll+0x1A51 (main thread, Vulkan)`；两种卡住场景双击图片约 6 秒后用 DX12 打开；单字体 `msyh.ttc` 正常显示；全部失败时 0.4 秒弹出错误对话框。证据 `dist/vk-fault-20261022/runs/rel-1/`。CI（运行 39812306162）Windows 真实启动 19 项测试通过、无跳过。

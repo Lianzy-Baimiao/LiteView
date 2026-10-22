@@ -2,6 +2,11 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。
 
+## 1.1.0.0 更新（2026-10-22，待上传）
+
+- 包：`LiteView-store-1.1.0.0-x64.msix`，SHA-256 `bfc57c4b63a3d700b888ce69b7c2aed647e19f74663d431366ad6e9be63a8037`；来自 Release 运行 39815282764 的 `Store-submission-x64` artifact（MakePri / MakeAppx 通过，一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.1.0.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.1.0 相同（`6037536…75c3`）。
+- 状态：GitHub v1.1.0 已发布为 Latest。商店新提交需在 Partner Center 上传本包、填写“此版本的新增功能”后送审；本记录写入时**尚未上传或送审**，通过审核前商店仍为 1.0.0.0。
+
 ## 实际交付（2026-10-22）
 
 - `winget install --id 9PCG7D394JFC --source msstore` 成功安装包族 `ice.LiteView_rz8m2sa64m4em`，版本 1.0.0.0，签名类型 Store。
