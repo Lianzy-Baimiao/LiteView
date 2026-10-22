@@ -1,6 +1,6 @@
 # LiteView 隐私政策 / Privacy Policy
 
-生效日期 / Effective date: 2026-10-17
+生效日期 / Effective date: 2026-10-22
 
 ## 中文
 
@@ -17,7 +17,8 @@ LiteView 是本地图片查看、编辑和打码工具。Microsoft Store 的发�
 
 - 偏好设置、窗口位置等存放在本机用户目录。商店版使用该包的本地应用数据目录，独立安装版使用 `%APPDATA%\LiteView`，绿色版使用程序旁的 `config` 目录。
 - 商店版设置由 Windows 管理，可能参与系统的应用数据备份；卸载通常会删除其本地应用数据。独立版卸载保留设置。用户图片不因卸载而由 LiteView 删除。
-- 默认不写诊断日志。用户或测试人员主动设置 `LITEVIEW_LOG` 时，日志写入其指定的本地文件，可能含文件路径和错误信息，不会自动上传。其他开发测试输出也仅在明确启用时写入指定位置。分享诊断前请检查并删除不愿公开的信息。
+- 为了在启动失败后自动换用其他图形接口、并方便你反馈问题，1.1.0 起会在上述设置目录写三个小文件：`startup.json`（用了哪个图形接口、上次启动是否完成）、`last-crash.txt`（程序崩溃时的异常码和出错模块）、`errors.log`（程序内部错误，超过 256 KB 自动轮换）。它们不含图片内容，错误信息中可能出现文件路径；只保存在本机，不会自动上传。“设置 → 关于”会显示其中的摘要，可通过“打开配置文件所在目录”查看或删除。
+- 完整调试日志仍默认关闭。用户或测试人员主动设置 `LITEVIEW_LOG` 时，日志写入其指定的本地文件，可能含文件路径和错误信息，不会自动上传。其他开发测试输出也仅在明确启用时写入指定位置。分享诊断前请检查并删除不愿公开的信息。
 
 ### Microsoft Store 与外部链接
 
@@ -43,7 +44,9 @@ Saving may retain some metadata according to your settings. Redacted images are 
 
 Preferences and window state are stored locally. The Store edition uses its package's local application-data folder; the standalone installer uses `%APPDATA%\LiteView`; the portable edition uses `config` beside the executable. Windows manages Store-edition settings and may include them in application-data backups; uninstalling normally removes that local data. The standalone uninstaller retains settings. LiteView does not delete your images during uninstall.
 
-Logging is off by default. If you explicitly set `LITEVIEW_LOG`, logs are written to the local file you specify and may contain paths and error details. Other development-test outputs are also written only when explicitly enabled. Nothing is uploaded automatically. Review and redact diagnostic files before sharing.
+Starting with 1.1.0, LiteView writes three small files in the settings folder above so it can switch to another graphics API after a failed start and so you can report problems: `startup.json` (which graphics API was used and whether the last start completed), `last-crash.txt` (exception code and faulting module after a crash) and `errors.log` (internal errors, rotated above 256 KB). They contain no image content; error text may include file paths. They stay on this device and are never uploaded. Settings > About shows a summary, and "Open settings folder" lets you view or delete them.
+
+Full debug logging remains off by default. If you explicitly set `LITEVIEW_LOG`, logs are written to the local file you specify and may contain paths and error details. Other development-test outputs are also written only when explicitly enabled. Nothing is uploaded automatically. Review and redact diagnostic files before sharing.
 
 ### Store, external services and contact
 
