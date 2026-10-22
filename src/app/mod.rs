@@ -122,6 +122,8 @@ pub struct App {
     titlebar_dark: Option<bool>,
     title: String,
     pub(crate) first_paint_logged: bool,
+    /// 已经运行的界面帧数（第二帧开始时第一帧已经画到窗口上）
+    frames: u32,
     script: crate::devtools::Script,
     pub(crate) ctx: egui::Context,
     /// 浮动工具栏的位置（鼠标在上面时不淡出）
@@ -152,6 +154,9 @@ pub fn run() -> eframe::Result {
     let args = crate::cli::parse(std::env::args_os().skip(1));
     let settings = Settings::load();
     crate::i18n::set_language(settings.language);
+    crate::startup::install_panic_hook();
+    #[cfg(windows)]
+    crate::startup::crash::install();
     if args.diagnostics {
         let result = args.path.as_deref().ok_or_else(|| std::io::Error::other("--diagnostics requires an output file"))
             .and_then(crate::devtools::write_diagnostics);
@@ -168,6 +173,8 @@ pub fn run() -> eframe::Result {
         }
         return Ok(());
     }
+    // 另一个实例正在启动时先等它（画出第一帧后才接收转发；卡住就判失败、换接口）
+    let mut guard = crate::startup::Guard::load();
     // 单实例：交给已经开着的窗口
     if settings.single_instance
         && let Some(p) = &args.path
@@ -180,6 +187,57 @@ pub fn run() -> eframe::Result {
     if let Some(p) = &args.path {
         loader.request(p);
     }
+    // 窗口还没显示时显卡接口失败（返回错误或 panic）：换下一个接口在本进程重试，界面状态还没用掉
+    let mut parts = Some((settings, loader, args));
+    let names = match crate::gpu::forced() {
+        Some(_) => vec!["WGPU_BACKEND"],
+        None => crate::startup::order(crate::gpu::preferred(), guard.failed()),
+    };
+    let mut last_error = None;
+    for name in names {
+        // 先记下再枚举：隐式层 / 驱动在枚举时就崩溃，下次也能跳过这个接口
+        guard.begin(name);
+        if crate::gpu::forced().is_none() && !crate::gpu::has_adapter(name) {
+            continue;
+        }
+        let Some((settings, ..)) = parts.as_ref() else { break };
+        let options = native_options(settings, name);
+        log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            eframe::run_native("LiteView", options, Box::new(|cc| Ok(create(&mut parts, cc))))
+        }));
+        let created = parts.is_none();
+        let error = match result {
+            Ok(Ok(())) => return Ok(()),
+            Ok(Err(e)) => e.to_string(),
+            Err(payload) => {
+                let text = crate::startup::last_panic(payload.as_ref());
+                if created {
+                    // 界面建好之后的 panic：换接口解决不了，提示后照常退出
+                    crate::startup::record_exit(&text, false);
+                    crate::startup::fatal_dialog(&text);
+                    std::panic::resume_unwind(payload);
+                }
+                text
+            }
+        };
+        log::warn!("用 {name} 启动失败：{error}");
+        crate::startup::append_error_log(&format!("{name}: {error}"));
+        if created {
+            crate::startup::record_exit(&error, !crate::startup::confirmed());
+            crate::startup::fatal_dialog(&error);
+            return Err(eframe::Error::AppCreation(std::io::Error::other(error).into()));
+        }
+        guard.fail(name, &error);
+        last_error = Some(error);
+    }
+    let error = last_error.unwrap_or_else(|| crate::i18n::tr().gpu_no_adapter.to_owned());
+    guard.gave_up(&error);
+    crate::startup::fatal_dialog(&error);
+    Err(eframe::Error::AppCreation(std::io::Error::other(error).into()))
+}
+
+fn native_options(settings: &Settings, backend: &str) -> eframe::NativeOptions {
     let w = settings.window;
     let mut vp = egui::ViewportBuilder::default()
         .with_title(crate::i18n::tr().app_name)
@@ -191,24 +249,22 @@ pub fn run() -> eframe::Result {
     if let Some(pos) = w.pos {
         vp = vp.with_position(pos);
     }
-    let options = eframe::NativeOptions { viewport: vp, centered: w.pos.is_none(), wgpu_options: crate::gpu::configuration(), ..Default::default() };
-    log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
-    eframe::run_native(
-        "LiteView",
-        options,
-        Box::new(move |cc| {
-            crate::ui::fonts::install(&cc.egui_ctx);
-            theme::set_accent(settings.accent.or_else(crate::platform::system_accent));
-            theme::install(&cc.egui_ctx);
-            cc.egui_ctx.set_theme(match settings.theme {
-                crate::settings::ThemeMode::System => egui::ThemePreference::System,
-                crate::settings::ThemeMode::Light => egui::ThemePreference::Light,
-                crate::settings::ThemeMode::Dark => egui::ThemePreference::Dark,
-            });
-            loader.set_context(cc.egui_ctx.clone());
-            Ok(Box::new(App::new(settings, loader, args, &cc.egui_ctx)))
-        }),
-    )
+    eframe::NativeOptions { viewport: vp, centered: w.pos.is_none(), wgpu_options: crate::gpu::configuration(backend), ..Default::default() }
+}
+
+/// 显卡和窗口都准备好之后建界面（每次启动只会成功一次；之前失败的尝试不会走到这里）
+fn create(parts: &mut Option<(Settings, Loader, crate::cli::Args)>, cc: &eframe::CreationContext<'_>) -> Box<dyn eframe::App> {
+    let (settings, loader, args) = parts.take().expect("app parts are taken once");
+    crate::ui::fonts::install(&cc.egui_ctx);
+    theme::set_accent(settings.accent.or_else(crate::platform::system_accent));
+    theme::install(&cc.egui_ctx);
+    cc.egui_ctx.set_theme(match settings.theme {
+        crate::settings::ThemeMode::System => egui::ThemePreference::System,
+        crate::settings::ThemeMode::Light => egui::ThemePreference::Light,
+        crate::settings::ThemeMode::Dark => egui::ThemePreference::Dark,
+    });
+    loader.set_context(cc.egui_ctx.clone());
+    Box::new(App::new(settings, loader, args, &cc.egui_ctx))
 }
 
 /// 命令行 / 另一个实例要求打开后进入的工具
@@ -258,6 +314,7 @@ impl App {
             titlebar_dark: None,
             title: String::new(),
             first_paint_logged: false,
+            frames: 0,
             script: crate::devtools::Script::from_env(),
             ctx: ctx.clone(),
             bar_rect: egui::Rect::NOTHING,
@@ -278,19 +335,32 @@ impl App {
         if let Some(p) = args.path {
             app.open_path(p, ctx);
         }
-        if app.settings.single_instance {
-            let (tx, ctx2) = (app.tx.clone(), ctx.clone());
-            crate::single::serve(move |r| {
-                let _ = tx.send(Notice::Remote(r));
-                ctx2.request_repaint();
-            });
-        }
         // 首次启动询问一次是否设为默认看图软件
         #[cfg(windows)]
         if app.settings.ask_default_app && !crate::platform::assoc::is_registered() {
             app.dialog = Some(Dialog::AskDefault);
         }
         app
+    }
+
+    /// 第二帧开始时第一帧已经画到窗口上：确认这次启动成功，再接收其它实例转来的图片。
+    /// 第一帧卡在驱动里时不开管道，之后双击图片会另开一个进程（按启动记录换接口），不会被卡住的进程吞掉。
+    fn track_startup(&mut self, ctx: &egui::Context) {
+        self.frames = self.frames.saturating_add(1);
+        match self.frames {
+            1 => ctx.request_repaint(),
+            2 => {
+                crate::startup::confirm();
+                if self.settings.single_instance {
+                    let (tx, ctx2) = (self.tx.clone(), ctx.clone());
+                    crate::single::serve(move |r| {
+                        let _ = tx.send(Notice::Remote(r));
+                        ctx2.request_repaint();
+                    });
+                }
+            }
+            _ => {}
+        }
     }
 
     fn poll_notices(&mut self, ctx: &egui::Context) {
@@ -416,6 +486,7 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        self.track_startup(&ctx);
         self.poll_notices(&ctx);
         self.poll_loader(&ctx);
         self.poll_watch(&ctx);
@@ -447,7 +518,12 @@ impl eframe::App for App {
                 self.dialog = Some(Dialog::SaveRotation { after: After::Close });
             }
         }
-        self.script.after_frame(&ctx, self.first_paint_logged);
+        let load_state = match self.cur.as_ref().and_then(|c| c.loaded.as_ref()) {
+            Some(Ok(_)) => crate::devtools::LoadState::Shown,
+            Some(Err(_)) => crate::devtools::LoadState::Error,
+            None => crate::devtools::LoadState::Pending,
+        };
+        self.script.after_frame(&ctx, self.first_paint_logged, load_state);
     }
 
     fn on_exit(&mut self) {

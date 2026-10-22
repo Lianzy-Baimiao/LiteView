@@ -191,6 +191,12 @@ strings! {
     s_confirm_overwrite: "覆盖原图前确认", "Confirm before overwriting";
     s_jpeg_quality: "JPEG 质量", "JPEG quality";
     s_version: "版本 {}", "Version {}";
+    s_gpu: "图形接口：{}", "Graphics API: {}";
+    s_gpu_skipped: "已跳过：{}（在这台电脑上启动失败过）", "Skipped: {} (failed to start on this PC before)";
+    s_last_problem: "上次的问题：{}", "Last problem: {}";
+    gpu_no_first_frame: "没有画出第一帧就退出或卡住", "Exited or froze before the first frame";
+    gpu_no_adapter: "没有找到可用的显卡接口", "No usable graphics API was found";
+    startup_failed: "LiteView 无法启动。\n\n{}\n\n详细记录在：{}", "LiteView could not start.\n\n{}\n\nDetails were saved in: {}";
     s_license: "MIT 开源许可。图标：Fluent UI System Icons（MIT）。", "MIT licensed. Icons: Fluent UI System Icons (MIT).";
     s_open_config: "打开配置文件所在目录", "Open settings folder";
     s_homepage: "项目主页", "Project page";

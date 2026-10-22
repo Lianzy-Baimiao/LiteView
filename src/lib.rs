@@ -18,6 +18,7 @@ pub mod platform;
 pub mod save;
 pub mod settings;
 pub mod single;
+pub mod startup;
 pub mod ui;
 pub mod viewer;
 

@@ -1,5 +1,5 @@
 //! 开发用：按脚本回放操作并截图，用来检查界面（环境变量 `LITEVIEW_SCRIPT`，内容或文件路径）。
-//! 每行一条：`wait 300`、`waitimage`、`key ctrl+r`、`move 100 200`、`click 100 200`、`rclick x y`、
+//! 每行一条：`wait 300`、`waitimage`、`waitloaded`（当前图片显示或报错）、`key ctrl+r`、`move 100 200`、`click 100 200`、`rclick x y`、
 //! `dclick x y`、`down x y`、`up`、`drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`quit`。
 //! 坐标是逻辑像素。
 
@@ -31,6 +31,7 @@ pub fn write_diagnostics(path: &std::path::Path) -> std::io::Result<()> {
 enum Step {
     Wait(Duration),
     WaitImage,
+    WaitLoaded,
     Key(Modifiers, Key),
     Move(Pos2),
     Button(PointerButton, bool),
@@ -42,6 +43,14 @@ enum Step {
     Quit,
 }
 
+#[derive(Clone, Copy, Default)]
+pub(crate) enum LoadState {
+    #[default]
+    Pending,
+    Shown,
+    Error,
+}
+
 #[derive(Default)]
 pub struct Script {
     steps: VecDeque<Step>,
@@ -49,6 +58,7 @@ pub struct Script {
     pos: Pos2,
     shot: Option<String>,
     image_ready: bool,
+    load_state: LoadState,
     first_frame: bool,
 }
 
@@ -84,6 +94,11 @@ impl Script {
                     self.steps.push_front(Step::WaitImage);
                 }
             }
+            Step::WaitLoaded => match self.load_state {
+                LoadState::Pending => self.steps.push_front(Step::WaitLoaded),
+                LoadState::Shown => log::info!("image-state shown"),
+                LoadState::Error => log::info!("image-state error"),
+            },
             Step::Key(m, key) => {
                 raw.events.push(Event::ModifiersChanged(m));
                 // 与 egui-winit 一致：Ctrl+C → Copy，Ctrl+X / Shift+Del → Cut（不再有按下的按键事件）
@@ -124,12 +139,13 @@ impl Script {
         ctx.request_repaint();
     }
 
-    pub fn after_frame(&mut self, ctx: &egui::Context, image_ready: bool) {
+    pub(crate) fn after_frame(&mut self, ctx: &egui::Context, image_ready: bool, load_state: LoadState) {
         if !self.first_frame {
             self.first_frame = true;
             log::info!("启动 {:.0} ms：第一帧", crate::platform::ms_since_process_start());
         }
         self.image_ready = image_ready;
+        self.load_state = load_state;
         if !self.steps.is_empty() || self.shot.is_some() {
             ctx.request_repaint_after(Duration::from_millis(16));
         }
@@ -145,6 +161,7 @@ fn parse(text: &str) -> VecDeque<Step> {
         match w.first().copied() {
             Some("wait") => out.push_back(Step::Wait(Duration::from_millis(num(1) as u64))),
             Some("waitimage") => out.push_back(Step::WaitImage),
+            Some("waitloaded") => out.push_back(Step::WaitLoaded),
             Some("key") => {
                 if let Some((m, k)) = w.get(1).and_then(|s| parse_key(s)) {
                     out.push_back(Step::Key(m, k));
@@ -227,5 +244,23 @@ mod tests {
         assert!(matches!(parse_key("ArrowRight"), Some((_, Key::ArrowRight))));
         assert!(matches!(parse_key("ctrl+shift+x"), Some((m, Key::X)) if m.command && m.shift));
         assert!(matches!(parse_key("["), Some((_, Key::OpenBracket))));
+        assert!(matches!(parse("waitloaded")[0], Step::WaitLoaded));
+    }
+
+    #[test]
+    fn waits_for_current_load_success_or_error() {
+        let ctx = egui::Context::default();
+        for state in [LoadState::Shown, LoadState::Error] {
+            let mut script = Script { steps: parse("waitloaded; trace done"), ..Default::default() };
+            let mut input = egui::RawInput::default();
+            // A previous image having painted is not completion of the current load.
+            script.after_frame(&ctx, true, LoadState::Pending);
+            script.inject(&ctx, &mut input);
+            assert_eq!(script.steps.len(), 2);
+            script.after_frame(&ctx, true, state);
+            script.inject(&ctx, &mut input);
+            assert_eq!(script.steps.len(), 1);
+            assert!(matches!(script.steps.front(), Some(Step::Trace(_))));
+        }
     }
 }

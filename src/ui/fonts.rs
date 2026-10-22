@@ -59,11 +59,33 @@ pub fn map_cached(path: &std::path::Path) -> Option<&'static [u8]> {
     Some(b)
 }
 
+/// epaint 在第一帧解析字体，解析失败直接 panic（窗口还没显示就退出）。
+/// 先用同一个解析器检查：字体集序号不存在（如 msyh.ttc 被替换成单字体文件）时退回 0 号，仍不行就跳过。
+fn usable_index(bytes: &[u8], index: u32) -> Option<u32> {
+    let ok = |i| skrifa::FontRef::from_index(bytes, i).is_ok();
+    if ok(index) {
+        Some(index)
+    } else if index != 0 && ok(0) {
+        Some(0)
+    } else {
+        None
+    }
+}
+
 fn definitions() -> FontDefinitions {
+    definitions_from(candidates().into_iter().map(|(path, index)| (map(&path), path, index)).collect())
+}
+
+/// (映射好的字体数据, 路径, 字体集里的序号)；字体名按候选位置编号
+fn definitions_from(fonts: Vec<(Option<&'static [u8]>, std::path::PathBuf, u32)>) -> FontDefinitions {
     let mut defs = FontDefinitions::default();
     let mut names = Vec::new();
-    for (i, (path, index)) in candidates().into_iter().enumerate() {
-        let Some(bytes) = map(&path) else { continue };
+    for (i, (bytes, path, index)) in fonts.into_iter().enumerate() {
+        let Some(bytes) = bytes else { continue };
+        let Some(index) = usable_index(bytes, index) else {
+            log::warn!("跳过无法解析的字体 {}", path.display());
+            continue;
+        };
         let name = format!("system-{i}");
         let mut data = FontData::from_static(bytes);
         data.index = index;
@@ -90,6 +112,28 @@ fn definitions() -> FontDefinitions {
 
 pub fn install(ctx: &egui::Context) {
     ctx.set_fonts(definitions());
+}
+
+#[cfg(test)]
+mod parse_tests {
+    use super::*;
+
+    /// 1.0.0：msyh.ttc 换成单字体文件后第一帧 panic（Invalid index 1 for font collection），窗口不出现
+    #[test]
+    fn replaced_or_broken_system_fonts_do_not_panic() {
+        let builtin = FontDefinitions::default();
+        let font = builtin.font_data.values().next().expect("egui default font").font.to_vec();
+        let single: &'static [u8] = Box::leak(font.into_boxed_slice());
+        assert_eq!(usable_index(single, 1), Some(0));
+        assert_eq!(usable_index(b"not a font", 0), None);
+        let defs = definitions_from(vec![(Some(single), "msyh.ttc".into(), 1), (Some(&b"junk"[..]), "bad.ttf".into(), 0)]);
+        assert!(defs.font_data.contains_key("system-0") && !defs.font_data.contains_key("system-1"));
+        let ctx = egui::Context::default();
+        ctx.set_fonts(defs);
+        let _ = ctx.run_ui(egui::RawInput::default(), |ui| {
+            ui.label("打开图片");
+        });
+    }
 }
 
 #[cfg(all(test, windows))]

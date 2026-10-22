@@ -224,6 +224,18 @@ impl App {
                 ui.label(RichText::new(format!("{}  {}", t.app_name, fill(t.s_version, &[&env!("CARGO_PKG_VERSION")]))).size(16.0));
                 ui.add_space(6.0);
                 ui.label(RichText::new(t.s_license).color(p.text_weak));
+                // 反馈问题时能直接截图：用的哪个显卡接口、跳过了哪些、上次崩在哪里
+                let gpu = crate::startup::info();
+                if !gpu.backend.is_empty() {
+                    ui.add_space(6.0);
+                    ui.label(RichText::new(fill(t.s_gpu, &[&gpu.backend])).color(p.text_weak));
+                }
+                if !gpu.failed.is_empty() {
+                    ui.label(RichText::new(fill(t.s_gpu_skipped, &[&gpu.failed.join(", ")])).color(p.text_weak));
+                }
+                if let Some(problem) = &gpu.last_failure {
+                    ui.label(RichText::new(fill(t.s_last_problem, &[problem])).color(p.text_weak));
+                }
                 ui.add_space(14.0);
                 ui.horizontal(|ui| {
                     if widgets::plain_button(ui, t.s_homepage).clicked() {
