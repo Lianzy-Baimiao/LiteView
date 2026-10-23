@@ -2,6 +2,11 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。
 
+## 1.2.0.0 更新（2026-10-23，待上传）
+
+- 包：`LiteView-store-1.2.0.0-x64.msix`，SHA-256 `32ae4cf90b93f2cc992982f11f4cd987e44871b8116cfc820e65c3014a889e1a`；来自 Release 运行 40017626731 的 `Store-submission-x64` artifact（一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.2.0.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.2.0 相同（`c541abe…5c4f`）。
+- 状态：GitHub v1.2.0 已发布为 Latest。本记录写入时**尚未上传或送审**。Partner Center 同一时间只能有一个进行中的提交：上传前先确认 1.1.0.0（Submission 2）已认证发布或已结束。
+
 ## 1.1.0.0 更新（2026-10-22，已提交认证）
 
 - 包：`LiteView-store-1.1.0.0-x64.msix`，SHA-256 `bfc57c4b63a3d700b888ce69b7c2aed647e19f74663d431366ad6e9be63a8037`；来自 Release 运行 39815282764 的 `Store-submission-x64` artifact（MakePri / MakeAppx 通过，一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.1.0.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.1.0 相同（`6037536…75c3`）。
