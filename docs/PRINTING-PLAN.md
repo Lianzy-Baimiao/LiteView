@@ -1,6 +1,6 @@
 # 轻量内置打印方案
 
-来源：[GitHub #1](https://github.com/Lianzy-Baimiao/LiteView/issues/1)，2026-10-19 提出。**Windows 版已按本方案实现（2026-10-23，未发布）**，实测与仍缺的验收见末节；真打印机未验收。
+来源：[GitHub #1](https://github.com/Lianzy-Baimiao/LiteView/issues/1)，2026-10-19 提出。**Windows 版已按本方案实现，随 v1.3.0 发布（2026-10-23）**，实测与仍缺的验收见末节；真打印机未验收。
 
 ## 范围由来
 
