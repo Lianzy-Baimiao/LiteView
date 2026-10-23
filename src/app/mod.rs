@@ -7,9 +7,12 @@ mod assoc_ui;
 mod canvas;
 mod chrome;
 pub(crate) mod edit;
+#[cfg(windows)]
+mod host;
 pub(crate) mod info;
 mod input;
 mod menu;
+mod pacing;
 mod settings_ui;
 mod state;
 
@@ -42,7 +45,9 @@ pub(crate) enum Notice {
 
 pub(crate) struct Current {
     pub path: PathBuf,
+    /// 完整解码；预读的图在原图解完前是 None，先显示 preview
     pub loaded: Option<Loaded>,
+    pub preview: Option<std::sync::Arc<crate::viewer::loader::Preview>>,
     pub since: Instant,
     /// 来自剪贴板（没有源文件，保存时走「另存为」）
     pub clipboard: bool,
@@ -113,9 +118,10 @@ pub struct App {
     pub(crate) dialog: Option<Dialog>,
     pub(crate) tx: Sender<Notice>,
     rx: Receiver<Notice>,
-    pub(crate) last_move: Instant,
     pub(crate) fling: egui::Vec2,
     pub(crate) canvas: egui::Rect,
+    /// 上一次画画布时的缩放比例（物理像素 / 逻辑像素）
+    pub(crate) canvas_ppp: f32,
     pub(crate) fullscreen: bool,
     pub(crate) allow_close: bool,
     pub(crate) paste_seq: u32,
@@ -126,8 +132,8 @@ pub struct App {
     frames: u32,
     script: crate::devtools::Script,
     pub(crate) ctx: egui::Context,
-    /// 浮动工具栏的位置（鼠标在上面时不淡出）
-    pub(crate) bar_rect: egui::Rect,
+    /// 浮动工具栏上一帧是否显示（它的弹出菜单开着时不收起）
+    pub(crate) bar_shown: bool,
     /// 设置窗口开着时是哪一页
     pub(crate) settings_page: Option<settings_ui::Page>,
     pub(crate) info_open: bool,
@@ -147,9 +153,27 @@ pub struct App {
     pub(crate) pending_window_fit: bool,
     /// 缩放比例输入框里的文字
     pub(crate) zoom_text: String,
+    /// 省电模式：连续画面的帧率上限
+    pacer: pacing::Pacer,
+    /// 当前图要了原图（放大、编辑、复制要用），还没放掉
+    pub(crate) full_requested: bool,
+    /// 回到适应窗口、可以换回缩略图的时刻（停够一会儿再放掉原图）
+    pub(crate) settle_since: Option<Instant>,
+    /// 只显示着缩略图时点的复制 / 另存为 / 设为背景：原图解完再做
+    pub(crate) pending_action: Option<PendingAction>,
 }
 
-pub fn run() -> eframe::Result {
+/// 要原图像素的操作（只显示着缩略图时先解码）
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PendingAction {
+    Copy,
+    SaveAs,
+    Wallpaper,
+}
+
+pub type RunResult = Result<(), Box<dyn std::error::Error>>;
+
+pub fn run() -> RunResult {
     crate::logger::init();
     let args = crate::cli::parse(std::env::args_os().skip(1));
     let settings = Settings::load();
@@ -160,7 +184,7 @@ pub fn run() -> eframe::Result {
     if args.diagnostics {
         let result = args.path.as_deref().ok_or_else(|| std::io::Error::other("--diagnostics requires an output file"))
             .and_then(crate::devtools::write_diagnostics);
-        return result.map_err(|error| eframe::Error::AppCreation(error.into()));
+        return result.map_err(Into::into);
     }
     // 给安装程序用：注册 / 删除文件关联后退出
     #[cfg(windows)]
@@ -169,7 +193,7 @@ pub fn run() -> eframe::Result {
             crate::platform::assoc::unregister();
         } else if let Err(e) = crate::platform::assoc::register(&settings.assoc_exts) {
             log::warn!("注册文件关联失败：{e}");
-            return Err(eframe::Error::AppCreation(std::io::Error::other(format!("File association registration failed: {e}")).into()));
+            return Err(std::io::Error::other(format!("File association registration failed: {e}")).into());
         }
         return Ok(());
     }
@@ -187,8 +211,52 @@ pub fn run() -> eframe::Result {
     if let Some(p) = &args.path {
         loader.request(p);
     }
-    // 窗口还没显示时显卡接口失败（返回错误或 panic）：换下一个接口在本进程重试，界面状态还没用掉
-    let mut parts = Some((settings, loader, args));
+    let parts = Some((settings, loader, args));
+    #[cfg(windows)]
+    return run_windows(parts, &mut guard);
+    #[cfg(not(windows))]
+    return run_eframe(parts, &mut guard);
+}
+
+/// Windows：自己的窗口循环 + Direct3D 11（硬件不行用 WARP）。驱动在建设备时崩溃 / 卡住由 Guard 记下，下次先用 WARP
+#[cfg(windows)]
+fn run_windows(mut parts: Option<(Settings, Loader, crate::cli::Args)>, guard: &mut crate::startup::Guard) -> RunResult {
+    let renderers = match crate::gpu::forced() {
+        Some(name) => vec![name],
+        None => crate::startup::order(crate::gpu::preferred(), guard.failed()),
+    };
+    let Some((settings, ..)) = parts.as_ref() else { return Ok(()) };
+    let (builder, centered) = (viewport(settings), settings.window.pos.is_none());
+    log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host::run(builder, centered, renderers, guard, |ctx| create(&mut parts, ctx))));
+    let created = parts.is_none();
+    let error = match result {
+        Ok(host::Outcome::Closed) => return Ok(()),
+        Ok(host::Outcome::NoRenderer(e)) => {
+            let e = if e.is_empty() { crate::i18n::tr().gpu_no_adapter.to_owned() } else { e };
+            guard.gave_up(&e);
+            crate::startup::fatal_dialog(&e);
+            return Err(std::io::Error::other(e).into());
+        }
+        Ok(host::Outcome::Failed(e)) => e,
+        Err(payload) => {
+            let text = crate::startup::last_panic(payload.as_ref());
+            // 界面建好之后的 panic：换接口解决不了，提示后照常退出
+            crate::startup::record_exit(&text, !created);
+            crate::startup::fatal_dialog(&text);
+            std::panic::resume_unwind(payload);
+        }
+    };
+    log::warn!("运行中出错：{error}");
+    crate::startup::append_error_log(&error);
+    crate::startup::record_exit(&error, !crate::startup::confirmed());
+    crate::startup::fatal_dialog(&error);
+    Err(std::io::Error::other(error).into())
+}
+
+/// 其它系统：eframe + wgpu。窗口还没显示时显卡接口失败（返回错误或 panic）：换下一个接口在本进程重试
+#[cfg(not(windows))]
+fn run_eframe(mut parts: Option<(Settings, Loader, crate::cli::Args)>, guard: &mut crate::startup::Guard) -> RunResult {
     let names = match crate::gpu::forced() {
         Some(_) => vec!["WGPU_BACKEND"],
         None => crate::startup::order(crate::gpu::preferred(), guard.failed()),
@@ -201,10 +269,15 @@ pub fn run() -> eframe::Result {
             continue;
         }
         let Some((settings, ..)) = parts.as_ref() else { break };
-        let options = native_options(settings, name);
+        let options = eframe::NativeOptions {
+            viewport: viewport(settings),
+            centered: settings.window.pos.is_none(),
+            wgpu_options: crate::gpu::configuration(name),
+            ..Default::default()
+        };
         log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            eframe::run_native("LiteView", options, Box::new(|cc| Ok(create(&mut parts, cc))))
+            eframe::run_native("LiteView", options, Box::new(|cc| Ok(Box::new(EframeApp(create(&mut parts, &cc.egui_ctx))) as Box<dyn eframe::App>)))
         }));
         let created = parts.is_none();
         let error = match result {
@@ -226,7 +299,7 @@ pub fn run() -> eframe::Result {
         if created {
             crate::startup::record_exit(&error, !crate::startup::confirmed());
             crate::startup::fatal_dialog(&error);
-            return Err(eframe::Error::AppCreation(std::io::Error::other(error).into()));
+            return Err(std::io::Error::other(error).into());
         }
         guard.fail(name, &error);
         last_error = Some(error);
@@ -234,10 +307,10 @@ pub fn run() -> eframe::Result {
     let error = last_error.unwrap_or_else(|| crate::i18n::tr().gpu_no_adapter.to_owned());
     guard.gave_up(&error);
     crate::startup::fatal_dialog(&error);
-    Err(eframe::Error::AppCreation(std::io::Error::other(error).into()))
+    Err(std::io::Error::other(error).into())
 }
 
-fn native_options(settings: &Settings, backend: &str) -> eframe::NativeOptions {
+fn viewport(settings: &Settings) -> egui::ViewportBuilder {
     let w = settings.window;
     let mut vp = egui::ViewportBuilder::default()
         .with_title(crate::i18n::tr().app_name)
@@ -249,22 +322,22 @@ fn native_options(settings: &Settings, backend: &str) -> eframe::NativeOptions {
     if let Some(pos) = w.pos {
         vp = vp.with_position(pos);
     }
-    eframe::NativeOptions { viewport: vp, centered: w.pos.is_none(), wgpu_options: crate::gpu::configuration(backend), ..Default::default() }
+    vp
 }
 
 /// 显卡和窗口都准备好之后建界面（每次启动只会成功一次；之前失败的尝试不会走到这里）
-fn create(parts: &mut Option<(Settings, Loader, crate::cli::Args)>, cc: &eframe::CreationContext<'_>) -> Box<dyn eframe::App> {
+fn create(parts: &mut Option<(Settings, Loader, crate::cli::Args)>, ctx: &egui::Context) -> App {
     let (settings, loader, args) = parts.take().expect("app parts are taken once");
-    crate::ui::fonts::install(&cc.egui_ctx);
+    crate::ui::fonts::install(ctx);
     theme::set_accent(settings.accent.or_else(crate::platform::system_accent));
-    theme::install(&cc.egui_ctx);
-    cc.egui_ctx.set_theme(match settings.theme {
+    theme::install(ctx);
+    ctx.set_theme(match settings.theme {
         crate::settings::ThemeMode::System => egui::ThemePreference::System,
         crate::settings::ThemeMode::Light => egui::ThemePreference::Light,
         crate::settings::ThemeMode::Dark => egui::ThemePreference::Dark,
     });
-    loader.set_context(cc.egui_ctx.clone());
-    Box::new(App::new(settings, loader, args, &cc.egui_ctx))
+    loader.set_context(ctx.clone());
+    App::new(settings, loader, args, ctx)
 }
 
 /// 命令行 / 另一个实例要求打开后进入的工具
@@ -305,9 +378,9 @@ impl App {
             dialog: None,
             tx,
             rx,
-            last_move: Instant::now(),
             fling: egui::Vec2::ZERO,
             canvas: egui::Rect::NOTHING,
+            canvas_ppp: 0.0,
             fullscreen: false,
             allow_close: false,
             paste_seq: 0,
@@ -317,7 +390,7 @@ impl App {
             frames: 0,
             script: crate::devtools::Script::from_env(),
             ctx: ctx.clone(),
-            bar_rect: egui::Rect::NOTHING,
+            bar_shown: false,
             settings_page: None,
             info_open: false,
             info: None,
@@ -330,6 +403,10 @@ impl App {
             pending_edit: None,
             pending_window_fit: false,
             zoom_text: String::new(),
+            pacer: Default::default(),
+            full_requested: false,
+            settle_since: None,
+            pending_action: None,
         };
         app.pending_edit = edit_tool(args.edit, args.mosaic);
         if let Some(p) = args.path {
@@ -412,11 +489,33 @@ impl App {
             }
             Some(Err(_)) => self.pending_edit = None,
             None if self.cur.is_none() => self.pending_edit = None,
-            None => {}
+            // 只显示着缩略图：要原图
+            None => self.want_full(),
         }
     }
 
-    fn update_window(&mut self, ctx: &egui::Context, frame: &eframe::Frame) {
+    /// 复制、另存为、设为桌面背景等原图解完再做（只显示着缩略图时点的）
+    fn start_pending_action(&mut self) {
+        let Some(action) = self.pending_action else { return };
+        if self.editor.is_some() || self.dialog.is_some() {
+            return;
+        }
+        match self.cur.as_ref().and_then(|c| c.loaded.as_ref()) {
+            Some(Ok(_)) => {
+                self.pending_action = None;
+                match action {
+                    PendingAction::Copy => self.copy_image(),
+                    PendingAction::SaveAs => self.save_as(),
+                    PendingAction::Wallpaper => self.set_wallpaper(),
+                }
+            }
+            Some(Err(_)) => self.pending_action = None,
+            None if self.cur.is_none() => self.pending_action = None,
+            None => self.want_full(),
+        }
+    }
+
+    fn update_window(&mut self, ctx: &egui::Context, hwnd: Option<isize>) {
         let t = crate::i18n::tr();
         // 编辑中有未保存的修改时文件名前加 *
         let star = if self.editor.as_ref().is_some_and(|e| e.modified()) { "*" } else { "" };
@@ -432,8 +531,10 @@ impl App {
         let dark = ctx.theme() == egui::Theme::Dark;
         if self.titlebar_dark != Some(dark) {
             self.titlebar_dark = Some(dark);
-            style_titlebar(frame, theme::palette(ctx));
+            style_titlebar(hwnd, theme::palette(ctx));
         }
+        let scale = ctx.input(|i| i.viewport().native_pixels_per_point).unwrap_or(1.0);
+        window_icon(hwnd, scale);
         // 「窗口适应图片大小」：按图片的原始大小（不超过屏幕的九成）改窗口大小
         if std::mem::take(&mut self.pending_window_fit)
             && let Some(s) = self.shown
@@ -464,34 +565,77 @@ impl App {
     }
 }
 
+/// 窗口所在显示器的刷新率（只有 Windows 取得到）
 #[allow(unused_variables)]
-fn style_titlebar(frame: &eframe::Frame, p: &theme::Palette) {
+fn refresh_hz(hwnd: Option<isize>) -> Option<f32> {
     #[cfg(windows)]
-    {
-        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
-        if let Ok(h) = frame.window_handle()
-            && let RawWindowHandle::Win32(w) = h.as_raw()
-        {
-            let c = p.canvas.to_array();
-            let t = p.text.to_array();
-            crate::platform::windows::style_titlebar(w.hwnd.get(), p.dark, [c[0], c[1], c[2]], [t[0], t[1], t[2]]);
-        }
+    if let Some(h) = hwnd {
+        return crate::platform::windows::refresh_hz(h);
+    }
+    None
+}
+
+/// Windows 标题栏 / 任务栏图标按显示器缩放画准确尺寸（其它系统用启动时设的 64 px 图标）
+#[allow(unused_variables)]
+fn window_icon(hwnd: Option<isize>, scale: f32) {
+    #[cfg(windows)]
+    if let Some(h) = hwnd {
+        crate::platform::windows::ensure_window_icon(h, scale, |px| crate::ui::icons::rasterize_color(include_str!("../../assets/app.svg"), px));
     }
 }
 
-impl eframe::App for App {
+#[allow(unused_variables)]
+fn style_titlebar(hwnd: Option<isize>, p: &theme::Palette) {
+    #[cfg(windows)]
+    if let Some(h) = hwnd {
+        let c = p.canvas.to_array();
+        let t = p.text.to_array();
+        crate::platform::windows::style_titlebar(h, p.dark, [c[0], c[1], c[2]], [t[0], t[1], t[2]]);
+    }
+}
+
+/// eframe 的外壳（Windows 以外）
+#[cfg(not(windows))]
+struct EframeApp(App);
+
+#[cfg(not(windows))]
+impl eframe::App for EframeApp {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        self.0.inject_input(ctx, raw);
+    }
+
+    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        self.0.frame(ui, None);
+    }
+
+    fn on_exit(&mut self) {
+        self.0.exit();
+    }
+
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        self.0.background()
+    }
+}
+
+impl App {
+    /// 每帧交给 egui 之前（开发脚本注入输入）
+    pub(crate) fn inject_input(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
         self.script.inject(ctx, raw);
     }
 
-    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+    /// 一帧界面。hwnd：Windows 的窗口句柄（标题栏颜色、图标、刷新率用）
+    pub(crate) fn frame(&mut self, ui: &mut egui::Ui, hwnd: Option<isize>) {
         let ctx = ui.ctx().clone();
         self.track_startup(&ctx);
+        if self.editor.is_none() {
+            self.update_target(ui);
+        }
         self.poll_notices(&ctx);
         self.poll_loader(&ctx);
         self.poll_watch(&ctx);
-        self.update_window(&ctx, frame);
+        self.update_window(&ctx, hwnd);
         self.start_pending_edit();
+        self.start_pending_action();
         if self.editor.is_some() {
             if let Some(ed) = &mut self.editor {
                 ed.popup_was_open = ctx.any_popup_open();
@@ -518,19 +662,23 @@ impl eframe::App for App {
                 self.dialog = Some(Dialog::SaveRotation { after: After::Close });
             }
         }
-        let load_state = match self.cur.as_ref().and_then(|c| c.loaded.as_ref()) {
-            Some(Ok(_)) => crate::devtools::LoadState::Shown,
-            Some(Err(_)) => crate::devtools::LoadState::Error,
-            None => crate::devtools::LoadState::Pending,
+        let load_state = match self.cur.as_ref().map(|c| (c.loaded.as_ref(), c.preview.is_some())) {
+            Some((Some(Ok(_)), _) | (None, true)) => crate::devtools::LoadState::Shown,
+            Some((Some(Err(_)), _)) => crate::devtools::LoadState::Error,
+            _ => crate::devtools::LoadState::Pending,
         };
         self.script.after_frame(&ctx, self.first_paint_logged, load_state);
+        self.pacer.pace(self.settings.frame_cap, || refresh_hz(hwnd));
     }
 
-    fn on_exit(&mut self) {
+    /// 窗口关闭：存设置
+    pub(crate) fn exit(&mut self) {
+        log::debug!("退出：共画了 {} 帧", self.ctx.cumulative_frame_nr());
         self.settings.save();
     }
 
-    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+    /// 清屏颜色（gamma 空间）
+    pub(crate) fn background(&self) -> [f32; 4] {
         let p = if self.titlebar_dark == Some(true) { &theme::DARK } else { &theme::LIGHT };
         p.canvas.to_normalized_gamma_f32()
     }

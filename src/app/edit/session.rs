@@ -17,7 +17,14 @@ impl App {
             return;
         }
         let t = tr();
-        let Some(d) = self.decoded().cloned() else { return };
+        let Some(d) = self.decoded().cloned() else {
+            // 只显示着缩略图：解码原图，到了再进入
+            if self.cur.as_ref().is_some_and(|c| c.preview.is_some()) {
+                self.pending_edit = Some(tool);
+                self.want_full();
+            }
+            return;
+        };
         let Content::Still { image, .. } = &d.content else {
             self.show_toast(t.anim_no_edit);
             return;

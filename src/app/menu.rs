@@ -18,7 +18,7 @@ impl App {
             ui.set_min_width(230.0);
             let t = tr();
             let p = theme::palette(ui.ctx());
-            let has_img = self.decoded().is_some();
+            let has_img = self.has_image();
             let has_file = self.cur.as_ref().is_some_and(|c| !c.clipboard);
             let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
             let item = |ui: &mut egui::Ui, text: &str, sc: String, on: bool| ui.add_enabled(on, egui::Button::new(text).shortcut_text(sc)).clicked();

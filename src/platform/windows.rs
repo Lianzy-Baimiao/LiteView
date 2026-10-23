@@ -90,6 +90,72 @@ pub fn style_titlebar(hwnd: isize, dark: bool, caption: [u8; 3], text: [u8; 3]) 
     }
 }
 
+/// 标题栏 / 任务栏图标：按窗口所在显示器的缩放直接画出准确尺寸（16 / 32 × 缩放），不缩放现成的位图。
+/// eframe 在窗口第一次成为活动窗口时会换上它自己从 64 px 缩小的（发虚）图标，所以每帧检查、被换掉就换回来。
+pub fn ensure_window_icon(hwnd: isize, scale: f32, render: impl Fn(u32) -> Vec<u8>) {
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CreateIconFromResourceEx, DestroyIcon, HICON, ICON_BIG, ICON_SMALL, LR_DEFAULTCOLOR, SendMessageW, WM_GETICON, WM_SETICON,
+    };
+    struct Icons {
+        hwnd: isize,
+        sizes: (u32, u32),
+        small: HICON,
+        big: HICON,
+    }
+    thread_local! {
+        static ICONS: std::cell::RefCell<Option<Icons>> = const { std::cell::RefCell::new(None) };
+    }
+    let hwnd_ = HWND(hwnd as *mut core::ffi::c_void);
+    let sizes = ((16.0 * scale).round().max(16.0) as u32, (32.0 * scale).round().max(32.0) as u32);
+    let create = |px: u32| -> Option<HICON> {
+        let mut png = Vec::new();
+        image::ImageEncoder::write_image(image::codecs::png::PngEncoder::new(&mut png), &render(px), px, px, image::ExtendedColorType::Rgba8).ok()?;
+        // 0x00030000：图标资源格式版本；尺寸与 PNG 一致，系统不再缩放
+        unsafe { CreateIconFromResourceEx(&png, true, 0x0003_0000, px as i32, px as i32, LR_DEFAULTCOLOR) }.ok()
+    };
+    let set = |kind: u32, icon: HICON| unsafe { SendMessageW(hwnd_, WM_SETICON, Some(WPARAM(kind as usize)), Some(LPARAM(icon.0 as isize))) };
+    ICONS.with(|cell| {
+        let mut cur = cell.borrow_mut();
+        if let Some(c) = cur.as_ref().filter(|c| c.hwnd == hwnd && c.sizes == sizes) {
+            let small = unsafe { SendMessageW(hwnd_, WM_GETICON, Some(WPARAM(ICON_SMALL as usize)), None) };
+            if small.0 != c.small.0 as isize {
+                set(ICON_BIG, c.big);
+                set(ICON_SMALL, c.small);
+            }
+            return;
+        }
+        let (Some(small), Some(big)) = (create(sizes.0), create(sizes.1)) else { return };
+        // 先设大图标再设小图标（只设大的时系统会自己把它缩成小的）
+        set(ICON_BIG, big);
+        set(ICON_SMALL, small);
+        if let Some(old) = cur.replace(Icons { hwnd, sizes, small, big }) {
+            unsafe {
+                let _ = DestroyIcon(old.small);
+                let _ = DestroyIcon(old.big);
+            }
+        }
+    });
+}
+
+/// 窗口所在显示器的刷新率（Hz）；取不到时 None
+pub fn refresh_hz(hwnd: isize) -> Option<f32> {
+    use windows::Win32::Graphics::Gdi::{DEVMODEW, ENUM_CURRENT_SETTINGS, EnumDisplaySettingsW, GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MONITORINFOEXW, MonitorFromWindow};
+    unsafe {
+        let monitor = MonitorFromWindow(HWND(hwnd as *mut core::ffi::c_void), MONITOR_DEFAULTTONEAREST);
+        let mut info = MONITORINFOEXW { monitorInfo: MONITORINFO { cbSize: std::mem::size_of::<MONITORINFOEXW>() as u32, ..Default::default() }, ..Default::default() };
+        if !GetMonitorInfoW(monitor, (&raw mut info).cast()).as_bool() {
+            return None;
+        }
+        let mut mode = DEVMODEW { dmSize: std::mem::size_of::<DEVMODEW>() as u16, ..Default::default() };
+        if !EnumDisplaySettingsW(PCWSTR(info.szDevice.as_ptr()), ENUM_CURRENT_SETTINGS, &mut mode).as_bool() {
+            return None;
+        }
+        // 0 / 1 = 硬件默认值，不是真的刷新率
+        (mode.dmDisplayFrequency > 1).then_some(mode.dmDisplayFrequency as f32)
+    }
+}
+
 /// 系统强调色（「设置 → 个性化 → 颜色」里选的），注册表 DWM\AccentColor（ABGR）
 pub fn system_accent() -> Option<[u8; 3]> {
     use windows::Win32::Foundation::ERROR_SUCCESS;

@@ -307,3 +307,9 @@ python packaging/windows_corpus_probe.py --binary $env:LITEVIEW_CORPUS_BINARY --
 ### v1.1.0 正式包复核（2026-10-22）
 
 GitHub Release v1.1.0（Actions 运行 39815282764，四目标构建与发布全部成功）中的 Windows EXE 为 MSVC 静态 CRT 构建，SHA256 `603753626bb9b6b7a6930cc9a4d56fcbaa3e76d962a8408246902519aa7775c3`，与商店候选 `LiteView-store-1.1.0.0-x64.msix` 内的 EXE 逐字节相同。用同一故障注入矩阵（Medium IL、私有 desktop）复测这个正式 EXE：12 个场景结果与本机 GNU 修复版一致——表面不受支持 / 建设备失败 / 交换链失败本进程换 DX12；驱动与隐式层崩溃再启动换 DX12，崩溃记录为 `0xC0000005 lvfault.dll+0x1A51 (main thread, Vulkan)`；两种卡住场景双击图片约 6 秒后用 DX12 打开；单字体 `msyh.ttc` 正常显示；全部失败时 0.4 秒弹出错误对话框。证据 `dist/vk-fault-20261022/runs/rel-1/`。CI（运行 39812306162）Windows 真实启动 19 项测试通过、无跳过。
+
+### 之后：Windows 改用 Direct3D 11（2026-10-23，未发布）
+
+为降内存，Windows 版不再用 eframe / wgpu，改为 winit + egui-winit + 自己的 Direct3D 11 画法（`src/app/host.rs`、`src/platform/d3d11.rs`）。启动保护照旧：接口顺序改为 `d3d11` → `warp`（硬件特性级 11.1 ~ 10.0，不需要 DX12；不行用系统自带的 WARP 软件渲染），建设备前 `begin`、第一帧前崩溃 / 卡住下次先用 WARP，`LITEVIEW_RENDERER=d3d11|warp` 强制指定（不记失败）。程序不再导入或加载 `vulkan-1.dll`、`d3d12.dll`，上面的 Vulkan 故障注入只适用于 1.1.0；对应的 CI 对照改为「强制 WARP 能显示」和「启动记录里上次 d3d11 没画出第一帧 → 这次用 WARP，失败记录与『关于』里的说明正确」（`packaging/test_windows_startup.py`）。
+
+另修一处：启动超过 8 秒时再双击，第二个实例会把第一个的接口判成失败并换上自己的启动记录；第一个之后画出第一帧时，原来只在记录仍是自己的时才把接口洗白，于是以后每次都排到后面（在 Windows 上就是一直用 WARP 软件渲染）。现在按本进程实际用的接口洗白，不动别的实例的记录（`startup::on_first_frame`，单元测试覆盖）。

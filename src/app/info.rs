@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use egui::{Align2, Area, Id, Order, RichText, Stroke, vec2};
 
 use super::App;
-use crate::decode::Decoded;
+use crate::decode::Info;
 use crate::i18n::{fill, tr};
 use crate::ui::{icons::Icon, theme, widgets};
 
@@ -28,9 +28,9 @@ pub(crate) fn size_text(bytes: u64) -> String {
     if b >= 1048576.0 { format!("{:.1} MB", b / 1048576.0) } else { format!("{:.0} KB", (b / 1024.0).max(1.0)) }
 }
 
-fn build(path: &Path, d: &Decoded, clipboard: bool) -> InfoCache {
+/// delays：动图每帧的延时（静态图 None）
+fn build(path: &Path, i: &Info, delays: Option<&[std::time::Duration]>, clipboard: bool) -> InfoCache {
     let t = tr();
-    let i = &d.info;
     let mut rows = Vec::new();
     if !clipboard {
         rows.push((t.i_name, crate::natsort::file_name(path)));
@@ -42,7 +42,7 @@ fn build(path: &Path, d: &Decoded, clipboard: bool) -> InfoCache {
         rows.push((t.i_size, size_text(i.file_size)));
     }
     rows.push((t.i_format, format!("{}，{} bit × {}", i.format, i.bits, i.channels)));
-    if let crate::decode::Content::Animation { delays, .. } = &d.content {
+    if let Some(delays) = delays {
         let ms: u128 = delays.iter().map(|d| d.as_millis()).sum();
         rows.push((t.i_frames, fill(t.i_frames_fmt, &[&delays.len(), &format!("{:.2}", ms as f64 / 1000.0)])));
     }
@@ -90,9 +90,15 @@ impl App {
             return;
         }
         let Some(cur) = &self.cur else { return };
-        let Some(d) = cur.loaded.as_ref().and_then(|l| l.as_ref().ok()).cloned() else { return };
+        // 原图还在解时用预读缩略图带的信息，面板不闪
+        let full = cur.loaded.as_ref().and_then(|l| l.as_ref().ok());
+        let Some(info) = full.map(|d| &d.info).or(cur.preview.as_ref().map(|p| &p.info)) else { return };
         if self.info.as_ref().is_none_or(|c| c.path != cur.path) {
-            self.info = Some(build(&cur.path, &d, cur.clipboard));
+            let delays = full.and_then(|d| match &d.content {
+                crate::decode::Content::Animation { delays, .. } => Some(delays.as_slice()),
+                _ => None,
+            });
+            self.info = Some(build(&cur.path, info, delays, cur.clipboard));
         }
         let p = theme::palette(ctx);
         let w = 300.0;

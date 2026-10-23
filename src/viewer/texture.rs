@@ -1,6 +1,6 @@
 //! 图片纹理：超过显卡单张纹理上限的图分块上传（块之间重叠 1 像素，线性插值不出接缝）；
 //! 缩小显示时用逐级缩小一半的图（没有摩尔纹）；放大超过阈值改用最近邻，看清每个像素。
-//! 每一级在第一次用到时才上传。
+//! 每一级在第一次用到时才上传。切到预读的图时先显示缩略图，原图解完后换上。
 
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
@@ -38,24 +38,55 @@ struct Exact {
 
 pub struct StillTextures {
     name: String,
+    /// 原图尺寸（只有预读缩略图时 levels 还是空的）
+    size: (u32, u32),
     levels: Vec<Level>,
     exact: Option<Exact>,
     pending: Option<(f32, Receiver<ColorImage>)>,
 }
 
+/// 缩放 zoom 下按准确尺寸缩小后的大小
+pub fn exact_size(w: u32, h: u32, zoom: f32) -> (u32, u32) {
+    (((w as f32 * zoom).round() as u32).max(1), ((h as f32 * zoom).round() as u32).max(1))
+}
+
+/// 准确尺寸缩小用哪一级做源：不比目标小的最小一级（sizes 从原图开始逐级变小）
+pub fn exact_source(sizes: &[(u32, u32)], tw: u32, th: u32) -> usize {
+    sizes.iter().rposition(|&(w, h)| w >= tw && h >= th).unwrap_or(0)
+}
+
+/// 准确尺寸缩小的结果能不能放进一张纹理
+pub fn exact_fits(tw: u32, th: u32, max_side: u32) -> bool {
+    tw <= max_side && th <= max_side && u64::from(tw) * u64::from(th) <= 40_000_000
+}
+
 impl StillTextures {
     pub fn new(name: &str, image: Arc<RgbaImage>, smaller: &[Arc<RgbaImage>]) -> Self {
-        let levels = std::iter::once(image)
-            .chain(smaller.iter().cloned())
-            .map(|image| Level { image, tiles: Vec::new(), nearest: false })
-            .collect();
-        Self { name: name.to_owned(), levels, exact: None, pending: None }
+        let mut t = Self { name: name.to_owned(), size: image.dimensions(), levels: Vec::new(), exact: None, pending: None };
+        t.upgrade(image, smaller);
+        t
+    }
+
+    /// 缩略图（已在显卡上）：在它算好的缩放比例下就是准确缩小的结果；要原图时 `upgrade`
+    pub fn preview(name: &str, p: &crate::viewer::loader::Preview) -> Self {
+        let exact = Exact { zoom: p.zoom, tex: p.tex.clone(), size: p.size };
+        Self { name: name.to_owned(), size: (p.info.width, p.info.height), levels: Vec::new(), exact: Some(exact), pending: None }
+    }
+
+    /// 只有缩略图、而这个比例下它不够（放大、缩小到别的比例、旋转后适应窗口的比例变了）：要原图
+    pub fn wants_source(&self, zoom: f32) -> bool {
+        self.levels.is_empty() && !self.exact.as_ref().is_some_and(|e| (e.zoom - zoom).abs() < 1e-5)
+    }
+
+    /// 换成原图（缩放、位置、已有的准确缩小结果都保留）
+    pub fn upgrade(&mut self, image: Arc<RgbaImage>, smaller: &[Arc<RgbaImage>]) {
+        self.size = image.dimensions();
+        self.levels = std::iter::once(image).chain(smaller.iter().cloned()).map(|image| Level { image, tiles: Vec::new(), nearest: false }).collect();
     }
 
     /// 缩小显示：缩放停下后在后台按准确尺寸高质量缩小，完成后 1:1 显示；没有时返回 false
     fn paint_exact(&mut self, ctx: &egui::Context, painter: &Painter, rect: Rect, zoom: f32, xf: Transform, settled: bool) -> bool {
-        let (w0, h0) = self.levels[0].image.dimensions();
-        let (tw, th) = (((w0 as f32 * zoom).round() as u32).max(1), ((h0 as f32 * zoom).round() as u32).max(1));
+        let (tw, th) = exact_size(self.size.0, self.size.1, zoom);
         let same = |z: f32| (z - zoom).abs() < 1e-5;
         if let Some((z, rx)) = &self.pending
             && let Ok(img) = rx.try_recv()
@@ -68,9 +99,9 @@ impl StillTextures {
         }
         let ready = self.exact.as_ref().is_some_and(|e| same(e.zoom));
         let max = ctx.input(|i| i.max_texture_side) as u32;
-        let fits = tw <= max && th <= max && u64::from(tw) * u64::from(th) <= 40_000_000;
-        if !ready && settled && fits && self.pending.is_none() {
-            let src = self.levels.iter().rev().find(|l| l.image.width() >= tw && l.image.height() >= th).unwrap_or(&self.levels[0]).image.clone();
+        if !ready && settled && exact_fits(tw, th, max) && self.pending.is_none() && !self.levels.is_empty() {
+            let sizes: Vec<_> = self.levels.iter().map(|l| l.image.dimensions()).collect();
+            let src = self.levels[exact_source(&sizes, tw, th)].image.clone();
             let (tx, rx) = channel();
             let ctx2 = ctx.clone();
             std::thread::spawn(move || {
@@ -101,6 +132,13 @@ impl StillTextures {
     #[allow(clippy::too_many_arguments)]
     pub fn paint(&mut self, ctx: &egui::Context, painter: &Painter, rect: Rect, zoom: f32, xf: Transform, nearest_above: f32, settled: bool) {
         if zoom < 0.999 && self.paint_exact(ctx, painter, rect, zoom, xf, settled) {
+            return;
+        }
+        if self.levels.is_empty() {
+            // 原图还在解码：先把缩略图拉伸到当前大小
+            if let Some(e) = &self.exact {
+                quad(painter, e.tex.id(), rect, xf, [0.0, 0.0, 1.0, 1.0], Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)));
+            }
             return;
         }
         let i = self.pick(zoom);
@@ -198,7 +236,7 @@ pub fn upload(ctx: &egui::Context, name: &str, img: &RgbaImage, max_side: usize,
 }
 
 /// 高质量缩小到 w × h（与编辑时缩小显示用同一个算法，多线程）
-fn resample(src: &RgbaImage, w: u32, h: u32) -> ColorImage {
+pub(crate) fn resample(src: &RgbaImage, w: u32, h: u32) -> ColorImage {
     let out = crate::editor::resample::resize(src, w, h, crate::editor::resample::Filter::CatmullRom, true);
     ColorImage::from_rgba_premultiplied([w as usize, h as usize], &out)
 }

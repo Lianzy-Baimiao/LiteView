@@ -4,7 +4,7 @@ use egui::{RichText, Ui};
 
 use super::App;
 use crate::i18n::{fill, tr};
-use crate::settings::{Background, DoubleClick, FitMode, Language, RedactEffect, RedactMode, Settings, SortKey, ThemeMode, WheelAction};
+use crate::settings::{Background, DoubleClick, FitMode, FrameCap, Language, RedactEffect, RedactMode, Settings, SortKey, ThemeMode, WheelAction};
 use crate::ui::{theme, widgets};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -144,6 +144,11 @@ impl App {
                         }
                     }
                 });
+                row(ui, t.s_frame_cap, |ui| {
+                    choose(ui, &mut s.frame_cap, &[(FrameCap::Auto, t.s_frame_cap_auto), (FrameCap::Hz60, t.s_frame_cap_60), (FrameCap::Unlimited, t.s_frame_cap_off)])
+                });
+                ui.label(RichText::new(t.s_frame_cap_hint).size(12.0).color(theme::palette(ui.ctx()).text_weak));
+                ui.add_space(6.0);
                 widgets::checkbox(ui, &mut s.confirm_delete, t.s_confirm_delete);
                 widgets::checkbox(ui, &mut s.wrap_around, t.s_wrap);
             }

@@ -65,6 +65,18 @@ pub enum DoubleClick {
     Fullscreen,
 }
 
+/// 省电模式：连续画面（拖动、缩放、动图）最多画多快；静止时本来就不画
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum FrameCap {
+    /// 高刷新率屏降到不低于 60 的整数分频（144 Hz → 72，160 Hz → 80），帧间隔均匀
+    #[default]
+    Auto,
+    /// 最多 60 帧
+    Hz60,
+    /// 跟显示器刷新率
+    Unlimited,
+}
+
 /// 打码方式：画笔涂抹 / 框选
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum RedactMode {
@@ -126,6 +138,7 @@ pub struct Settings {
     pub anim_speed: f32,
     /// 打开图片时窗口适应图片大小（不超过屏幕）
     pub fit_window: bool,
+    pub frame_cap: FrameCap,
     /// 强调色；None = 跟随系统
     pub accent: Option<[u8; 3]>,
     pub confirm_overwrite: bool,
@@ -200,6 +213,7 @@ impl Default for Settings {
             anim_cache_mb: 256,
             anim_speed: 1.0,
             fit_window: false,
+            frame_cap: FrameCap::Auto,
             accent: None,
             confirm_overwrite: true,
             jpeg_quality: 90,

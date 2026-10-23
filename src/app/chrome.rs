@@ -1,6 +1,6 @@
-//! 浮动工具栏（鼠标移动时淡入，静止 2 秒后淡出）、动图播放条、左右切换按钮、轻提示。
+//! 浮动工具栏（鼠标移到窗口底部时淡入，移开后淡出）、动图播放条、左右切换按钮、轻提示。
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use egui::containers::menu::MenuButton;
 use egui::{Align2, Area, CornerRadius, Id, Order, Rect, Sense, Stroke, Vec2, pos2, vec2};
@@ -11,41 +11,38 @@ use crate::ui::icons::{self, Icon};
 use crate::ui::{theme, widgets};
 use crate::viewer::playback::SPEEDS;
 
-const HIDE_AFTER: f32 = 2.0;
 const BAR_H: f32 = 44.0;
+/// 工具栏距窗口底边
+const BAR_GAP: f32 = 16.0;
+/// 底部感应区比工具栏（动图时连同播放条）再高出这么多
+const ZONE_MARGIN: f32 = 32.0;
 
 impl App {
     pub(crate) fn chrome(&mut self, ctx: &egui::Context) {
-        let moved = ctx.input(|i| i.pointer.delta() != Vec2::ZERO || i.pointer.any_pressed());
-        if moved {
-            self.last_move = Instant::now();
-        }
         let inside = ctx.input(|i| i.pointer.has_pointer());
-        let idle = self.last_move.elapsed().as_secs_f32();
-        let over = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|p| self.bar_rect.expand(8.0).contains(p));
-        let show = self.cur.is_some() && inside && (idle < HIDE_AFTER || over);
-        if show && !over {
-            ctx.request_repaint_after(Duration::from_secs_f32((HIDE_AFTER - idle).max(0.0) + 0.05));
-        }
+        // 只在鼠标移到窗口底部时显示；它的弹出菜单（比例预设、播放速度）开着时不收起
+        let bars = if self.is_animated() { 2.0 } else { 1.0 };
+        let zone = BAR_GAP + bars * (BAR_H + 8.0) + ZONE_MARGIN;
+        let near = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|q| self.canvas.contains(q) && q.y >= self.canvas.bottom() - zone);
+        let show = self.cur.is_some() && (near || (self.bar_shown && ctx.any_popup_open()));
+        self.bar_shown = show;
         let o = ctx.animate_bool_with_time(Id::new("toolbar-shown"), show, 0.15);
         let p = theme::palette(ctx);
         if o > 0.0 {
-            let r =
-                Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0)).interactable(o > 0.5).show(ctx, |ui| {
-                    ui.set_opacity(o);
-                    widgets::floating_frame(p).show(ui, |ui| {
-                        ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 2.0;
-                            self.toolbar_contents(ui);
-                        });
+            Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -BAR_GAP)).interactable(o > 0.5).show(ctx, |ui| {
+                ui.set_opacity(o);
+                widgets::floating_frame(p).show(ui, |ui| {
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        self.toolbar_contents(ui);
                     });
                 });
-            self.bar_rect = r.response.rect;
+            });
         }
         let paused = self.play.as_ref().is_some_and(|pl| !pl.playing);
         let oa = ctx.animate_bool_with_time(Id::new("animbar-shown"), self.is_animated() && (show || paused && inside), 0.15);
         if oa > 0.0 {
-            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -16.0 - BAR_H - 8.0)).interactable(oa > 0.5).show(
+            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -BAR_GAP - BAR_H - 8.0)).interactable(oa > 0.5).show(
                 ctx,
                 |ui| {
                     ui.set_opacity(oa);
@@ -120,7 +117,8 @@ impl App {
         if widgets::icon_button(ui, Icon::RotateCw, t.rotate_cw, "Ctrl+R", has).clicked() {
             self.rotate(true);
         }
-        let editable = has && self.decoded().is_some() && !self.is_animated();
+        // 只显示着缩略图时也能编辑：点了先解码原图，到了再进入
+        let editable = has && self.has_image() && !self.is_animated();
         let tip = if self.is_animated() { t.anim_no_edit } else { t.edit };
         if widgets::icon_button(ui, Icon::Edit, tip, "E", editable).clicked() {
             self.enter_edit(super::edit::Tool::Select);

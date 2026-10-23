@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use super::{App, Dialog, Notice};
+use super::{App, Dialog, Notice, PendingAction};
 use crate::i18n::{fill, tr};
 use crate::save::{self, Format};
 use crate::settings::FitMode;
@@ -71,7 +71,20 @@ impl App {
         Some((self.decoded()?.clone(), self.play.as_ref().map_or(0, |p| p.index), self.view.xf))
     }
 
+    /// 只显示着缩略图：先解码原图，到了再做这件事；返回 true = 已推迟
+    fn defer_until_full(&mut self, action: PendingAction) -> bool {
+        if self.decoded().is_some() || !self.cur.as_ref().is_some_and(|c| c.preview.is_some()) {
+            return false;
+        }
+        self.pending_action = Some(action);
+        self.want_full();
+        true
+    }
+
     pub(crate) fn copy_image(&mut self) {
+        if self.defer_until_full(PendingAction::Copy) {
+            return;
+        }
         let Some((decoded, index, xf)) = self.displayed_image() else { return };
         self.spawn(move || {
             let img = match decoded.content.image_at(index) {
@@ -141,6 +154,9 @@ impl App {
 
     /// 另存为；动图是导出当前帧（默认 PNG，文件名带帧号）
     pub(crate) fn save_as(&mut self) {
+        if self.defer_until_full(PendingAction::SaveAs) {
+            return;
+        }
         let Some((decoded, index, xf)) = self.displayed_image() else { return };
         let stem = self.cur.as_ref().filter(|c| !c.clipboard).and_then(|c| c.path.file_stem()).map_or("image".into(), |s| s.to_string_lossy().into_owned());
         let name = match &self.play {
@@ -175,6 +191,9 @@ impl App {
 
     /// 设为桌面背景：按显示方向存一份到配置目录（原图被移走、删除后背景还在；HEIC 等格式也能用）
     pub(crate) fn set_wallpaper(&mut self) {
+        if self.defer_until_full(PendingAction::Wallpaper) {
+            return;
+        }
         let Some((decoded, index, xf)) = self.displayed_image() else { return };
         self.spawn(move || {
             let img = match decoded.content.image_at(index) {

@@ -130,9 +130,10 @@ impl Script {
                 self.shot = Some(path);
             }
             Step::Trace(label) => log::info!(
-                "trace {label}：{:.0} ms，内存 {:.0} MB",
+                "trace {label}：{:.0} ms，内存 {:.0} MB，第 {} 帧",
                 crate::platform::ms_since_process_start(),
-                crate::platform::memory_mb()
+                crate::platform::memory_mb(),
+                ctx.cumulative_frame_nr()
             ),
             Step::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }

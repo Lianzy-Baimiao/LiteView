@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -24,11 +25,12 @@ class RuntimePolicyTests(unittest.TestCase):
 
     def test_environment_drops_developer_paths_and_secrets(self):
         with tempfile.TemporaryDirectory() as directory:
-            with patch.dict(os.environ, {"SYSTEMROOT": "C:\\Windows", "PATH": "C:\\SDK",
-                                        "WGPU_BACKEND": "gl", "TOKEN": "do-not-inherit"}, clear=True):
+            with patch.dict(os.environ, {"SYSTEMROOT": "C:\\Windows", "PATH": "C:\\SDK", "WGPU_BACKEND": "gl",
+                                        "LITEVIEW_RENDERER": "warp", "TOKEN": "do-not-inherit"}, clear=True):
                 env = startup.clean_environment(Path(directory))
             self.assertNotIn("TOKEN", env)
             self.assertNotIn("WGPU_BACKEND", env)
+            self.assertNotIn("LITEVIEW_RENDERER", env)
             self.assertNotIn("SDK", env["PATH"])
             self.assertTrue(env["USERNAME"].startswith("LiteViewProbe"))
             for key in ["APPDATA", "LOCALAPPDATA", "TEMP", "USERPROFILE"]:
@@ -93,6 +95,9 @@ class ReleasedStartupTests(unittest.TestCase):
         result = startup.probe(self.binary, self.root / "png", "default", "png", 25)
         self.assertTrue(result["passed"], result["errors"])
         self.assertTrue(result["sample_visible"])
+        # Windows draws with Direct3D 11 only: no Vulkan / Direct3D 12 runtime or driver gets loaded
+        loaded = {Path(m).name.lower() for m in result["loaded_modules"]}
+        self.assertFalse(loaded & {"vulkan-1.dll", "d3d12.dll", "d3d12core.dll"}, sorted(loaded))
 
     def test_missing_dll_is_detected(self):
         import pefile
@@ -110,15 +115,31 @@ class ReleasedStartupTests(unittest.TestCase):
         self.assertFalse(result["passed"])
         self.assertEqual(result["exit_code"], 0xC0000135)
 
-    def test_no_vulkan_loader_falls_back(self):
-        data = self.binary.read_bytes()
-        self.assertEqual(data.count(b"vulkan-1.dll"), 1)
-        modified = self.root / "fault-injection-no-vulkan.exe"
-        modified.write_bytes(data.replace(b"vulkan-1.dll", b"absent-v.dll"))
-        result = startup.probe(modified, self.root / "no-vulkan", "default", "png", 25)
+    def test_warp_renders(self):
+        result = startup.probe(self.binary, self.root / "warp", "warp", "png", 25)
         self.assertTrue(result["passed"], result["errors"])
-        log = (self.root / "no-vulkan/app.log").read_text(encoding="utf-8")
-        self.assertNotIn("Backends(VULKAN)", log)
+        self.assertTrue(result["sample_visible"])
+        log = (self.root / "warp/app.log").read_text(encoding="utf-8")
+        self.assertIn(WARP_IN_USE, log)
+
+    def test_hardware_start_without_first_frame_falls_back_to_warp(self):
+        # A previous launch began with hardware Direct3D 11 and never drew a frame (driver crash or hang).
+        version = tomllib.loads((Path(__file__).resolve().parents[1] / "Cargo.toml").read_text(encoding="utf-8"))["package"]["version"]
+        seeded = {"version": version, "failed": [], "attempt": {"backend": "d3d11", "pid": 4294967292, "started": 1}, "last_failure": None}
+        result = startup.probe(self.binary, self.root / "fallback", "default", "png", 25, startup_state=seeded)
+        self.assertTrue(result["passed"], result["errors"])
+        self.assertTrue(result["sample_visible"])
+        log = (self.root / "fallback/app.log").read_text(encoding="utf-8")
+        self.assertIn(WARP_IN_USE, log)
+        state = json.loads((self.root / "fallback/config/startup.json").read_text(encoding="utf-8"))
+        self.assertEqual(state["failed"], ["d3d11"])
+        self.assertIsNone(state["attempt"])
+        # Shown in Settings > About so a user can screenshot it
+        self.assertIn("Direct3D 11", state["last_failure"])
+
+
+# Display name of the renderer in use; the app log names it only on the line that reports it
+WARP_IN_USE = "Direct3D 11 (WARP)"
 
 
 if __name__ == "__main__":

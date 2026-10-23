@@ -1,3 +1,5 @@
+# Precompiled Direct3D shader bytecode (regenerate with `cargo run --release --example compile_shaders`).
+assets/shaders/*.dxbc binary
 # Preserve the exact bytes of certification evidence and its recorded hashes.
 docs/validation/**/wack.xml -text whitespace=cr-at-eol
 docs/validation/**/*.stdout.txt -text whitespace=cr-at-eol,-blank-at-eof

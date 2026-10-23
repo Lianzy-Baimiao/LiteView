@@ -9,6 +9,7 @@ use crate::decode::Error;
 use crate::i18n::tr;
 use crate::settings::{Background, DoubleClick, FitMode, WheelAction};
 use crate::ui::{icons, theme, widgets};
+use crate::viewer::loader::Target;
 use crate::viewer::texture::paint_checker;
 use crate::viewer::view::{View, WHEEL_STEP, snap};
 
@@ -17,6 +18,14 @@ const STORE_HEIF: &str = "ms-windows-store://pdp/?ProductId=9PMMSR1CGPWG";
 const STORE_AV1: &str = "ms-windows-store://pdp/?ProductId=9MVZQVXJBQ9V";
 
 impl App {
+    /// 预读的缩略图按新打开时的显示方式缩小（画布 = 查看时的整个窗口），切过去时就是要显示的样子。
+    /// 在收取解码结果之前调用，第一帧就排上的预读也知道窗口大小
+    pub(crate) fn update_target(&mut self, ui: &egui::Ui) {
+        let ctx = ui.ctx();
+        let max_side = ctx.input(|i| i.max_texture_side) as u32;
+        self.loader.set_target(Target { fit: self.settings.fit_mode, canvas: ui.max_rect().size(), ppp: ctx.pixels_per_point(), max_side });
+    }
+
     pub(crate) fn canvas_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let p = theme::palette(&ctx);
@@ -65,8 +74,10 @@ impl App {
     /// fit_mode = 新图片时的显示方式（编辑时总是适应窗口）
     pub(crate) fn update_view(&mut self, ctx: &egui::Context, rect: Rect, size: Vec2, fit_mode: FitMode) -> Rect {
         let ppp = ctx.pixels_per_point();
-        let resized = self.canvas.size() != rect.size();
+        // 拖到缩放比例不同的显示器上：窗口按逻辑大小保持不变、物理像素变了，zoom（按物理像素算）也要重新适应
+        let resized = self.canvas.size() != rect.size() || self.canvas_ppp != ppp;
         self.canvas = rect;
+        self.canvas_ppp = ppp;
         if self.pending_reset || (resized && self.view.fitted) {
             let mode = if self.pending_reset { fit_mode } else { FitMode::Fit };
             self.view.reset(mode, rect.size(), ppp, size);
@@ -87,6 +98,12 @@ impl App {
     fn paint_image(&mut self, ctx: &egui::Context, painter: &egui::Painter, img_rect: Rect) {
         let (xf, zoom, settled) = (self.view.xf, self.view.zoom, !self.view.animating());
         let nearest = self.settings.nearest_above as f32 / 100.0;
+        // 只有缩略图、这个比例下不够清楚：要原图（先拉伸缩略图，原图解完换上）
+        if let Tex::Still(t) = &self.tex
+            && t.wants_source(zoom)
+        {
+            self.want_full();
+        }
         match &mut self.tex {
             Tex::None => {}
             Tex::Still(t) => t.paint(ctx, painter, img_rect, zoom, xf, nearest, settled),
@@ -279,5 +296,41 @@ pub(crate) fn folder_label() -> &'static str {
         t.show_in_folder
     } else {
         t.show_in_folder_linux
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    /// 在缩放比例为 ppp 的显示器上画一帧（窗口逻辑大小不变），返回此时的 zoom
+    fn frame(app: &mut App, ctx: &egui::Context, ppp: f32, zoom: Option<f32>) -> f32 {
+        let mut input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1000.0, 700.0))), ..Default::default() };
+        input.viewports.entry(egui::ViewportId::ROOT).or_default().native_pixels_per_point = Some(ppp);
+        let _ = ctx.run_ui(input, |ui| {
+            let rect = ui.max_rect();
+            if let Some(z) = zoom {
+                app.view.zoom_to(z, rect.center(), false, rect);
+            }
+            app.update_view(ui.ctx(), rect, vec2(4000.0, 3000.0), FitMode::Fit);
+        });
+        app.view.zoom
+    }
+
+    #[test]
+    fn moving_to_a_screen_with_another_scale_refits_a_fitted_image() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        app.pending_reset = true;
+        // 1000×700 点：150% 时 1500×1050 物理像素，100% 时 1000×700
+        assert_eq!(frame(&mut app, &ctx, 1.5, None), View::fit_zoom(FitMode::Fit, vec2(1000.0, 700.0), 1.5, vec2(4000.0, 3000.0)));
+        assert_eq!(frame(&mut app, &ctx, 1.0, None), View::fit_zoom(FitMode::Fit, vec2(1000.0, 700.0), 1.0, vec2(4000.0, 3000.0)));
+        assert_eq!(frame(&mut app, &ctx, 1.5, None), View::fit_zoom(FitMode::Fit, vec2(1000.0, 700.0), 1.5, vec2(4000.0, 3000.0)));
+        // 手动缩放过的（例如 100%）：zoom 按物理像素算，换显示器后照旧
+        assert_eq!(frame(&mut app, &ctx, 1.5, Some(1.0)), 1.0);
+        assert_eq!(frame(&mut app, &ctx, 1.0, None), 1.0);
     }
 }

@@ -2172,6 +2172,7 @@ dependencies = [
  "color_quant",
  "eframe",
  "egui",
+ "egui-winit",
  "embed-resource",
  "gif",
  "image",
@@ -2192,6 +2193,7 @@ dependencies = [
  "trash",
  "webp",
  "windows",
+ "winit",
 ]
 
 [[package]]

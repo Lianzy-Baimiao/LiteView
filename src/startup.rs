@@ -94,7 +94,19 @@ pub fn order(preferred: &[&'static str], failed: &[String]) -> Vec<&'static str>
     good.into_iter().chain(bad).collect()
 }
 
+/// 本进程用 backend 画出了第一帧：它不再算失败；启动记录是自己的就清掉。
+/// 启动慢（超过 HANG_SECS）时又双击，另一个实例会把这个接口判成失败、换上它自己的记录；
+/// 这里照样把接口洗白，否则以后每次都排到后面（Windows 上就是一直用 WARP 软件画）。返回是否改了
+pub fn on_first_frame(s: &mut State, me: u32, backend: &str) -> bool {
+    let mine = s.attempt.take_if(|a| a.pid == me).is_some();
+    let before = s.failed.len();
+    s.failed.retain(|f| f != backend);
+    mine || s.failed.len() != before
+}
+
 static CONFIRMED: AtomicBool = AtomicBool::new(false);
+/// 本进程正在用（最后一次 begin）的接口
+static BACKEND: Mutex<String> = Mutex::new(String::new());
 static INFO: Mutex<Info> = Mutex::new(Info { backend: String::new(), failed: Vec::new(), last_failure: None });
 
 /// 「设置 → 关于」显示
@@ -196,6 +208,9 @@ impl Guard {
     pub fn begin(&mut self, backend: &str) {
         self.state.attempt = Some(Attempt { backend: backend.to_owned(), pid: std::process::id(), started: now() });
         write(&self.state);
+        if let Ok(mut b) = BACKEND.lock() {
+            backend.clone_into(&mut b);
+        }
         if std::mem::take(&mut self.crash_seen) {
             let _ = std::fs::remove_file(crash_path());
         }
@@ -204,7 +219,7 @@ impl Guard {
 
     /// 这个接口在本进程里没能初始化（窗口还没显示）：记下来，换下一个
     pub fn fail(&mut self, backend: &str, error: &str) {
-        // WGPU_BACKEND 指定的不记（不参与自动换接口）
+        // 强制指定的接口（Windows 的 LITEVIEW_RENDERER、其它系统的 WGPU_BACKEND）不记（不参与自动换接口）
         if crate::gpu::preferred().contains(&backend) && !self.state.failed.iter().any(|f| f == backend) {
             self.state.failed.push(backend.to_owned());
         }
@@ -231,14 +246,16 @@ pub fn confirm() {
     if CONFIRMED.swap(true, Ordering::SeqCst) {
         return;
     }
-    let mut s = read();
-    if let Some(a) = s.attempt.take_if(|a| a.pid == std::process::id()) {
-        // 排在后面重试的接口这次成功了：不再算失败
-        s.failed.retain(|f| *f != a.backend);
-        write(&s);
-        let shown = crate::gpu::display_name(&a.backend).to_owned();
-        update_info(|i| i.failed.retain(|f| *f != shown));
+    let backend = BACKEND.lock().map(|b| b.clone()).unwrap_or_default();
+    if backend.is_empty() {
+        return;
     }
+    let mut s = read();
+    if on_first_frame(&mut s, std::process::id(), &backend) {
+        write(&s);
+    }
+    let shown = crate::gpu::display_name(&backend).to_owned();
+    update_info(|i| i.failed.retain(|f| *f != shown));
 }
 
 pub fn confirmed() -> bool {
@@ -465,6 +482,32 @@ mod tests {
         let worker = Crash { pid: 1, main_thread: false, text: "0xC0000005 ntdll.dll+0x10".into() };
         assert!(!Crash::blames_backend(Some(&heif)) && !Crash::blames_backend(Some(&worker)));
         assert_eq!(Crash::parse("garbage"), None);
+    }
+
+    #[test]
+    fn first_frame_clears_the_backend_even_if_another_instance_took_over() {
+        let state = |failed: &[&str], attempt: Option<Attempt>| State { version: "1".into(), failed: failed.iter().map(|f| (*f).to_owned()).collect(), attempt, last_failure: None };
+        let d3d = |pid| Some(Attempt { backend: "d3d11".into(), pid, started: 5 });
+        let warp = |pid| Some(Attempt { backend: "warp".into(), pid, started: 9 });
+        // 平常：自己的记录清掉
+        let mut s = state(&[], d3d(1));
+        assert!(on_first_frame(&mut s, 1, "d3d11"));
+        assert_eq!(s, state(&[], None));
+        // 失败过、排在后面重试的接口这次成功了
+        let mut s = state(&["d3d11"], d3d(1));
+        assert!(on_first_frame(&mut s, 1, "d3d11"));
+        assert_eq!(s, state(&[], None));
+        // 启动慢：另一个实例把 d3d11 判成失败、正在用 WARP 启动。洗白 d3d11，不动它的记录
+        let mut s = state(&["d3d11"], warp(2));
+        assert!(on_first_frame(&mut s, 1, "d3d11"));
+        assert_eq!(s, state(&[], warp(2)));
+        // 那个实例用 WARP 画出第一帧：d3d11 真失败过时仍排在后面
+        let mut s = state(&["d3d11"], warp(2));
+        assert!(on_first_frame(&mut s, 2, "warp"));
+        assert_eq!(s, state(&["d3d11"], None));
+        // 没什么要改
+        let mut s = state(&[], warp(2));
+        assert!(!on_first_frame(&mut s, 1, "d3d11"));
     }
 
     #[test]

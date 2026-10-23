@@ -214,7 +214,9 @@ def validate_result(record, log, screenshot, *, needs_image):
     return record
 
 
-def probe(binary, root, backend, scene, timeout, *, mode="configured"):
+def probe(binary, root, backend, scene, timeout, *, mode="configured", startup_state=None):
+    """backend: "default" or a renderer forced via LITEVIEW_RENDERER ("d3d11" / "warp").
+    startup_state: startup.json to seed (configured mode), e.g. a previous attempt that never drew a frame."""
     root.mkdir(parents=True, exist_ok=False)
     app, config = root / "app", root / "config"
     app.mkdir()
@@ -225,8 +227,12 @@ def probe(binary, root, backend, scene, timeout, *, mode="configured"):
     settings = {"language": "En", "single_instance": False, "ask_default_app": False,
                 "fit_window": False, "preload": 0,
                 "window": {"pos": [80, 80], "size": [800, 600], "maximized": False}}
+    if startup_state is not None and mode != "configured":
+        raise ValueError("startup_state needs the configured mode")
     if mode == "configured":
         (config / "settings.json").write_text(json.dumps(settings), encoding="utf-8")
+        if startup_state is not None:
+            (config / "startup.json").write_text(json.dumps(startup_state), encoding="utf-8")
         env["LITEVIEW_CONFIG_DIR"] = str(config)
     elif mode == "fresh-portable":
         (app / "LiteView.portable").touch()
@@ -238,7 +244,7 @@ def probe(binary, root, backend, scene, timeout, *, mode="configured"):
     script.write_text("\n".join(steps) + "\n", encoding="utf-8")
     env["LITEVIEW_SCRIPT"] = str(script)
     if backend != "default":
-        env["WGPU_BACKEND"] = backend
+        env["LITEVIEW_RENDERER"] = backend
     args = [target]
     if scene != "empty":
         from PIL import Image, ImageDraw
@@ -265,7 +271,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True, help="New directory only")
-    parser.add_argument("--backend", choices=("default", "vulkan", "dx12", "gl"), default="default")
+    parser.add_argument("--backend", choices=("default", "d3d11", "warp"), default="default")
     parser.add_argument("--scene", choices=("empty", "png", "jpg", "webp"), default="empty")
     parser.add_argument("--mode", choices=("configured", "fresh-portable", "fresh-installed"), default="configured")
     parser.add_argument("--timeout", type=float, default=25)

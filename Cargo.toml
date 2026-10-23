@@ -13,7 +13,6 @@ name = "LiteView"
 path = "src/main.rs"
 
 [dependencies]
-eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland", "x11"] }
 egui = "=0.36.2"
 # 与 epaint 用同一个版本，启动时预检系统字体（不新增依赖）
 skrifa = { version = "=0.44.0", default-features = false, features = ["std"] }
@@ -31,19 +30,37 @@ rfd = "=0.17.2"
 trash = { version = "=5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
 sys-locale = "=0.3.2"
 raw-window-handle = "=0.6.2"
-pollster = "=0.4.0"
 kamadak-exif = "=0.6.1"
 jxl-oxide = "=0.12.6"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }
 notify = "=8.2.0"
 webp = { version = "=0.3.1", default-features = false }
 
+# Windows 上自己画（winit + Direct3D 11，见 src/app/host.rs、src/platform/d3d11.rs）；其它系统仍用 eframe + wgpu
+[target.'cfg(not(windows))'.dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["accesskit", "default_fonts", "wgpu", "wayland", "x11"] }
+pollster = "=0.4.0"
+
+[target.'cfg(windows)'.dependencies]
+egui-winit = { version = "=0.36.2", default-features = false, features = ["accesskit", "clipboard"] }
+winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] }
+
+[target.'cfg(windows)'.dev-dependencies.windows]
+version = "=0.62.2"
+# 只有 examples/compile_shaders.rs 用（运行时不依赖 d3dcompiler）
+features = ["Win32_Graphics_Direct3D_Fxc"]
+
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"
 features = [
     "Storage_Search",
     "Win32_Foundation",
+    "Win32_Graphics_Direct3D",
+    "Win32_Graphics_Direct3D11",
     "Win32_Graphics_Dwm",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+    "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_Storage_FileSystem",
     "Win32_Storage_Packaging_Appx",

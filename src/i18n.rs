@@ -156,6 +156,11 @@ strings! {
     s_light: "浅色", "Light";
     s_dark: "深色", "Dark";
     s_confirm_delete: "删除前确认", "Confirm before deleting";
+    s_frame_cap: "省电模式", "Power saving";
+    s_frame_cap_auto: "自动", "Auto";
+    s_frame_cap_60: "60 Hz", "60 Hz";
+    s_frame_cap_off: "不限", "Off";
+    s_frame_cap_hint: "只影响拖动、缩放、动图等连续画面，静止时不画。自动：高刷新率屏降到不低于 60 帧的均匀帧率（144 Hz → 72）", "Only affects continuous motion (drag, zoom, animations); nothing is drawn while idle. Auto: high-refresh screens use an even rate of at least 60 fps (144 Hz → 72)";
     s_wrap: "到最后一张后回到第一张", "Wrap around at the end of the folder";
     s_fit: "打开时", "When opening";
     s_fit_fit: "适应窗口", "Fit to window";
