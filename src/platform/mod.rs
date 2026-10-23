@@ -5,6 +5,8 @@ pub mod assoc;
 pub mod d3d11;
 pub mod package;
 #[cfg(windows)]
+pub mod print;
+#[cfg(windows)]
 pub mod windows;
 
 use std::path::Path;

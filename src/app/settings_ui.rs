@@ -33,7 +33,7 @@ fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
 }
 
 /// 分段按钮选枚举值
-fn choose<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, items: &[(T, &str)]) {
+pub(super) fn choose<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, items: &[(T, &str)]) {
     let names: Vec<&str> = items.iter().map(|(_, n)| *n).collect();
     let cur = items.iter().position(|(v, _)| v == value).unwrap_or(0);
     if let Some(i) = widgets::segmented(ui, &names, cur) {
@@ -46,6 +46,19 @@ fn number(ui: &mut Ui, value: &mut u32, range: std::ops::RangeInclusive<f32>) {
     widgets::slider(ui, &mut v, range, 200.0);
     *value = v as u32;
     ui.label(RichText::new(value.to_string()).size(13.0));
+}
+
+/// 快捷键表的各行（打印只有 Windows 有，放在「打开 / 设置」前面）
+fn keys_lines(t: &crate::i18n::Strings) -> Vec<&'static str> {
+    let lines: Vec<&'static str> = t.keys_table.lines().collect();
+    #[cfg(windows)]
+    let lines = {
+        let mut lines = lines;
+        let at = lines.iter().position(|l| l.contains("Ctrl+O")).unwrap_or(lines.len());
+        lines.insert(at, t.keys_print_row);
+        lines
+    };
+    lines
 }
 
 #[cfg(windows)]
@@ -215,7 +228,7 @@ impl App {
             Page::Keys => {
                 let p = theme::palette(ui.ctx());
                 egui::Grid::new("keys").num_columns(3).striped(true).spacing([14.0, 6.0]).show(ui, |ui| {
-                    for (i, line) in t.keys_table.lines().enumerate() {
+                    for (i, line) in keys_lines(t).iter().enumerate() {
                         for cell in line.split('|') {
                             let text = RichText::new(cell).size(13.0);
                             ui.label(if i == 0 { text.color(p.text_weak) } else { text.color(p.text) });

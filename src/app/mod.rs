@@ -13,6 +13,8 @@ pub(crate) mod info;
 mod input;
 mod menu;
 mod pacing;
+#[cfg(windows)]
+mod print_ui;
 mod settings_ui;
 mod state;
 
@@ -161,6 +163,15 @@ pub struct App {
     pub(crate) settle_since: Option<Instant>,
     /// 只显示着缩略图时点的复制 / 另存为 / 设为背景：原图解完再做
     pub(crate) pending_action: Option<PendingAction>,
+    /// 打印对话框（开着时）
+    #[cfg(windows)]
+    pub(crate) print: Option<Box<print_ui::PrintDialog>>,
+    /// 本次运行里「打印机属性」改过的设置（按打印机）
+    #[cfg(windows)]
+    pub(crate) print_devmodes: std::collections::HashMap<String, crate::platform::print::DevMode>,
+    /// 主窗口句柄（驱动对话框的 owner）
+    #[cfg(windows)]
+    pub(crate) hwnd: Option<isize>,
 }
 
 /// 要原图像素的操作（只显示着缩略图时先解码）
@@ -407,6 +418,12 @@ impl App {
             full_requested: false,
             settle_since: None,
             pending_action: None,
+            #[cfg(windows)]
+            print: None,
+            #[cfg(windows)]
+            print_devmodes: Default::default(),
+            #[cfg(windows)]
+            hwnd: None,
         };
         app.pending_edit = edit_tool(args.edit, args.mosaic);
         if let Some(p) = args.path {
@@ -626,6 +643,10 @@ impl App {
     /// 一帧界面。hwnd：Windows 的窗口句柄（标题栏颜色、图标、刷新率用）
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui, hwnd: Option<isize>) {
         let ctx = ui.ctx().clone();
+        #[cfg(windows)]
+        {
+            self.hwnd = hwnd;
+        }
         self.track_startup(&ctx);
         if self.editor.is_none() {
             self.update_target(ui);
@@ -651,6 +672,8 @@ impl App {
         self.dialogs(&ctx);
         self.settings_ui(&ctx);
         self.rename_ui(&ctx);
+        #[cfg(windows)]
+        self.print_ui(&ctx);
         if ctx.input(|i| i.viewport().close_requested()) && !self.allow_close {
             if self.editor.is_some() {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);

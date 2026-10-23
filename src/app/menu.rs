@@ -88,6 +88,11 @@ impl App {
                 }
                 ui.close();
             }
+            #[cfg(windows)]
+            if item(ui, t.print, format!("{c}P"), has_img) {
+                ui.close();
+                self.open_print();
+            }
             ui.separator();
             let del = egui::Button::new(RichText::new(t.delete).color(if has_file { p.danger } else { p.text_weak })).shortcut_text("Del");
             if ui.add_enabled(has_file, del).clicked() {

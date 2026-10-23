@@ -19,7 +19,7 @@ class RuntimePolicyTests(unittest.TestCase):
                     "libstdc++-6.dll", "libwinpthread-1.dll", "dxcompiler.dll", "vulkan-1.dll"]:
             self.assertFalse(runtime.is_system_dependency(dll), dll)
         # MSVCRT is the inbox legacy C runtime, not a VC++ redistributable DLL.
-        for dll in ["KERNEL32.dll", "api-ms-win-core-synch-l1-2-0.dll", "d3dcompiler_47.dll", "msvcrt.dll"]:
+        for dll in ["KERNEL32.dll", "api-ms-win-core-synch-l1-2-0.dll", "d3dcompiler_47.dll", "msvcrt.dll", "WINSPOOL.DRV"]:
             self.assertTrue(runtime.is_system_dependency(dll), dll)
         self.assertFalse(runtime.is_system_dependency("C:\\private\\kernel32.dll"))
 

@@ -346,4 +346,16 @@ impl App {
     pub(crate) fn is_animated(&self) -> bool {
         self.decoded().is_some_and(|d| d.is_animated())
     }
+
+    /// 打印对话框开着（快捷键都不处理）
+    pub(crate) fn printing(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.print.is_some()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
 }

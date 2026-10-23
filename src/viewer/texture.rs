@@ -117,6 +117,15 @@ impl StillTextures {
         true
     }
 
+    /// 用已经在显卡上的纹理画到 rect（打印预览用；不上传、不改画布用的缩放缓存）：准确缩小的结果，否则最小的一级
+    pub fn paint_resident(&self, painter: &Painter, rect: Rect, xf: Transform) {
+        if let Some(e) = &self.exact {
+            quad(painter, e.tex.id(), rect, xf, [0.0, 0.0, 1.0, 1.0], Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)));
+        } else if let Some(lvl) = self.levels.iter().rev().find(|l| !l.tiles.is_empty()) {
+            paint_tiles(painter, &lvl.tiles, lvl.image.dimensions(), rect, xf);
+        }
+    }
+
     /// 缩放 zoom（屏幕物理像素 / 图片像素）下用哪一级：缩小不超过一半
     fn pick(&self, zoom: f32) -> usize {
         let mut i = 0;
@@ -309,6 +318,13 @@ impl AnimTexture {
             }
             self.shown = Some(index);
         }
+        if let Some(t) = &self.tex {
+            quad(painter, t.id(), rect, xf, [0.0, 0.0, 1.0, 1.0], Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)));
+        }
+    }
+
+    /// 画当前这一帧（不上传；打印预览用）
+    pub fn paint_resident(&self, painter: &Painter, rect: Rect, xf: Transform) {
         if let Some(t) = &self.tex {
             quad(painter, t.id(), rect, xf, [0.0, 0.0, 1.0, 1.0], Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)));
         }

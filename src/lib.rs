@@ -15,6 +15,9 @@ pub mod i18n;
 pub mod logger;
 pub mod natsort;
 pub mod platform;
+/// 打印（首版只有 Windows）
+#[cfg(windows)]
+pub mod print;
 pub mod save;
 pub mod settings;
 pub mod single;

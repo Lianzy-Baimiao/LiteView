@@ -47,8 +47,8 @@ winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] 
 
 [target.'cfg(windows)'.dev-dependencies.windows]
 version = "=0.62.2"
-# 只有 examples/compile_shaders.rs 用（运行时不依赖 d3dcompiler）
-features = ["Win32_Graphics_Direct3D_Fxc"]
+# examples/compile_shaders.rs（运行时不依赖 d3dcompiler）；打印测试用系统的 PDF 渲染核对输出
+features = ["Win32_Graphics_Direct3D_Fxc", "Data_Pdf", "Storage", "Storage_Streams"]
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"
@@ -62,8 +62,10 @@ features = [
     "Win32_Graphics_Dxgi_Common",
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
+    "Win32_Graphics_Printing",
     "Win32_Storage_FileSystem",
     "Win32_Storage_Packaging_Appx",
+    "Win32_Storage_Xps",
     "Win32_System_Com",
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Kernel",

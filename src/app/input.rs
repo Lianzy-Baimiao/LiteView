@@ -10,7 +10,7 @@ impl App {
         if let Some(p) = dropped {
             self.open_path(p, ctx);
         }
-        if self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || ctx.egui_wants_keyboard_input() {
+        if self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || self.printing() || ctx.egui_wants_keyboard_input() {
             return;
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::I)) {
@@ -91,6 +91,11 @@ impl App {
         }
         if k(cmd, Key::O) {
             self.open_dialog(ctx);
+        }
+        #[cfg(windows)]
+        if k(cmd, Key::P) {
+            self.open_print();
+            return;
         }
         if k(cmd_shift, Key::S) {
             self.save_as();

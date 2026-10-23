@@ -11,6 +11,7 @@ LiteView 是本地图片查看、编辑和打码工具。Microsoft Store 的发�
 - LiteView 不要求登录，不包含广告、用户行为分析或自动上传崩溃报告的服务。应用本身不向开发者发送图片、文件路径、使用记录或设备标识。
 - 你打开的图片及其 EXIF、ICC 等元数据在本机处理。图片信息面板可展示相机、拍摄时间和 GPS；GPS 默认折叠。打开本机已映射的网络位置时，Windows 会按你的操作访问该位置。
 - 复制、粘贴、保存、覆盖、重命名、删除和设置壁纸只在你操作时执行。图片缓存位于内存；保存或导出产生你选择的文件，设置壁纸会另外保存壁纸文件。复制的内容进入 Windows 剪贴板，剪贴板历史或跨设备同步由你的系统设置控制。
+- 打印（1.3.0 起，Windows）只在你在打印预览里点“打印”时执行：图片交给 Windows 打印系统和你选的打印机；网络或云打印机会经网络收到它，打印驱动和打印队列（可能保留文档名）由 Windows 和打印机厂商管理。设置里会记住上次用的打印机和纸张。
 - 保存时可能按设置保留部分元数据。打码图片重新编码，并移除 EXIF 和嵌入缩略图等数据；ICC 色彩配置可能保留。请检查最终导出的图片，不要仅凭轻度模糊或马赛克假设内容无法识别。
 
 ### 设置与诊断
@@ -37,6 +38,8 @@ LiteView is a local image viewer, editor and redaction tool. Its Microsoft Store
 LiteView requires no account and includes no advertising, usage analytics or automatic crash-report upload service. The application does not send images, file paths, usage history or device identifiers to the developer. Images and metadata such as EXIF and ICC are processed locally. The information panel may display camera details, dates and GPS coordinates; GPS is collapsed by default. Windows may access network locations when you choose files stored there.
 
 Copying, pasting, saving, overwriting, renaming, deleting and setting wallpaper occur at your request. Image caches are in memory; saving/exporting creates files you select, and setting wallpaper saves a wallpaper file. Copied data enters the Windows clipboard, whose history and cross-device synchronization follow your system settings.
+
+Printing (Windows, from 1.3.0) happens only when you click Print in the print preview. The image is handed to the Windows print system and the printer you chose; network or cloud printers receive it over the network, and the printer driver and print queue (which may keep the document name) are managed by Windows and the printer maker. The printer and paper you last used are remembered in the settings.
 
 Saving may retain some metadata according to your settings. Redacted images are re-encoded and EXIF/embedded thumbnails are removed; ICC color profiles may remain. Review the exported result: light blur or mosaic does not guarantee that information is unrecognizable.
 

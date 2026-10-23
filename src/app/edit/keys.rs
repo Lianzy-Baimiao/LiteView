@@ -12,7 +12,7 @@ impl App {
         if let Some(p) = dropped {
             self.paste_file(p);
         }
-        if self.dialog.is_some() || self.settings_page.is_some() || ed.resize.is_some() || ed.save_options.is_some() || ed.saving {
+        if self.dialog.is_some() || self.settings_page.is_some() || self.printing() || ed.resize.is_some() || ed.save_options.is_some() || ed.saving {
             return;
         }
         // 文本框（文字工具、颜色 HEX、调整大小的数字）里输入时，单键快捷键与撤销、全选、删除都交给文本框
@@ -60,6 +60,12 @@ impl App {
             self.edit_save_as(ed, SaveThen::Stay);
         } else if k(cmd, Key::S) {
             self.edit_save(ed, SaveThen::Stay);
+        }
+        // 打印当前合成结果（进行中的文字、选区先定下来）
+        #[cfg(windows)]
+        if k(cmd, Key::P) {
+            self.open_print_edit(ed);
+            return;
         }
         if k(cmd, Key::W) {
             self.open_resize(ed);

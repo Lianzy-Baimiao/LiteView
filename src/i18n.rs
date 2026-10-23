@@ -348,6 +348,48 @@ strings! {
     ask_body: "先选择图片格式，再到 Windows 设置里确认。不会自动替换你现在的默认应用。", "Choose image formats, then confirm in Windows Settings. Your current defaults will not be replaced automatically.";
     ask_later: "以后再说", "Later";
     ask_never: "不再询问", "Don't ask again";
+    print: "打印…", "Print…";
+    pr_title: "打印", "Print";
+    pr_printer: "打印机", "Printer";
+    pr_default: "（默认）", " (default)";
+    pr_paper: "纸张", "Paper";
+    pr_orientation: "方向", "Orientation";
+    pr_auto: "自动", "Auto";
+    pr_portrait: "纵向", "Portrait";
+    pr_landscape: "横向", "Landscape";
+    pr_size: "尺寸", "Size";
+    pr_fit: "适合页面", "Fit to page";
+    pr_custom: "指定尺寸", "Custom";
+    pr_actual: "实际大小", "Actual size";
+    pr_width: "宽", "Width";
+    pr_height: "高", "Height";
+    pr_5in: "5 寸", "3.5×5 in";
+    pr_6in: "6 寸", "4×6 in";
+    pr_actual_dpi: "按图片记录的 {} DPI", "From the image's {} DPI";
+    pr_no_dpi: "这张图没有记录分辨率，按适合页面打印", "This image has no recorded resolution; it prints fitted to the page";
+    pr_copies: "份数", "Copies";
+    pr_more: "更多设置", "More settings";
+    pr_margin: "边距", "Margin";
+    pr_properties: "打印机属性…", "Printer properties…";
+    pr_print: "打印", "Print";
+    pr_info: "打印尺寸 {} × {} mm，约 {} PPI", "Print size {} × {} mm, about {} PPI";
+    pr_low_res: "清晰度偏低，打印出来可能发虚", "Low resolution: the print may look soft";
+    pr_over: "超出可打印区域 {} mm，超出的部分会被裁掉", "Exceeds the printable area by {} mm; that part will be cut off";
+    pr_use_fit: "改用适合页面", "Use Fit to page";
+    pr_frame: "动图：打印第 {} 帧", "Animation: prints frame {}";
+    pr_unprintable: "灰色是打印机印不到的边", "Grey edges are outside the printer's printable area";
+    pr_loading: "正在读取打印机…", "Reading printers…";
+    pr_reading: "正在读取打印机设置…", "Reading printer settings…";
+    pr_none: "没有找到打印机。可在 Windows 设置 → 蓝牙和其他设备 → 打印机和扫描仪中添加", "No printer found. Add one in Windows Settings → Bluetooth & devices → Printers & scanners";
+    pr_spooler: "Windows 打印服务（Print Spooler）没有运行", "The Windows print service (Print Spooler) is not running";
+    pr_preparing: "正在准备图片…", "Preparing the image…";
+    pr_sending: "正在交给打印机…", "Sending to the printer…";
+    pr_sent: "已交给打印机", "Sent to the printer";
+    pr_cancelled: "已取消打印", "Printing cancelled";
+    pr_failed: "打印失败：{}", "Printing failed: {}";
+    pr_file_filter: "打印输出", "Print output";
+    pr_bad_margin: "边距太大，纸上没有地方可印", "The margin is too large: nothing fits on the paper";
+    keys_print_row: "打印|Ctrl+P|Ctrl+P", "Print|Ctrl+P|Ctrl+P";
 }
 
 #[cfg(test)]

@@ -102,6 +102,50 @@ pub enum ShapeKind {
     Ellipse,
 }
 
+/// 打印方向
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PrintOrientation {
+    /// 图比较宽就横向
+    #[default]
+    Auto,
+    Portrait,
+    Landscape,
+}
+
+/// 打印尺寸
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum PrintSize {
+    /// 保持比例，在能印到的范围里尽量大
+    #[default]
+    Fit,
+    /// 指定尺寸（长边毫米，宽高锁定比例）
+    Custom,
+    /// 按图片记录的分辨率
+    Actual,
+}
+
+/// 上次的打印设置（份数每次从 1 开始；驱动属性里改的只在本次运行内保留）
+#[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
+#[serde(default)]
+pub struct PrintSettings {
+    /// 空 = 系统默认打印机
+    pub printer: String,
+    /// 纸张编号（DMPAPER_*）；0 = 打印机的默认纸张
+    pub paper: i16,
+    pub orientation: PrintOrientation,
+    pub size: PrintSize,
+    /// 指定尺寸的长边（毫米）；0 = 从适合页面的大小开始
+    pub long_mm: f32,
+    /// 四边边距（毫米，叠在打印机印不到的边上）
+    pub margin_mm: f32,
+}
+
+impl Default for PrintSettings {
+    fn default() -> Self {
+        Self { printer: String::new(), paper: 0, orientation: PrintOrientation::Auto, size: PrintSize::Fit, long_mm: 0.0, margin_mm: 0.0 }
+    }
+}
+
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
 pub struct WindowState {
     pub pos: Option<[f32; 2]>,
@@ -185,6 +229,7 @@ pub struct Settings {
     pub text_strike: bool,
     /// 文字背景填辅色
     pub text_background: bool,
+    pub print: PrintSettings,
 }
 
 impl Default for Settings {
@@ -250,6 +295,7 @@ impl Default for Settings {
             text_underline: false,
             text_strike: false,
             text_background: false,
+            print: PrintSettings::default(),
         }
     }
 }
