@@ -3,7 +3,11 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v1.2.0。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+> v1.3.0。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+
+### v1.3.0 更新
+
+- 新增打印（Windows）：Ctrl+P 或右键「打印…」打开打印预览，按真实比例显示图片在纸上的位置。可选打印机、纸张、方向、尺寸（适合页面 / 指定尺寸，带 5 寸、6 寸、A4 快捷填写 / 按图片分辨率的实际大小）和份数；默认保持比例、居中、完整打印，不裁切。不调用 Windows 自带的图片打印向导。
 
 ### v1.2.0 更新
 
