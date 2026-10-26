@@ -403,8 +403,30 @@ mod tests {
 
     const PDF: &str = "Microsoft Print to PDF";
 
-    /// 系统的 PDF 渲染把第一页画成 PNG（宽 width 像素）
+    /// 系统的 PDF 渲染把第一页画成 PNG（宽 width 像素）。放在子进程里做：Windows.Data.Pdf 与同一进程里建过的 WARP 设备
+    /// （d3d11 的测试）一起时，测试进程退出时会崩（0xC0000409）。程序本身不用 Windows.Data.Pdf
     fn render_pdf(pdf: &std::path::Path, png: &std::path::Path, width: u32) -> RgbaImage {
+        let out = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "platform::print::tests::render_pdf_in_child", "--ignored", "--nocapture", "--test-threads=1"])
+            .env("LITEVIEW_RENDER_PDF", pdf)
+            .env("LITEVIEW_RENDER_PNG", png)
+            .env("LITEVIEW_RENDER_WIDTH", width.to_string())
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "PDF render child: {}\n{}{}", out.status, String::from_utf8_lossy(&out.stdout), String::from_utf8_lossy(&out.stderr));
+        image::open(png).unwrap().to_rgba8()
+    }
+
+    /// render_pdf 的子进程（平时不跑；没有那几个环境变量时什么也不做）
+    #[test]
+    #[ignore = "render_pdf 在子进程里调用"]
+    fn render_pdf_in_child() {
+        let (Some(pdf), Some(png), Some(width)) =
+            (std::env::var_os("LITEVIEW_RENDER_PDF"), std::env::var_os("LITEVIEW_RENDER_PNG"), std::env::var("LITEVIEW_RENDER_WIDTH").ok().and_then(|w| w.parse::<u32>().ok()))
+        else {
+            return;
+        };
+        let (pdf, png) = (std::path::Path::new(&pdf), std::path::Path::new(&png));
         use windows::Data::Pdf::{PdfDocument, PdfPageRenderOptions};
         use windows::Storage::{CreationCollisionOption, FileAccessMode, StorageFile, StorageFolder};
         let file = StorageFile::GetFileFromPathAsync(&windows::core::HSTRING::from(pdf.as_os_str())).unwrap().join().unwrap();
@@ -419,8 +441,6 @@ mod tests {
         options.SetDestinationWidth(width).unwrap();
         page.RenderWithOptionsToStreamAsync(&stream, &options).unwrap().join().unwrap();
         stream.FlushAsync().unwrap().join().unwrap();
-        drop(stream);
-        image::open(png).unwrap().to_rgba8()
     }
 
     /// 打到 Microsoft Print to PDF，再用系统 PDF 渲染核对纸张、方向、位置、颜色。没有这个打印机（或打印服务）的机器跳过
