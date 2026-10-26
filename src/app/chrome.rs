@@ -19,19 +19,24 @@ const ZONE_MARGIN: f32 = 32.0;
 
 impl App {
     pub(crate) fn chrome(&mut self, ctx: &egui::Context) {
-        // 开着对话框时都不出来：重新出现的浮层会排到对话框上面，盖住它的按钮、抢走点击
-        let modal = self.modal_open();
-        let inside = !modal && ctx.input(|i| i.pointer.has_pointer());
-        // 只在鼠标移到窗口底部时显示；它的弹出菜单（比例预设、播放速度）开着时不收起
+        // 开着对话框、右键菜单时都不出来：重新出现的浮层会排到它们上面，盖住按钮、抢走点击
+        let blocked = self.modal_open() || self.menu_open;
+        let inside = !blocked && ctx.input(|i| i.pointer.has_pointer());
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.flip.button = None;
+        }
+        // 只在鼠标移到窗口底部时显示；它的弹出菜单（比例预设、播放速度）开着时不收起。图片信息面板开着时放在剩下的地方
+        let free = self.free_rect(ctx);
         let bars = if self.is_animated() { 2.0 } else { 1.0 };
         let zone = BAR_GAP + bars * (BAR_H + 8.0) + ZONE_MARGIN;
-        let near = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|q| self.canvas.contains(q) && q.y >= self.canvas.bottom() - zone);
-        let show = self.cur.is_some() && !modal && (near || (self.bar_shown && ctx.any_popup_open()));
+        let near = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|q| free.contains(q) && q.y >= free.bottom() - zone);
+        let show = self.cur.is_some() && !blocked && (near || (self.bar_shown && ctx.any_popup_open()));
         self.bar_shown = show;
         let o = ctx.animate_bool_with_time(Id::new("toolbar-shown"), show, 0.15);
         let p = theme::palette(ctx);
+        let dx = free.center().x - ctx.content_rect().center().x;
         if o > 0.0 {
-            Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -BAR_GAP)).interactable(o > 0.5).show(ctx, |ui| {
+            Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP)).interactable(o > 0.5).show(ctx, |ui| {
                 ui.set_opacity(o);
                 widgets::floating_frame(p).show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -44,7 +49,7 @@ impl App {
         let paused = self.play.as_ref().is_some_and(|pl| !pl.playing);
         let oa = ctx.animate_bool_with_time(Id::new("animbar-shown"), self.is_animated() && (show || paused && inside), 0.15);
         if oa > 0.0 {
-            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(0.0, -BAR_GAP - BAR_H - 8.0)).interactable(oa > 0.5).show(
+            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP - BAR_H - 8.0)).interactable(oa > 0.5).show(
                 ctx,
                 |ui| {
                     ui.set_opacity(oa);
@@ -64,14 +69,12 @@ impl App {
         let t = tr();
         let many = self.folder.len() > 1;
         let has = self.shown.is_some();
-        if widgets::icon_button(ui, Icon::Prev, t.prev, "←", many).clicked() {
-            self.navigate(-1);
-        }
+        let prev = widgets::icon_button(ui, Icon::Prev, t.prev, "←", many);
+        self.flip_button(&prev, -1, many);
         let pos = if self.folder.is_empty() { String::new() } else { format!("{} / {}", self.folder.index + 1, self.folder.len()) };
         ui.add_sized([76.0, 32.0], egui::Label::new(egui::RichText::new(pos).size(13.0)));
-        if widgets::icon_button(ui, Icon::Next, t.next, "→", many).clicked() {
-            self.navigate(1);
-        }
+        let next = widgets::icon_button(ui, Icon::Next, t.next, "→", many);
+        self.flip_button(&next, 1, many);
         widgets::separator(ui);
         if widgets::icon_button(ui, Icon::ZoomOut, t.zoom_out, "Ctrl+-", has).clicked() {
             self.zoom_step(false);
@@ -114,6 +117,11 @@ impl App {
             if widgets::icon_button(ui, Icon::Actual, t.actual, "Ctrl+1", has).clicked() {
                 self.zoom_actual();
             }
+        }
+        // 锁定缩放：窗口窄时也留着（没有快捷键）
+        if widgets::icon_button_ex(ui, Icon::Lock, t.lock_zoom, "", true, self.settings.lock_zoom, None).clicked() {
+            self.settings.lock_zoom = !self.settings.lock_zoom;
+            self.settings.save();
         }
         widgets::separator(ui);
         if widgets::icon_button(ui, Icon::RotateCw, t.rotate_cw, "Ctrl+R", has).clicked() {
@@ -177,16 +185,45 @@ impl App {
         });
     }
 
+    /// 翻页按钮：按下就翻一张，按住连续翻（`flip`）；键盘 / 读屏软件的「点击」也翻一张
+    fn flip_button(&mut self, resp: &egui::Response, d: isize, enabled: bool) {
+        if !enabled {
+            return;
+        }
+        let (pressed, down, released, on) = resp.ctx.input(|i| {
+            let p = &i.pointer;
+            (p.primary_pressed(), p.primary_down(), p.primary_released(), p.latest_pos().is_some_and(|q| resp.interact_rect.contains(q)))
+        });
+        if pressed && resp.is_pointer_button_down_on() {
+            self.flip.pressed = Some(d);
+            self.flip.button = Some(resp.id);
+        }
+        if down && on && self.flip.button == Some(resp.id) {
+            self.flip.held = Some(d);
+        } else if resp.clicked() && !down && (pressed || !released) {
+            // 同一帧里按下又松开，或者键盘 / 读屏软件的点击（鼠标的普通点击在按下时已经翻过）
+            self.flip.pressed = Some(d);
+        }
+    }
+
+    /// 画布去掉图片信息面板占的地方（工具栏、左右按钮、提示放在这里面）
+    pub(crate) fn free_rect(&self, ctx: &egui::Context) -> Rect {
+        let mut r = self.canvas;
+        r.min.x = (r.min.x + self.info_width(ctx)).min(r.max.x);
+        r
+    }
+
     fn edge_arrows(&mut self, ctx: &egui::Context) {
-        if self.folder.len() < 2 || self.modal_open() {
+        if self.folder.len() < 2 || self.modal_open() || self.menu_open {
             return;
         }
         let pos = ctx.input(|i| i.pointer.hover_pos());
-        let r = self.canvas;
+        let r = self.free_rect(ctx);
         let zone = (r.width() * 0.15).clamp(60.0, 160.0);
         let p = theme::palette(ctx);
         for (left, icon, d, tip) in [(true, Icon::Prev, -1, tr().prev), (false, Icon::Next, 1, tr().next)] {
-            let near = pos.is_some_and(|q| if left { q.x < r.left() + zone } else { q.x > r.right() - zone });
+            // 在图片信息面板上时不算靠近左边
+            let near = pos.is_some_and(|q| q.x >= r.left() && if left { q.x < r.left() + zone } else { q.x > r.right() - zone });
             let a = ctx.animate_bool_with_time(Id::new(("edge", left)), near, 0.15);
             if a <= 0.0 {
                 continue;
@@ -198,9 +235,8 @@ impl App {
                 let fill = if resp.hovered() { p.surface } else { p.floating };
                 ui.painter().circle(rect.center(), 20.0, fill, Stroke::new(1.0, p.divider));
                 icons::paint(ui, icon, Rect::from_center_size(rect.center(), Vec2::splat(20.0)), p.text);
-                if resp.on_hover_text(tip).clicked() {
-                    self.navigate(d);
-                }
+                let resp = resp.on_hover_text(tip);
+                self.flip_button(&resp, d, true);
             });
         }
     }
@@ -224,11 +260,40 @@ impl App {
         } else {
             -16.0 - BAR_H - 12.0
         };
-        Area::new(Id::new("toast")).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(0.0, y)).interactable(false).show(ctx, |ui| {
+        let dx = self.free_rect(ctx).center().x - ctx.content_rect().center().x;
+        Area::new(Id::new("toast")).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(dx, y)).interactable(false).show(ctx, |ui| {
             ui.set_opacity(o);
             egui::Frame::new().fill(p.text).corner_radius(CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(14, 7)).show(ui, |ui| {
                 ui.label(egui::RichText::new(text).color(p.canvas));
             });
+        });
+    }
+
+    /// 翻页提示（已回到第一张、已经是最后一张、只有这一张）：在图片区域正中，字大，停一会儿再淡出；不挡鼠标
+    pub(crate) fn notice_ui(&mut self, ctx: &egui::Context) {
+        const SHOW: f32 = 1.6;
+        const FADE: f32 = 0.3;
+        let Some((text, at)) = &self.notice else { return };
+        let age = at.elapsed().as_secs_f32();
+        if age > SHOW {
+            self.notice = None;
+            return;
+        }
+        let o = (age / 0.12).min(1.0).min((SHOW - age) / FADE);
+        ctx.request_repaint_after(Duration::from_secs_f32(if (0.12..SHOW - FADE).contains(&age) { SHOW - FADE - age } else { 0.016 }));
+        let p = theme::palette(ctx);
+        let text = text.clone();
+        let center = if self.canvas.is_positive() { self.free_rect(ctx).center() } else { ctx.content_rect().center() };
+        Area::new(Id::new("notice")).order(Order::Tooltip).pivot(Align2::CENTER_CENTER).fixed_pos(center).interactable(false).show(ctx, |ui| {
+            ui.set_opacity(o);
+            egui::Frame::new()
+                .fill(p.text.gamma_multiply(0.92))
+                .corner_radius(CornerRadius::same(14))
+                .inner_margin(egui::Margin::symmetric(28, 16))
+                .shadow(egui::Shadow { offset: [0, 4], blur: 18, spread: 0, color: egui::Color32::from_black_alpha(60) })
+                .show(ui, |ui| {
+                    ui.label(egui::RichText::new(text).size(22.0).color(p.canvas));
+                });
         });
     }
 }
@@ -281,6 +346,11 @@ mod tests {
         app.settings_page = Some(Default::default());
         assert!(!hover_bottom(&mut app, &ctx));
         app.settings_page = None;
+        assert!(hover_bottom(&mut app, &ctx));
+        // 右键菜单开着时也不出来（菜单靠近底部时会被它盖住）
+        app.menu_open = true;
+        assert!(!hover_bottom(&mut app, &ctx));
+        app.menu_open = false;
         assert!(hover_bottom(&mut app, &ctx));
     }
 }

@@ -7,6 +7,7 @@ mod assoc_ui;
 mod canvas;
 mod chrome;
 pub(crate) mod edit;
+mod flip;
 #[cfg(windows)]
 mod host;
 pub(crate) mod info;
@@ -136,6 +137,12 @@ pub struct App {
     pub(crate) ctx: egui::Context,
     /// 浮动工具栏上一帧是否显示（它的弹出菜单开着时不收起）
     pub(crate) bar_shown: bool,
+    /// 画布的右键菜单开着（浮动工具栏、左右按钮不出来，免得盖住菜单）
+    pub(crate) menu_open: bool,
+    /// 按住翻页
+    pub(crate) flip: flip::Flip,
+    /// 窗口中间的翻页提示（已回到第一张、已经是最后一张……）
+    pub(crate) notice: Option<(String, Instant)>,
     /// 设置窗口开着时是哪一页
     pub(crate) settings_page: Option<settings_ui::Page>,
     pub(crate) info_open: bool,
@@ -402,6 +409,9 @@ impl App {
             script: crate::devtools::Script::from_env(),
             ctx: ctx.clone(),
             bar_shown: false,
+            menu_open: false,
+            flip: Default::default(),
+            notice: None,
             settings_page: None,
             info_open: false,
             info: None,
@@ -491,6 +501,11 @@ impl App {
 
     pub(crate) fn show_toast(&mut self, text: impl Into<String>) {
         self.toast = Some((text.into(), Instant::now()));
+    }
+
+    /// 窗口中间、比轻提示醒目的翻页提示
+    pub(crate) fn show_notice(&mut self, text: impl Into<String>) {
+        self.notice = Some((text.into(), Instant::now()));
     }
 
     /// `--edit` / `--mosaic`：图片载入后进入编辑；打不开就算了
@@ -667,8 +682,10 @@ impl App {
             self.keyboard(&ctx);
             self.chrome(&ctx);
             self.info_panel(&ctx);
+            self.flip_tick(&ctx);
         }
         self.toast_ui(&ctx);
+        self.notice_ui(&ctx);
         self.dialogs(&ctx);
         self.settings_ui(&ctx);
         self.rename_ui(&ctx);

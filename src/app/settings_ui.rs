@@ -183,7 +183,6 @@ impl App {
                 row(ui, t.s_nearest, |ui| number(ui, &mut s.nearest_above, 100.0..=1600.0));
                 widgets::checkbox(ui, &mut s.smooth_zoom, t.s_smooth);
                 widgets::checkbox(ui, &mut s.drag_inertia, t.s_inertia);
-                widgets::checkbox(ui, &mut s.lock_zoom, t.s_lock_zoom);
                 widgets::checkbox(ui, &mut s.fit_window, t.s_fit_window);
             }
             Page::Anim => {

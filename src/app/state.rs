@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use super::flip::Nav;
 use super::{After, App, Current, Dialog, Shown, Tex};
 
 /// 放大看过后回到适应窗口，停多久放掉原图
@@ -129,30 +130,33 @@ impl App {
         !self.view.xf.is_identity() && self.cur.as_ref().is_some_and(|c| !c.clipboard && crate::save::can_save_rotation(&c.path))
     }
 
-    pub(crate) fn navigate(&mut self, delta: isize) {
+    /// 上一张 / 下一张；到头、循环、只有一张时在窗口中间提示
+    pub(crate) fn navigate(&mut self, delta: isize) -> Nav {
         if self.needs_rotation_prompt() {
             self.dialog = Some(Dialog::SaveRotation { after: After::Step(delta) });
-            return;
+            return Nav::Stopped;
         }
         let t = tr();
-        match self.folder.step(delta, self.settings.wrap_around) {
-            Step::Moved => self.pending_edit = None,
+        let nav = match self.folder.step(delta, self.settings.wrap_around) {
+            Step::Moved => Nav::Moved,
             Step::Wrapped => {
-                self.pending_edit = None;
-                self.show_toast(if delta > 0 { t.wrapped_first } else { t.wrapped_last });
+                self.show_notice(if delta > 0 { t.wrapped_first } else { t.wrapped_last });
+                Nav::Wrapped
             }
             Step::AtEdge => {
-                self.show_toast(if delta > 0 { t.at_last } else { t.at_first });
-                return;
+                self.show_notice(if delta > 0 { t.at_last } else { t.at_first });
+                return Nav::Stopped;
             }
             Step::Single => {
                 if !self.folder.scanning() && self.cur.is_some() {
-                    self.show_toast(t.only_one);
+                    self.show_notice(t.only_one);
                 }
-                return;
+                return Nav::Stopped;
             }
-        }
+        };
+        self.pending_edit = None;
         self.show_current();
+        nav
     }
 
     pub(crate) fn go(&mut self, index: usize) {
@@ -171,7 +175,9 @@ impl App {
     pub(crate) fn resume(&mut self, after: After, ctx: &egui::Context) {
         self.view.xf = Default::default();
         match after {
-            After::Step(d) => self.navigate(d),
+            After::Step(d) => {
+                self.navigate(d);
+            }
             After::Go(i) => self.go(i),
             After::Open(p) => self.open_path(p, ctx),
             After::Close => {

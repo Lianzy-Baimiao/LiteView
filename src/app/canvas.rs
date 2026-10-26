@@ -51,7 +51,11 @@ impl App {
         }
         let resp = ui.interact(rect, ui.id().with("canvas"), Sense::click_and_drag());
         self.pointer(&ctx, &resp);
-        self.context_menu(&resp);
+        self.menu_open = self.context_menu(&resp);
+        // 图片信息开着：点一下图片区域（不拖动）就关掉
+        if self.info_open && resp.clicked() {
+            self.info_open = false;
+        }
         match &self.cur {
             None => self.empty_state(ui, rect),
             Some(c) => match &c.loaded {

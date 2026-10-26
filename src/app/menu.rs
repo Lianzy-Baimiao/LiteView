@@ -13,102 +13,115 @@ enum Choice {
 }
 
 impl App {
-    pub(crate) fn context_menu(&mut self, resp: &egui::Response) {
-        resp.context_menu(|ui| {
-            ui.set_min_width(230.0);
-            let t = tr();
-            let p = theme::palette(ui.ctx());
-            let has_img = self.has_image();
-            let has_file = self.cur.as_ref().is_some_and(|c| !c.clipboard);
-            let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
-            let item = |ui: &mut egui::Ui, text: &str, sc: String, on: bool| ui.add_enabled(on, egui::Button::new(text).shortcut_text(sc)).clicked();
-            // 动图只看，不能编辑、打码
-            let editable = has_img && !self.is_animated();
-            let edit = ui.add_enabled(editable, egui::Button::new(t.edit).shortcut_text("E"));
-            if has_img && !editable {
-                edit.clone().on_disabled_hover_text(t.anim_no_edit);
+    /// 画布的右键菜单；返回菜单是否开着。窗口比菜单矮时菜单可以用滚轮滚动（egui 的菜单画不到窗口外面）
+    pub(crate) fn context_menu(&mut self, resp: &egui::Response) -> bool {
+        let max_h = (resp.ctx.content_rect().height() - 16.0).max(80.0);
+        // 每次打开都从第一项开始
+        let fresh = resp.secondary_clicked();
+        let shown = resp.context_menu(|ui| {
+            let mut area = egui::ScrollArea::vertical().max_height(max_h);
+            if fresh {
+                area = area.vertical_scroll_offset(0.0);
             }
-            if edit.clicked() {
-                ui.close();
-                self.enter_edit(super::edit::Tool::Select);
-            }
-            if item(ui, t.mosaic, "M".into(), editable) {
-                ui.close();
-                self.enter_edit(super::edit::Tool::Redact);
-            }
-            ui.separator();
-            if item(ui, t.copy_image, format!("{c}C"), has_img) {
-                self.copy_image();
-                ui.close();
-            }
-            if item(ui, t.copy_path, format!("{c}Shift+C"), has_file) {
-                self.copy_path(ui.ctx());
-                ui.close();
-            }
-            ui.separator();
-            if item(ui, t.rotate_cw, format!("{c}R"), has_img) {
-                self.rotate(true);
-                ui.close();
-            }
-            if item(ui, t.rotate_ccw, format!("{c}Shift+R"), has_img) {
-                self.rotate(false);
-                ui.close();
-            }
-            if item(ui, t.flip_h, String::new(), has_img) {
-                self.view.xf.flip_h = !self.view.xf.flip_h;
-                ui.close();
-            }
-            if item(ui, t.flip_v, String::new(), has_img) {
-                self.view.xf.flip_v = !self.view.xf.flip_v;
-                ui.close();
-            }
-            ui.separator();
-            let save_label = if self.is_animated() { t.export_frame } else { t.save_as };
-            if item(ui, save_label, format!("{c}Shift+S"), has_img) {
-                ui.close();
-                self.save_as();
-            }
-            if item(ui, t.rename, "F2".into(), has_file) {
-                ui.close();
-                self.start_rename();
-            }
-            if crate::platform::has_wallpaper() && item(ui, t.set_wallpaper, String::new(), has_img) {
-                ui.close();
-                self.set_wallpaper();
-            }
-            if item(ui, super::canvas::folder_label(), String::new(), has_file) {
-                if let Some(cur) = &self.cur {
-                    crate::platform::show_in_folder(&cur.path);
-                }
-                ui.close();
-            }
-            if crate::platform::has_open_with() && item(ui, t.open_with, String::new(), has_file) {
-                if let Some(cur) = &self.cur {
-                    crate::platform::open_with(&cur.path);
-                }
-                ui.close();
-            }
-            #[cfg(windows)]
-            if item(ui, t.print, format!("{c}P"), has_img) {
-                ui.close();
-                self.open_print();
-            }
-            ui.separator();
-            let del = egui::Button::new(RichText::new(t.delete).color(if has_file { p.danger } else { p.text_weak })).shortcut_text("Del");
-            if ui.add_enabled(has_file, del).clicked() {
-                ui.close();
-                self.request_delete(false);
-            }
-            ui.separator();
-            if item(ui, t.info, "I".into(), has_img) {
-                ui.close();
-                self.info_open = true;
-            }
-            if item(ui, t.settings, format!("{c},"), true) {
-                ui.close();
-                self.settings_page = Some(Default::default());
-            }
+            area.show(ui, |ui| self.menu_items(ui));
         });
+        shown.is_some()
+    }
+
+    fn menu_items(&mut self, ui: &mut egui::Ui) {
+        ui.set_min_width(230.0);
+        let t = tr();
+        let p = theme::palette(ui.ctx());
+        let has_img = self.has_image();
+        let has_file = self.cur.as_ref().is_some_and(|c| !c.clipboard);
+        let c = if cfg!(target_os = "macos") { "⌘" } else { "Ctrl+" };
+        let item = |ui: &mut egui::Ui, text: &str, sc: String, on: bool| ui.add_enabled(on, egui::Button::new(text).shortcut_text(sc)).clicked();
+        // 动图只看，不能编辑、打码
+        let editable = has_img && !self.is_animated();
+        let edit = ui.add_enabled(editable, egui::Button::new(t.edit).shortcut_text("E"));
+        if has_img && !editable {
+            edit.clone().on_disabled_hover_text(t.anim_no_edit);
+        }
+        if edit.clicked() {
+            ui.close();
+            self.enter_edit(super::edit::Tool::Select);
+        }
+        if item(ui, t.mosaic, "M".into(), editable) {
+            ui.close();
+            self.enter_edit(super::edit::Tool::Redact);
+        }
+        ui.separator();
+        if item(ui, t.copy_image, format!("{c}C"), has_img) {
+            self.copy_image();
+            ui.close();
+        }
+        if item(ui, t.copy_path, format!("{c}Shift+C"), has_file) {
+            self.copy_path(ui.ctx());
+            ui.close();
+        }
+        ui.separator();
+        if item(ui, t.rotate_cw, format!("{c}R"), has_img) {
+            self.rotate(true);
+            ui.close();
+        }
+        if item(ui, t.rotate_ccw, format!("{c}Shift+R"), has_img) {
+            self.rotate(false);
+            ui.close();
+        }
+        if item(ui, t.flip_h, String::new(), has_img) {
+            self.view.xf.flip_h = !self.view.xf.flip_h;
+            ui.close();
+        }
+        if item(ui, t.flip_v, String::new(), has_img) {
+            self.view.xf.flip_v = !self.view.xf.flip_v;
+            ui.close();
+        }
+        ui.separator();
+        let save_label = if self.is_animated() { t.export_frame } else { t.save_as };
+        if item(ui, save_label, format!("{c}Shift+S"), has_img) {
+            ui.close();
+            self.save_as();
+        }
+        if item(ui, t.rename, "F2".into(), has_file) {
+            ui.close();
+            self.start_rename();
+        }
+        if crate::platform::has_wallpaper() && item(ui, t.set_wallpaper, String::new(), has_img) {
+            ui.close();
+            self.set_wallpaper();
+        }
+        if item(ui, super::canvas::folder_label(), String::new(), has_file) {
+            if let Some(cur) = &self.cur {
+                crate::platform::show_in_folder(&cur.path);
+            }
+            ui.close();
+        }
+        if crate::platform::has_open_with() && item(ui, t.open_with, String::new(), has_file) {
+            if let Some(cur) = &self.cur {
+                crate::platform::open_with(&cur.path);
+            }
+            ui.close();
+        }
+        #[cfg(windows)]
+        if item(ui, t.print, format!("{c}P"), has_img) {
+            ui.close();
+            self.open_print();
+        }
+        ui.separator();
+        let del = egui::Button::new(RichText::new(t.delete).color(if has_file { p.danger } else { p.text_weak })).shortcut_text("Del");
+        if ui.add_enabled(has_file, del).clicked() {
+            ui.close();
+            self.request_delete(false);
+        }
+        ui.separator();
+        if item(ui, t.info, "I".into(), has_img) {
+            ui.close();
+            self.info_open = true;
+        }
+        if item(ui, t.settings, format!("{c},"), true) {
+            ui.close();
+            self.settings_page = Some(Default::default());
+        }
     }
 
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {

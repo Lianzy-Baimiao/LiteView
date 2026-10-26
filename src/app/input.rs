@@ -28,11 +28,25 @@ impl App {
         let k = |m: Modifiers, key: Key| ctx.input_mut(|i| i.consume_key(m, key));
         let anim = self.is_animated();
 
-        if k(none, Key::ArrowRight) || k(none, Key::PageDown) {
-            self.navigate(1);
-        }
-        if k(none, Key::ArrowLeft) || k(none, Key::PageUp) {
-            self.navigate(-1);
+        // 翻页：刚按下的翻一张，按住交给 flip（系统的按键重复也吃掉，免得别处再处理）
+        for (keys, d) in [([Key::ArrowRight, Key::PageDown], 1), ([Key::ArrowLeft, Key::PageUp], -1)] {
+            let fresh = ctx.input_mut(|i| {
+                let mut fresh = false;
+                i.events.retain(|e| match e {
+                    egui::Event::Key { key, pressed: true, repeat, modifiers, .. } if keys.contains(key) && modifiers.matches_logically(none) => {
+                        fresh |= !repeat;
+                        false
+                    }
+                    _ => true,
+                });
+                fresh
+            });
+            if fresh {
+                self.flip.pressed = Some(d);
+            }
+            if ctx.input(|i| i.modifiers.matches_logically(none) && keys.iter().any(|k| i.key_down(*k))) {
+                self.flip.held = Some(d);
+            }
         }
         if k(none, Key::Home) {
             self.go(0);

@@ -1,4 +1,5 @@
-//! 图片信息面板（I）：文件、尺寸、格式、EXIF；GPS 默认折叠。从右侧滑出，盖在图片上。
+//! 图片信息面板（I）：文件、尺寸、格式、EXIF；GPS 默认折叠。从左侧滑出，盖在图片上（右侧是鼠标常在的地方）；
+//! 点图片区域（不拖动）、按 I 或 Esc 关掉。
 //! 重命名（F2）：只选中主文件名，扩展名不变。
 
 use std::path::{Path, PathBuf};
@@ -83,7 +84,20 @@ fn parse_exif(raw: &[u8]) -> (Vec<(&'static str, String)>, Option<String>) {
     (out, gps)
 }
 
+/// 面板宽度
+const INFO_W: f32 = 300.0;
+
 impl App {
+    /// 面板这一帧占了左边多宽（滑入 / 滑出时按进度）；不显示时为 0
+    pub(crate) fn info_width(&self, ctx: &egui::Context) -> f32 {
+        let shown = self.editor.is_none()
+            && self.cur.as_ref().is_some_and(|c| c.loaded.as_ref().is_some_and(|l| l.is_ok()) || c.preview.is_some());
+        if !shown {
+            return 0.0;
+        }
+        INFO_W * ctx.animate_bool_with_time(Id::new("info-open"), self.info_open, 0.15)
+    }
+
     pub(crate) fn info_panel(&mut self, ctx: &egui::Context) {
         let a = ctx.animate_bool_with_time(Id::new("info-open"), self.info_open, 0.15);
         if a <= 0.0 {
@@ -101,10 +115,10 @@ impl App {
             self.info = Some(build(&cur.path, info, delays, cur.clipboard));
         }
         let p = theme::palette(ctx);
-        let w = 300.0;
+        let w = INFO_W;
         let r = self.canvas;
         let mut close = false;
-        Area::new(Id::new("info")).order(Order::Foreground).anchor(Align2::RIGHT_TOP, vec2(w * (1.0 - a), 0.0)).show(ctx, |ui| {
+        Area::new(Id::new("info")).order(Order::Foreground).anchor(Align2::LEFT_TOP, vec2(-w * (1.0 - a), 0.0)).show(ctx, |ui| {
             egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.divider)).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                 ui.set_width(w - 32.0);
                 ui.set_min_height(r.height() - 32.0);

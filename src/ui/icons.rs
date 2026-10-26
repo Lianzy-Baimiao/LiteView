@@ -29,7 +29,7 @@ icons! {
     Rect => "rect", RoundRect => "round_rect", Ellipse => "ellipse", Mosaic => "mosaic", Blur => "blur",
     Swap => "swap", Done => "done", FlipH => "flip_h", FlipV => "flip_v", Copy => "copy", Cut => "cut",
     Save => "save", More => "more", Dropdown => "dropdown", Bold => "bold", Italic => "italic",
-    Underline => "underline", Strike => "strike", Lasso => "lasso",
+    Underline => "underline", Strike => "strike", Lasso => "lasso", Lock => "lock",
 }
 
 type Cache = Arc<Mutex<HashMap<(Icon, u32), TextureHandle>>>;

@@ -138,7 +138,9 @@ impl App {
     /// 退出编辑之后继续：切换图片、打开文件、关闭窗口
     fn after_edit(&mut self, a: After) {
         match a {
-            After::Step(d) => self.navigate(d),
+            After::Step(d) => {
+                self.navigate(d);
+            }
             After::Go(i) => self.go(i),
             After::Open(p) => self.open_path(p, &self.ctx.clone()),
             // 进入编辑前旋转过、又没保存：先问要不要保存旋转
