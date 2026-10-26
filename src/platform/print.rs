@@ -465,10 +465,11 @@ mod tests {
             last = len;
         }
         assert!(last > 0, "no PDF written");
-        // 4 像素 / 毫米
+        // 要 4 像素 / 毫米；系统按显示缩放放大输出（150% 的屏上是 1.4 倍），每毫米多少像素按实际宽度算
         let png = render_pdf(&pdf, &dir.join("page.png"), 1188);
-        assert_eq!(png.width(), 1188);
-        assert!((png.height() as f32 - 840.0).abs() <= 2.0, "landscape page: {}x{}", png.width(), png.height());
+        assert!(png.width() >= 1188, "rendered {} px wide", png.width());
+        let ppm = png.width() as f32 / paper.x;
+        assert!((png.height() as f32 / ppm - paper.y).abs() <= 0.5, "landscape page: {}x{}", png.width(), png.height());
         let bbox = |want: [u8; 3]| {
             let (mut x0, mut y0, mut x1, mut y1) = (u32::MAX, u32::MAX, 0, 0);
             for (x, y, p) in png.enumerate_pixels() {
@@ -477,7 +478,7 @@ mod tests {
                 }
             }
             assert!(x1 > x0, "colour {want:?} not found");
-            [x0, y0, x1, y1].map(|v| v as f32 / 4.0)
+            [x0, y0, x1, y1].map(|v| v as f32 / ppm)
         };
         let close = |got: [f32; 4], want: [f32; 4]| got.iter().zip(want).all(|(a, b)| (a - b).abs() <= 1.0);
         // 150 × 100 mm，在 297 × 210 的纸上居中：x 73.5 ~ 223.5，y 55 ~ 155；绿色到 1/3 处
