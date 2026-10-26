@@ -19,12 +19,14 @@ const ZONE_MARGIN: f32 = 32.0;
 
 impl App {
     pub(crate) fn chrome(&mut self, ctx: &egui::Context) {
-        let inside = ctx.input(|i| i.pointer.has_pointer());
+        // 开着对话框时都不出来：重新出现的浮层会排到对话框上面，盖住它的按钮、抢走点击
+        let modal = self.modal_open();
+        let inside = !modal && ctx.input(|i| i.pointer.has_pointer());
         // 只在鼠标移到窗口底部时显示；它的弹出菜单（比例预设、播放速度）开着时不收起
         let bars = if self.is_animated() { 2.0 } else { 1.0 };
         let zone = BAR_GAP + bars * (BAR_H + 8.0) + ZONE_MARGIN;
         let near = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|q| self.canvas.contains(q) && q.y >= self.canvas.bottom() - zone);
-        let show = self.cur.is_some() && (near || (self.bar_shown && ctx.any_popup_open()));
+        let show = self.cur.is_some() && !modal && (near || (self.bar_shown && ctx.any_popup_open()));
         self.bar_shown = show;
         let o = ctx.animate_bool_with_time(Id::new("toolbar-shown"), show, 0.15);
         let p = theme::palette(ctx);
@@ -176,7 +178,7 @@ impl App {
     }
 
     fn edge_arrows(&mut self, ctx: &egui::Context) {
-        if self.folder.len() < 2 || self.dialog.is_some() {
+        if self.folder.len() < 2 || self.modal_open() {
             return;
         }
         let pos = ctx.input(|i| i.pointer.hover_pos());
@@ -250,4 +252,35 @@ fn scrubber(ui: &mut egui::Ui, index: usize, n: usize) -> Option<usize> {
         return Some((f * (n - 1) as f32).round() as usize);
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    /// 鼠标停在窗口底部画一帧，返回工具栏是否显示
+    fn hover_bottom(app: &mut App, ctx: &egui::Context) -> bool {
+        let mut input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1000.0, 700.0))), ..Default::default() };
+        input.events.push(egui::Event::PointerMoved(pos2(500.0, 690.0)));
+        let _ = ctx.run_ui(input, |ui| {
+            app.canvas = ui.max_rect();
+            app.chrome(ui.ctx());
+        });
+        app.bar_shown
+    }
+
+    #[test]
+    fn the_bottom_toolbar_stays_hidden_while_a_dialog_is_open() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        app.cur = Some(crate::app::Current { path: "a.png".into(), loaded: None, preview: None, since: std::time::Instant::now(), clipboard: false });
+        assert!(hover_bottom(&mut app, &ctx));
+        app.settings_page = Some(Default::default());
+        assert!(!hover_bottom(&mut app, &ctx));
+        app.settings_page = None;
+        assert!(hover_bottom(&mut app, &ctx));
+    }
 }

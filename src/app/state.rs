@@ -358,4 +358,9 @@ impl App {
             false
         }
     }
+
+    /// 开着对话框（确认框、设置、重命名、打印）：查看模式的快捷键和浮动工具栏都不出来
+    pub(crate) fn modal_open(&self) -> bool {
+        self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || self.printing()
+    }
 }
