@@ -1,7 +1,7 @@
 //! 开发用：按脚本回放操作并截图，用来检查界面（环境变量 `LITEVIEW_SCRIPT`，内容或文件路径）。
-//! 每行一条：`wait 300`、`waitimage`、`waitloaded`（当前图片显示或报错）、`key ctrl+r`、`move 100 200`、`click 100 200`、`rclick x y`、
-//! `dclick x y`、`down x y`、`up`、`drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`quit`。
-//! 坐标是逻辑像素。
+//! 每行一条：`wait 300`、`waitimage`、`waitloaded`（当前图片显示或报错）、`key ctrl+r`、`keydown right` / `keyup right`（按住期间
+//! 像系统一样 500 ms 后每 33 ms 重复一次）、`move 100 200`、`click 100 200`、`rclick x y`、`dclick x y`、`down x y`、`up`、
+//! `drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`quit`。坐标是逻辑像素。
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -33,6 +33,9 @@ enum Step {
     WaitImage,
     WaitLoaded,
     Key(Modifiers, Key),
+    /// 按下 / 松开（按住期间自动重复）
+    KeyDown(Modifiers, Key),
+    KeyUp(Modifiers, Key),
     Move(Pos2),
     Button(PointerButton, bool),
     Wheel(f32),
@@ -60,6 +63,8 @@ pub struct Script {
     image_ready: bool,
     load_state: LoadState,
     first_frame: bool,
+    /// keydown 按着的键和下一次重复的时刻
+    held: Option<(Modifiers, Key, Instant)>,
 }
 
 impl Script {
@@ -70,6 +75,15 @@ impl Script {
     }
 
     pub fn inject(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        // 按住的键：与系统的按键重复一样（winit 送的是 pressed + repeat）
+        if let Some((m, key, at)) = &mut self.held {
+            let now = Instant::now();
+            if now >= *at {
+                raw.events.push(Event::Key { key: *key, physical_key: None, pressed: true, repeat: true, modifiers: *m });
+                *at = (*at + Duration::from_millis(33)).max(now);
+            }
+            ctx.request_repaint_after(Duration::from_millis(16));
+        }
         if let Some(path) = &self.shot
             && let Some(img) = raw.events.iter().find_map(|e| match e {
                 Event::Screenshot { image, .. } => Some(image.clone()),
@@ -110,6 +124,16 @@ impl Script {
                     raw.events.push(Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m });
                 }
                 raw.events.push(Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers: m });
+            }
+            Step::KeyDown(m, key) => {
+                raw.events.push(Event::ModifiersChanged(m));
+                raw.events.push(Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: m });
+                self.held = Some((m, key, Instant::now() + Duration::from_millis(500)));
+            }
+            Step::KeyUp(m, key) => {
+                raw.events.push(Event::Key { key, physical_key: None, pressed: false, repeat: false, modifiers: m });
+                raw.events.push(Event::ModifiersChanged(Modifiers::NONE));
+                self.held = None;
             }
             Step::Move(p) => {
                 self.pos = p;
@@ -163,9 +187,13 @@ fn parse(text: &str) -> VecDeque<Step> {
             Some("wait") => out.push_back(Step::Wait(Duration::from_millis(num(1) as u64))),
             Some("waitimage") => out.push_back(Step::WaitImage),
             Some("waitloaded") => out.push_back(Step::WaitLoaded),
-            Some("key") => {
+            Some(c @ ("key" | "keydown" | "keyup")) => {
                 if let Some((m, k)) = w.get(1).and_then(|s| parse_key(s)) {
-                    out.push_back(Step::Key(m, k));
+                    out.push_back(match c {
+                        "keydown" => Step::KeyDown(m, k),
+                        "keyup" => Step::KeyUp(m, k),
+                        _ => Step::Key(m, k),
+                    });
                 }
             }
             Some("move") => out.push_back(Step::Move(at())),
@@ -246,6 +274,8 @@ mod tests {
         assert!(matches!(parse_key("ctrl+shift+x"), Some((m, Key::X)) if m.command && m.shift));
         assert!(matches!(parse_key("["), Some((_, Key::OpenBracket))));
         assert!(matches!(parse("waitloaded")[0], Step::WaitLoaded));
+        let held = parse("keydown right; wait 900; keyup right");
+        assert!(matches!(held[0], Step::KeyDown(_, Key::ArrowRight)) && matches!(held[2], Step::KeyUp(_, Key::ArrowRight)));
     }
 
     #[test]
