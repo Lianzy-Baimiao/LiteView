@@ -63,6 +63,18 @@ jobs:
         run: cargo clippy --locked --release --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked --release --lib
+      # The print test returns early (and still reports ok) when the runner has no print spooler or
+      # Microsoft Print to PDF; say which one happened instead of failing.
+      - name: Report whether the print-to-PDF test really printed
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $out = cargo test --locked --release --lib platform::print::tests::prints_to_pdf_at_the_laid_out_position -- --exact --nocapture 2>&1 | Out-String
+          $skip = [regex]::Match($out, 'skipped: [^\r\n]*')
+          if ($skip.Success) { "::notice title=Print test::$($skip.Value)" }
+          elseif ($out -match 'test result: ok\. 1 passed') { "::notice title=Print test::printed to Microsoft Print to PDF and checked the page" }
+          else { "::warning title=Print test::did not pass (see the Test step)" }
       - name: Build
         run: cargo build --locked --release
       - name: Windows executable resources
