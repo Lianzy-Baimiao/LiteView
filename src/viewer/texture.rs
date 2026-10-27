@@ -250,12 +250,16 @@ pub(crate) fn resample(src: &RgbaImage, w: u32, h: u32) -> ColorImage {
     ColorImage::from_rgba_premultiplied([w as usize, h as usize], &out)
 }
 
+/// 这么多像素以下单线程转换（不到 1 ms）：动图每次换帧都叫醒全部线程池线程，它们空转一会儿才睡，
+/// 一张 480×270 的 GIF 就要占掉约三分之一个核
+const PARALLEL_PIXELS: usize = 512 * 1024;
+
 /// 取一块区域转成 egui 的（预乘）颜色
 pub fn region(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> ColorImage {
     let stride = img.width() as usize * 4;
     let raw = img.as_raw();
     let mut pixels = vec![Color32::TRANSPARENT; w as usize * h as usize];
-    pixels.par_chunks_mut(w as usize).enumerate().for_each(|(row, out)| {
+    let convert = |(row, out): (usize, &mut [Color32])| {
         let start = (y as usize + row) * stride + x as usize * 4;
         let src = &raw[start..start + w as usize * 4];
         for (o, p) in out.iter_mut().zip(src.as_chunks::<4>().0) {
@@ -265,7 +269,12 @@ pub fn region(img: &RgbaImage, x: u32, y: u32, w: u32, h: u32) -> ColorImage {
                 Color32::from_rgba_unmultiplied(p[0], p[1], p[2], p[3])
             };
         }
-    });
+    };
+    if pixels.len() < PARALLEL_PIXELS {
+        pixels.chunks_mut(w as usize).enumerate().for_each(convert);
+    } else {
+        pixels.par_chunks_mut(w as usize).enumerate().for_each(convert);
+    }
     ColorImage::new([w as usize, h as usize], pixels)
 }
 
