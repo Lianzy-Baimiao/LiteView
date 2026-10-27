@@ -1,19 +1,49 @@
-//! 按需解码未缓存的动图帧。只有一个后台解码器、一个最新请求和一个结果槽，
-//! 不积压滑块请求；顺播复用解码器，回退/循环从头恢复合成状态。离开图片立即取消。
+//! 按需解码未缓存的动图帧。只有一个后台解码器，解好的帧放在一个小窗口里：播放时从界面要的帧
+//! （在播缓存帧时是第一张未缓存的帧）起往后 AHEAD 帧，帧到点时已经解好，换帧不用等解码；
+//! 暂停时只解界面要的那一帧，停在缓存帧上时什么都不解。
+//! 解码器只能往前走：窗口里有已经错过的帧（回退、循环）时从头恢复合成状态。离开图片立即取消。
 
+use std::ops::Range;
 use std::sync::{Arc, Condvar, Mutex};
 
 use image::RgbaImage;
 
 use crate::decode::{AnimSource, Content, Decoded, Error};
 
-type FrameResult = Result<Arc<RgbaImage>, Error>;
+/// 播放时的窗口帧数（含界面正要的那一帧）：播一帧时后台解下一帧。在播缓存帧时先解好缓存后面的帧，
+/// 播到缓存边界不用再从第 0 帧解一遍（1080p、256 MB 缓存时约 0.3 s 的卡顿）。
+const AHEAD: usize = 2;
 
 #[derive(Default)]
 struct State {
-    wanted: Option<usize>,
-    result: Option<(usize, FrameResult)>,
+    /// 要解好的帧
+    window: Range<usize>,
+    /// 界面在等窗口的第一帧（不是在播缓存帧时提前解的帧）：解好时叫醒界面
+    waiting: bool,
+    /// 解好的帧，都在窗口里
+    ready: Vec<(usize, Arc<RgbaImage>)>,
+    /// 解码在这一帧出错，或动图到这一帧就结束了：它和后面的帧都拿不到
+    failed: Option<(usize, Error)>,
     stopped: bool,
+}
+
+impl State {
+    /// 窗口里还没解出来的帧
+    fn missing(&self) -> impl Iterator<Item = usize> + '_ {
+        let end = self.failed.as_ref().map_or(usize::MAX, |f| f.0);
+        self.window.clone().filter(move |&i| i < end && !self.ready.iter().any(|r| r.0 == i))
+    }
+
+    /// 换窗口，扔掉窗口外的帧；返回是否换了
+    fn set(&mut self, window: Range<usize>, waiting: bool) -> bool {
+        self.waiting = waiting;
+        if self.window == window {
+            return false;
+        }
+        self.ready.retain(|r| window.contains(&r.0));
+        self.window = window;
+        true
+    }
 }
 
 struct Shared {
@@ -33,52 +63,53 @@ impl FrameStream {
             loop {
                 {
                     let mut s = worker.state.lock().unwrap();
-                    while !s.stopped && (s.wanted.is_none() || s.result.as_ref().map(|r| r.0) == s.wanted) {
+                    while !s.stopped && s.missing().next().is_none() {
                         s = worker.changed.wait(s).unwrap();
                     }
                     if s.stopped {
                         return;
                     }
                 }
-                let mut interrupted = false;
+                // 这一轮要解的下一帧；解码出错时它就是坏掉（或不存在）的那一帧
+                let (mut next, mut interrupted) = (0, false);
                 let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     source.each_frame(|i, image| {
+                        next = i + 1;
                         let mut s = worker.state.lock().unwrap();
-                        while !s.stopped && (s.wanted.is_none() || s.result.as_ref().map(|r| r.0) == s.wanted) {
+                        if s.stopped || s.missing().any(|m| m < i) {
+                            interrupted = true;
+                            return false;
+                        }
+                        if s.window.contains(&i) && !s.ready.iter().any(|r| r.0 == i) {
+                            s.ready.push((i, Arc::new(image)));
+                            if s.waiting && s.window.start == i {
+                                drop(s);
+                                wake();
+                                s = worker.state.lock().unwrap();
+                            }
+                        }
+                        // 窗口满了先停在这里，等界面往前播再解下一帧，不多压一张解好的帧
+                        while !s.stopped && !s.window.is_empty() && s.missing().next().is_none() {
                             s = worker.changed.wait(s).unwrap();
                         }
-                        if s.stopped {
-                            interrupted = true;
-                            return false;
-                        }
-                        let wanted = s.wanted.expect("requested frame");
-                        if wanted < i {
-                            interrupted = true;
-                            return false;
-                        } // 回退：重建解码器与处置/混合状态
-                        if wanted == i {
-                            s.result = Some((i, Ok(Arc::new(image))));
-                            drop(s);
-                            wake();
-                        }
-                        true
+                        // 回退、循环：窗口里有这一轮已经错过的帧，从头再解；停在缓存帧上（窗口为空）：
+                        // 这一轮结束，不留着解码器
+                        interrupted = s.stopped || s.window.is_empty() || s.missing().any(|m| m <= i);
+                        !interrupted
                     })
                 }));
                 let error = match result {
                     Ok(Ok(())) if interrupted => None,
-                    Ok(Ok(())) => {
-                        let s = worker.state.lock().unwrap();
-                        (s.wanted.is_some() && s.result.as_ref().map(|r| r.0) != s.wanted)
-                            .then(|| Error::Corrupt("animation ended before requested frame".into()))
-                    }
+                    Ok(Ok(())) => Some(Error::Corrupt("animation ended before requested frame".into())),
                     Ok(Err(e)) => Some(e),
                     Err(_) => Some(Error::Corrupt("animation decoder panicked".into())),
                 };
                 if let Some(e) = error {
                     let mut s = worker.state.lock().unwrap();
-                    if let Some(i) = s.wanted {
-                        s.result = Some((i, Err(e)));
-                        drop(s);
+                    let waiting = s.waiting && s.window.start >= next;
+                    s.failed = Some((next, e));
+                    drop(s);
+                    if waiting {
                         wake();
                     }
                 }
@@ -87,20 +118,26 @@ impl FrameStream {
         Self { shared }
     }
 
-    fn get(&self, index: usize) -> Result<Option<Arc<RgbaImage>>, Error> {
+    /// 界面要第 index 帧（未缓存）：播放时顺带往后解，暂停时只解这一帧
+    fn get(&self, index: usize, playing: bool) -> Result<Option<Arc<RgbaImage>>, Error> {
         let mut s = self.shared.state.lock().unwrap();
-        if s.wanted != Some(index) {
-            s.wanted = Some(index);
+        if s.set(index..index + if playing { AHEAD } else { 1 }, true) {
             self.shared.changed.notify_one();
         }
-        match &s.result {
-            Some((i, result)) if *i == index => result.clone().map(Some),
-            _ => Ok(None),
+        if let Some((at, e)) = &s.failed
+            && index >= *at
+        {
+            return Err(e.clone());
         }
+        Ok(s.ready.iter().find(|r| r.0 == index).map(|r| r.1.clone()))
     }
 
-    fn idle(&self) {
-        self.shared.state.lock().unwrap().wanted = None;
+    /// 界面在显示缓存帧（first 是第一张未缓存的帧）：播放时先把 first 起的帧解好，暂停时不解
+    fn ahead(&self, first: usize, playing: bool) {
+        let mut s = self.shared.state.lock().unwrap();
+        if s.set(first..first + if playing { AHEAD } else { 0 }, false) {
+            self.shared.changed.notify_one();
+        }
     }
 }
 
@@ -129,7 +166,8 @@ impl AnimationFrames {
         Self { decoded, stream: source.map(|s| FrameStream::new(s, move || ctx.request_repaint())), displayed, failed: None }
     }
 
-    pub fn request(&mut self, index: usize) -> Result<bool, Error> {
+    /// playing：在播放，后台提前解后面的帧；暂停时只解要显示的这一帧
+    pub fn request(&mut self, index: usize, playing: bool) -> Result<bool, Error> {
         let Content::Animation { frames, delays, .. } = &self.decoded.content else { return Ok(true) };
         if index >= delays.len() {
             return Err(Error::Corrupt("frame index out of range".into()));
@@ -137,7 +175,7 @@ impl AnimationFrames {
         if let Some(frame) = frames.get(index) {
             self.displayed = (index, frame.image.clone());
             if let Some(stream) = &self.stream {
-                stream.idle();
+                stream.ahead(frames.len(), playing);
             }
             return Ok(true);
         }
@@ -146,7 +184,7 @@ impl AnimationFrames {
         }
         self.failed = None;
         if let Some(stream) = &self.stream {
-            let result = match stream.get(index) {
+            let result = match stream.get(index, playing) {
                 Ok(result) => result,
                 Err(e) => {
                     self.failed = Some(index);
@@ -192,13 +230,71 @@ mod tests {
 
     fn wait_frame(frames: &mut AnimationFrames, index: usize) {
         let deadline = Instant::now() + Duration::from_secs(3);
-        while !frames.request(index).unwrap() {
+        while !frames.request(index, true).unwrap() {
             assert!(Instant::now() < deadline, "frame {index} timed out");
             std::thread::sleep(Duration::from_millis(1));
         }
         let (shown, image) = frames.displayed();
         assert_eq!(shown, index);
         assert_eq!(image.get_pixel(0, 0).0[0], index as u8 * 40);
+    }
+
+    /// 等后台把 index 帧解好（不经过界面请求）
+    fn wait_ready(frames: &AnimationFrames, index: usize) {
+        let shared = &frames.stream.as_ref().unwrap().shared;
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !shared.state.lock().unwrap().ready.iter().any(|r| r.0 == index) {
+            assert!(Instant::now() < deadline, "frame {index} not decoded ahead");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+    }
+
+    #[test]
+    fn decodes_ahead_so_streamed_frames_are_ready_when_due() {
+        let mut frames = AnimationFrames::new(animation(), egui::Context::default());
+        // 还在播缓存帧：缓存后面的第一帧先解好，播到缓存边界不用等
+        assert!(frames.request(0, true).unwrap());
+        wait_ready(&frames, 1);
+        for index in 1..6 {
+            // 到点时这一帧已经解好，同时后台去解下一帧
+            assert!(frames.request(index, true).unwrap(), "frame {index} was not ready when due");
+            assert_eq!(frames.displayed().1.get_pixel(0, 0).0[0], index as u8 * 40);
+            if index < 5 {
+                wait_ready(&frames, index + 1);
+            }
+            assert!(frames.stream.as_ref().unwrap().shared.state.lock().unwrap().ready.len() <= AHEAD);
+        }
+        // 循环回第 0 帧（缓存帧）：后台从头再把第 1 帧解好
+        assert!(frames.request(0, true).unwrap());
+        wait_ready(&frames, 1);
+        assert!(frames.request(1, true).unwrap());
+    }
+
+    #[test]
+    fn paused_decodes_only_the_shown_frame() {
+        let mut frames = AnimationFrames::new(animation(), egui::Context::default());
+        let ready = |frames: &AnimationFrames| -> Vec<usize> {
+            frames.stream.as_ref().unwrap().shared.state.lock().unwrap().ready.iter().map(|r| r.0).collect()
+        };
+        // 停在缓存帧上：什么都不解，不多占内存
+        assert!(frames.request(0, false).unwrap());
+        std::thread::sleep(Duration::from_millis(50));
+        assert!(ready(&frames).is_empty());
+        // 暂停时一帧一帧往后看：只解要显示的那一帧
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while !frames.request(3, false).unwrap() {
+            assert!(Instant::now() < deadline, "paused frame timed out");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(frames.displayed().1.get_pixel(0, 0).0[0], 3 * 40);
+        std::thread::sleep(Duration::from_millis(50));
+        assert_eq!(ready(&frames), [3]);
+        // 接着播放：后台把下一帧解好
+        assert!(frames.request(3, true).unwrap());
+        wait_ready(&frames, 4);
+        // 回到缓存帧上暂停：扔掉解好的帧
+        assert!(frames.request(0, false).unwrap());
+        assert!(ready(&frames).is_empty());
     }
 
     #[test]
@@ -235,7 +331,8 @@ mod tests {
             let mut streaming = AnimationFrames::new(small.clone(), egui::Context::default());
             for index in [0, 1, 2, 5, 3, 0, 4] {
                 let deadline = Instant::now() + Duration::from_secs(3);
-                while !streaming.request(index).unwrap() {
+                // 暂停时逐帧查看
+                while !streaming.request(index, false).unwrap() {
                     assert!(Instant::now() < deadline, "{ext} frame {index} timed out");
                     std::thread::sleep(Duration::from_millis(1));
                 }
@@ -265,10 +362,10 @@ mod tests {
     fn rapid_scrubbing_keeps_only_latest_request() {
         let mut frames = AnimationFrames::new(animation(), egui::Context::default());
         for i in [5, 1, 4, 2, 5, 3] {
-            let _ = frames.request(i);
+            let _ = frames.request(i, false);
         }
         wait_frame(&mut frames, 3);
-        assert!(frames.request(6).is_err());
+        assert!(frames.request(6, true).is_err());
     }
 
     #[test]
@@ -277,7 +374,7 @@ mod tests {
         let stream = FrameStream::new(source.clone(), || {});
         let deadline = Instant::now() + Duration::from_secs(3);
         loop {
-            match stream.get(6) {
+            match stream.get(6, true) {
                 Err(Error::Corrupt(_)) => break,
                 Ok(None) => {
                     assert!(Instant::now() < deadline);
@@ -287,7 +384,7 @@ mod tests {
             }
         }
         // 错误不阻止重新选择一个有效帧。
-        while stream.get(2).unwrap().is_none() {
+        while stream.get(2, true).unwrap().is_none() {
             assert!(Instant::now() < deadline);
             std::thread::sleep(Duration::from_millis(1));
         }

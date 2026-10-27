@@ -302,6 +302,7 @@ impl AnimTexture {
         let ctx = painter.ctx();
         let opts = options(nearest);
         if self.shown != Some(index) || self.tex.is_none() {
+            let started = std::time::Instant::now();
             let max = ctx.input(|i| i.max_texture_side).max(2048) as u32;
             let ci = if frame.width() > max || frame.height() > max {
                 let mut small = crate::decode::halve(frame);
@@ -317,6 +318,7 @@ impl AnimTexture {
                 None => self.tex = Some(ctx.load_texture("anim", ci, opts)),
             }
             self.shown = Some(index);
+            log::debug!("动图换帧 {index}：转换 {:.1} ms", started.elapsed().as_secs_f64() * 1000.0);
         }
         if let Some(t) = &self.tex {
             quad(painter, t.id(), rect, xf, [0.0, 0.0, 1.0, 1.0], Rect::from_min_max(Pos2::ZERO, pos2(1.0, 1.0)));

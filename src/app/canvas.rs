@@ -115,12 +115,12 @@ impl App {
                 let crate::decode::Content::Animation { delays, .. } = &decoded.content else { return };
                 let result = (|| {
                     if let Some(play) = &mut self.play {
-                        if frames.request(play.index)?
+                        if frames.request(play.index, play.playing)?
                             && let Some(wait) = play.tick(Instant::now(), |i| delays[i])
                         {
                             ctx.request_repaint_after(wait);
                         }
-                        if !frames.request(play.index)? {
+                        if !frames.request(play.index, play.playing)? {
                             play.buffering();
                         }
                     }
