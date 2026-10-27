@@ -1,8 +1,8 @@
-//! 实时预览的一笔（画笔方式）或一个框（框选方式）：马赛克、模糊、刷子、铅笔、橡皮擦。
+//! 实时预览的一笔（画笔方式）或一个框（框选方式）：马赛克、模糊、涂抹、刷子、铅笔、橡皮擦。
 //!
 //! 都以落笔前的图为准计算：同一笔反复涂同一处结果不变（覆盖程度取最大值，不累加）；新的一笔可以
-//! 叠在旧的效果上。每帧只重算这一帧涂到的范围；马赛克 / 模糊的结果按 256×256 分块缓存。
-//! 马赛克的方块从整张图的左上角起划分，不管怎么涂、画笔与框选混着用，方块位置都一致。
+//! 叠在旧的效果上。每帧只重算这一帧涂到的范围；马赛克 / 模糊 / 涂抹的结果按 256×256 分块缓存。
+//! 马赛克的方块、涂抹的笔触从整张图的左上角起划分，不管怎么涂、画笔与框选混着用，位置都一致。
 
 use std::collections::HashMap;
 
@@ -18,6 +18,8 @@ pub enum Effect {
     Mosaic(u32),
     /// 模糊程度（像素，约等于高斯模糊的 2σ）
     Blur(u32),
+    /// 涂抹的笔触宽度（像素）
+    Smear(u32),
     /// 颜色（RGBA，A = 不透明度）
     Paint([u8; 4]),
     /// 擦成透明
@@ -26,14 +28,14 @@ pub enum Effect {
 
 impl Effect {
     pub fn is_redact(&self) -> bool {
-        matches!(self, Effect::Mosaic(_) | Effect::Blur(_))
+        matches!(self, Effect::Mosaic(_) | Effect::Blur(_) | Effect::Smear(_))
     }
 }
 
-/// 打码的默认值（PRD 6.8.1）：短边 S → (方块, 模糊程度, 圆圈直径)
-pub fn redact_defaults(w: u32, h: u32) -> (u32, u32, u32) {
+/// 打码的默认值（PRD 6.8.1）：短边 S → (方块, 模糊程度, 涂抹笔触宽度, 圆圈直径)
+pub fn redact_defaults(w: u32, h: u32) -> (u32, u32, u32, u32) {
     let s = w.min(h);
-    ((s / 80).max(8), (s / 60).max(8), (s / 20).max(24))
+    ((s / 80).max(8), (s / 60).max(8), (s / 40).max(12), (s / 20).max(24))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -47,7 +49,7 @@ pub enum Tip {
 enum Shape {
     /// 画笔：每个像素的覆盖程度（按块存）
     Brush { radius: f32, tip: Tip, mask: HashMap<(u32, u32), Vec<u8>>, last: Option<(f32, f32)> },
-    /// 框选：框里全部覆盖
+    /// 框选：框里全部覆盖（涂抹时框外还有一圈不规则的边）
     Rect(IRect),
 }
 
@@ -55,7 +57,7 @@ pub struct Stroke {
     pub effect: Effect,
     shape: Shape,
     saved: Saved,
-    /// 马赛克 / 模糊的结果（按块）
+    /// 马赛克 / 模糊 / 涂抹的结果（按块）
     cache: HashMap<(u32, u32), Vec<u8>>,
     /// 涂到过的范围
     pub bounds: IRect,
@@ -94,20 +96,25 @@ impl Stroke {
         bbox
     }
 
-    /// 框选：框改成 r；返回要重画的几块（新旧两个框不重合的部分）
+    /// 框选：框改成 r；返回要重画的几块（新旧两个框不重合的部分；涂抹时还有两个框外那圈不规则的边）
     pub fn set_rect(&mut self, img: &mut RgbaImage, r: IRect) -> Vec<IRect> {
-        let r = r.intersect(&IRect::full(img.width(), img.height()));
+        let full = IRect::full(img.width(), img.height());
+        let r = r.intersect(&full);
         let Shape::Rect(old) = self.shape else { return Vec::new() };
         if old == r {
             return Vec::new();
         }
-        let mut parts = old.subtract(&r);
-        parts.extend(r.subtract(&old));
+        // 涂到的范围：涂抹时框外还有一圈；两个框都盖住的部分不用重画
+        let reach = if let Effect::Smear(s) = self.effect { super::smear::Ragged::reach(s) } else { 0 };
+        let (was, now) = (grow(old, reach, full), grow(r, reach, full));
+        let keep = old.intersect(&r);
+        let mut parts = was.subtract(&keep);
+        parts.extend(now.subtract(&was));
         self.shape = Shape::Rect(r);
         for p in &parts {
             self.compose(img, *p);
         }
-        self.bounds = self.bounds.union(&r);
+        self.bounds = self.bounds.union(&now);
         parts
     }
 
@@ -125,7 +132,7 @@ impl Stroke {
     fn compose(&mut self, img: &mut RgbaImage, rect: IRect) {
         let (w, h) = img.dimensions();
         self.saved.touch(img, rect);
-        if let Effect::Mosaic(_) | Effect::Blur(_) = self.effect {
+        if self.effect.is_redact() {
             // 这里用到的块都已存下，没存的块就是落笔前的样子，可以直接读
             let missing: Vec<(u32, u32)> = rect.tiles().filter(|t| !self.cache.contains_key(t)).collect();
             let (saved, effect) = (&self.saved, self.effect);
@@ -134,10 +141,16 @@ impl Stroke {
             self.cache.extend(done);
         }
         let (saved, cache, shape, effect) = (&self.saved, &self.cache, &self.shape, self.effect);
+        // 框选涂抹：框外那圈不规则的边
+        let ragged = match (shape, effect) {
+            (Shape::Rect(r), Effect::Smear(s)) if !r.is_empty() => Some(super::smear::Ragged::new(*r, s)),
+            _ => None,
+        };
         let stride = w as usize * 4;
         let raw: &mut [u8] = img;
         raw.par_chunks_mut(stride).enumerate().skip(rect.y0 as usize).take(rect.height() as usize).for_each(|(y, row)| {
             let y = y as u32;
+            let tips = ragged.as_ref().map(|g| g.tips(y));
             let mut x = rect.x0;
             while x < rect.x1 {
                 let t = (x / TILE, y / TILE);
@@ -157,6 +170,8 @@ impl Stroke {
                         Shape::Rect(r) => {
                             if r.contains(xx, y) {
                                 255
+                            } else if let (Some(g), Some(t)) = (&ragged, tips) {
+                                g.cov(xx, y, t)
                             } else {
                                 0
                             }
@@ -167,7 +182,7 @@ impl Stroke {
                         o
                     } else {
                         match effect {
-                            Effect::Mosaic(_) | Effect::Blur(_) => {
+                            Effect::Mosaic(_) | Effect::Blur(_) | Effect::Smear(_) => {
                                 let f = fx.expect("effect tile");
                                 blend(o, [f[li * 4], f[li * 4 + 1], f[li * 4 + 2], f[li * 4 + 3]], cov)
                             }
@@ -185,6 +200,14 @@ impl Stroke {
 
 fn mul(a: u8, b: u8) -> u8 {
     ((u32::from(a) * u32::from(b) + 127) / 255) as u8
+}
+
+/// r 四周各扩大 d 像素，裁到 full 之内（空矩形还是空的）
+fn grow(r: IRect, d: u32, full: IRect) -> IRect {
+    if r.is_empty() {
+        return IRect::EMPTY;
+    }
+    IRect::new(r.x0.saturating_sub(d), r.y0.saturating_sub(d), r.x1 + d, r.y1 + d).intersect(&full)
 }
 
 /// 铅笔（硬边）对齐到像素：奇数宽对齐像素中心，偶数宽对齐像素角，笔迹是整齐的方块
@@ -255,11 +278,12 @@ pub fn blend(a: [u8; 4], b: [u8; 4], t: u8) -> [u8; 4] {
     [c(0), c(1), c(2), ((alpha + 127) / 255) as u8]
 }
 
-/// 一块的马赛克 / 模糊结果（从落笔前的图计算）
+/// 一块的马赛克 / 模糊 / 涂抹结果（从落笔前的图计算）
 fn effect_tile(saved: &Saved, img: &RgbaImage, effect: Effect, tr: IRect) -> Vec<u8> {
     match effect {
         Effect::Mosaic(block) => mosaic_tile(saved, img, block.max(1), tr),
         Effect::Blur(strength) => blur_tile(saved, img, strength, tr),
+        Effect::Smear(strength) => super::smear::tile(saved, img, strength, tr),
         _ => Vec::new(),
     }
 }
@@ -415,9 +439,9 @@ mod tests {
 
     #[test]
     fn defaults_follow_prd_examples() {
-        assert_eq!(redact_defaults(1920, 1080), (13, 18, 54));
-        assert_eq!(redact_defaults(4000, 3000), (37, 50, 150));
-        assert_eq!(redact_defaults(100, 50), (8, 8, 24));
+        assert_eq!(redact_defaults(1920, 1080), (13, 18, 27, 54));
+        assert_eq!(redact_defaults(4000, 3000), (37, 50, 75, 150));
+        assert_eq!(redact_defaults(100, 50), (8, 8, 12, 24));
     }
 
     #[test]

@@ -47,7 +47,7 @@ impl App {
     fn brush_diameter(&self, ed: &Editor) -> Option<f32> {
         let s = &self.settings;
         Some(match ed.tool {
-            Tool::Redact if s.redact_mode == crate::settings::RedactMode::Brush => ed.redact_params(s).2 as f32,
+            Tool::Redact if s.redact_mode == crate::settings::RedactMode::Brush => ed.redact_params(s).3 as f32,
             Tool::Pencil => s.pencil_size as f32,
             Tool::Brush => s.paint_size as f32,
             Tool::Eraser => s.eraser_size as f32,
@@ -269,7 +269,7 @@ impl App {
         let s = &mut self.settings;
         match ed.tool {
             Tool::Redact => {
-                let cur = ed.redact_params(s).2;
+                let cur = ed.redact_params(s).3;
                 s.brush_size = Some(step(cur, 4, 1000));
             }
             Tool::Pencil => s.pencil_size = step(s.pencil_size, 1, 100),

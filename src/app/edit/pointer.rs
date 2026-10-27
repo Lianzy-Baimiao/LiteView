@@ -128,10 +128,11 @@ impl App {
             }
             Tool::Redact => {
                 self.edit_finalize(ed);
-                let (block, blur, size) = ed.redact_params(&self.settings);
+                let (block, blur, smear, size) = ed.redact_params(&self.settings);
                 let effect = match self.settings.redact_effect {
                     RedactEffect::Mosaic => Effect::Mosaic(block),
                     RedactEffect::Blur => Effect::Blur(blur),
+                    RedactEffect::Smear => Effect::Smear(smear),
                 };
                 match self.settings.redact_mode {
                     RedactMode::Brush => {

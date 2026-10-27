@@ -38,24 +38,23 @@ impl App {
         let p = theme::palette(ui.ctx());
         match ed.tool {
             Tool::Redact => {
-                let (block, blur, size) = ed.redact_params(&self.settings);
+                let (block, blur, smear, size) = ed.redact_params(&self.settings);
                 let s = &mut self.settings;
                 seg(ui, &mut s.redact_mode, &[(RedactMode::Brush, t.p_brush), (RedactMode::Rect, t.p_rect)]);
-                seg(ui, &mut s.redact_effect, &[(RedactEffect::Mosaic, t.p_mosaic), (RedactEffect::Blur, t.p_blur)]);
+                seg(ui, &mut s.redact_effect, &[(RedactEffect::Mosaic, t.p_mosaic), (RedactEffect::Blur, t.p_blur), (RedactEffect::Smear, t.p_smear)]);
                 if s.redact_mode == RedactMode::Brush {
                     let mut v = size;
                     if slider_row(ui, t.p_size, &mut v, 4, 1000, true, " px") {
                         s.brush_size = Some(v);
                     }
                 }
-                let mosaic = s.redact_effect == RedactEffect::Mosaic;
-                let mut v = if mosaic { block } else { blur };
+                let (mut v, slot) = match s.redact_effect {
+                    RedactEffect::Mosaic => (block, &mut s.mosaic_block),
+                    RedactEffect::Blur => (blur, &mut s.blur_radius),
+                    RedactEffect::Smear => (smear, &mut s.smear_width),
+                };
                 if slider_row(ui, t.p_level, &mut v, 8, 128, false, "") {
-                    if mosaic {
-                        s.mosaic_block = Some(v);
-                    } else {
-                        s.blur_radius = Some(v);
-                    }
+                    *slot = Some(v);
                 }
             }
             Tool::Select => {

@@ -258,6 +258,7 @@ strings! {
     p_rect: "框选", "Rectangle";
     p_mosaic: "马赛克", "Mosaic";
     p_blur: "模糊", "Blur";
+    p_smear: "涂抹", "Smudge";
     p_size: "大小", "Size";
     p_level: "强度", "Strength";
     p_width: "粗细", "Width";

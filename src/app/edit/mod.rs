@@ -181,9 +181,9 @@ impl Editor {
         if self.src.canvas_alpha { [0, 0, 0, 0] } else { s.color2 }
     }
 
-    /// 打码的方块、模糊程度、圆圈直径：用户改过的值，否则按图片大小算
-    pub fn redact_params(&self, s: &Settings) -> (u32, u32, u32) {
-        let (b, r, d) = crate::editor::stroke::redact_defaults(self.doc.width(), self.doc.height());
-        (s.mosaic_block.unwrap_or(b), s.blur_radius.unwrap_or(r), s.brush_size.unwrap_or(d))
+    /// 打码的方块、模糊程度、涂抹笔触宽度、圆圈直径：用户改过的值，否则按图片大小算
+    pub fn redact_params(&self, s: &Settings) -> (u32, u32, u32, u32) {
+        let (b, r, m, d) = crate::editor::stroke::redact_defaults(self.doc.width(), self.doc.height());
+        (s.mosaic_block.unwrap_or(b), s.blur_radius.unwrap_or(r), s.smear_width.unwrap_or(m), s.brush_size.unwrap_or(d))
     }
 }

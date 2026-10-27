@@ -216,7 +216,7 @@ impl App {
                 row(ui, t.s_undo_mb, |ui| number(ui, &mut s.undo_mb, 128.0..=4096.0));
                 row(ui, t.s_redact_default, |ui| {
                     choose(ui, &mut s.redact_mode, &[(RedactMode::Brush, t.p_brush), (RedactMode::Rect, t.p_rect)]);
-                    choose(ui, &mut s.redact_effect, &[(RedactEffect::Mosaic, t.p_mosaic), (RedactEffect::Blur, t.p_blur)]);
+                    choose(ui, &mut s.redact_effect, &[(RedactEffect::Mosaic, t.p_mosaic), (RedactEffect::Blur, t.p_blur), (RedactEffect::Smear, t.p_smear)]);
                 });
             }
             Page::Assoc => {

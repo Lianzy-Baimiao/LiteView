@@ -90,6 +90,8 @@ pub enum RedactEffect {
     #[default]
     Mosaic,
     Blur,
+    /// 油画笔涂抹
+    Smear,
 }
 
 #[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Eq, Debug, Default)]
@@ -202,6 +204,8 @@ pub struct Settings {
     /// 用户改过的打码参数（None = 按图片大小自动算）
     pub mosaic_block: Option<u32>,
     pub blur_radius: Option<u32>,
+    /// 涂抹的笔触宽度
+    pub smear_width: Option<u32>,
     pub brush_size: Option<u32>,
     /// 主色 / 辅色（RGBA）
     pub color1: [u8; 4],
@@ -273,6 +277,7 @@ impl Default for Settings {
             redact_effect: RedactEffect::Mosaic,
             mosaic_block: None,
             blur_radius: None,
+            smear_width: None,
             brush_size: None,
             color1: [0, 0, 0, 255],
             color2: [255, 255, 255, 255],
