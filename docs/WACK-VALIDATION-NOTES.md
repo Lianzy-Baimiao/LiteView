@@ -145,3 +145,17 @@ CI 可先用于构建、清单和包结构检查、辅助回归。如果尝试 W
 ## 8. 已安装包的 GUI 补测
 
 [运行 39037154456](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/39037154456) 再次取得相同 WACK 分类，并在其后安装测试签名副本。真实 AUMID 诊断通过；包身份 bootstrap 完成看图、文字箭头编辑保存、矩形马赛克保存与 GIF 逐帧四场景，均退出 0。各场景单独验证包身份和 WinRT LocalFolder，测试环境不再使用显式配置目录覆盖。四张实际客户区截图为 1024 × 768，已查看，编辑像素确实改变。原始结果、截图、样本、脚本、逐文件哈希及启动方式限制见 `validation/store-gui-1.0.0-20261017/README.md`。
+
+## 9. 2026-10-28 Blocked executables 静态核查
+
+[微软对这项测试的说明](https://github.com/MicrosoftDocs/windows-dev-docs/blob/docs/uwp/debug-test-perf/windows-desktop-bridge-app-tests.md#42-blocked-executables)：它查应用会不会启动外部可执行文件（Windows 10 S 上受限）；做法是找出其中真的会启动「不属于本应用的可执行文件」的调用并去掉，属于本应用的可以忽略。按 v1.5.0 的源码与发布 EXE 逐条核对：
+
+- **四个可疑字符串**：`cmd.exe` 在 EXE 里出现两次，都在 Rust 标准库的 `.rdata`（`cmd.exe /e:ON /v:OFF /d /c "batch file argument…`，`std::process` 运行 `.bat` / `.cmd` 时用；本程序不启动批处理，到不了这条路）。`CmD`、`ReG`、`cdB` 按「前后不是字母」搜大小写不敏感的 `cmd` / `reg` / `cdb`，除上面两处和 egui 内部的标识符 `push_cmd_idx` 外没有独立出现；WACK 的报法是大小写不敏感的子串匹配，这三条来自无关数据。没有 `reg.exe`、`powershell`。
+- **发布版真正会启动的外部程序**（`print.rs` 里另起子进程只在测试里）：
+  - 「在文件夹中显示」：`explorer.exe /select,"路径"`。实测逗号、分号、空格、撇号、括号、中文加逗号的文件名都能正确选中（`dist/mem-20261023/select_check.ps1`）。
+  - 「打开方式…」：`rundll32.exe shell32.dll,OpenAs_RunDLL 路径`。
+  - 打开网址（商店扩展页、关于里的链接）：`rundll32.exe url.dll,FileProtocolHandler 网址`。
+  - 「默认应用」：`ShellExecuteW` 打开 `ms-settings:`，不另起进程。
+- 三个外部程序都是 Windows 自带的系统程序，不是会被 S mode 拦下的第三方可执行文件。改成进程内的 `SHOpenWithDialog` / `SHOpenFolderAndSelectItems` 也可以，但「打开方式」是模态对话框，要么在界面线程里跑它自己的消息循环（与窗口循环重入），要么放到别的线程、跨线程设属主窗口；风险大于收益，又没法在没有 S mode 机器的情况下验证，所以不改。
+
+结论：这项可选失败的报告内容都已对上来源；发布版没有启动 `cmd` / `reg` / 批处理。真机 S mode 验证仍没有做。
