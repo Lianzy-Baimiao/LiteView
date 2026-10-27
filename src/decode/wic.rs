@@ -140,4 +140,25 @@ mod tests {
         assert_eq!(class(WINCODEC_ERR_COMPONENTNOTFOUND, Kind::Raw, false), Error::Unsupported);
         assert_eq!(class(E_OUTOFMEMORY, Kind::Heif, true), Error::TooLarge { width: 0, height: 0 });
     }
+
+    /// HEIC 的方向写在容器的 irot / imir 里（iPhone 照片也是），系统 HEIF 扩展解出来时已经转正；
+    /// 这里不能再按 EXIF 转一次。没装 HEIF + HEVC 扩展的机器（CI）解不了，跳过
+    #[test]
+    fn heic_rotation_is_applied_once_by_the_system_decoder() {
+        let data = include_bytes!("../../tests/fixtures/rotated.heic");
+        let d = match super::super::decode_bytes(data, "heic", &Options::default()) {
+            Ok(d) => d,
+            Err(e) => {
+                eprintln!("skipped: {e:?}");
+                return;
+            }
+        };
+        let Content::Still { image, .. } = &d.content else { panic!("still image") };
+        // 横的 300×200（左上红、右上蓝）带 irot 顺时针转 90°：竖的 200×300，红在右上、蓝在右下
+        assert_eq!(image.dimensions(), (200, 300));
+        let near = |x: u32, y: u32, want: [u8; 3]| image.get_pixel(x, y).0[..3].iter().zip(want).all(|(&c, w)| c.abs_diff(w) < 40);
+        assert!(near(170, 30, [220, 0, 0]), "red top-right: {:?}", image.get_pixel(170, 30));
+        assert!(near(170, 270, [0, 0, 220]), "blue bottom-right: {:?}", image.get_pixel(170, 270));
+        assert!(near(30, 30, [230, 230, 230]));
+    }
 }
