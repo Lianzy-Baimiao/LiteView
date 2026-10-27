@@ -346,6 +346,7 @@ fn viewport(settings: &Settings) -> egui::ViewportBuilder {
 /// 显卡和窗口都准备好之后建界面（每次启动只会成功一次；之前失败的尝试不会走到这里）
 fn create(parts: &mut Option<(Settings, Loader, crate::cli::Args)>, ctx: &egui::Context) -> App {
     let (settings, loader, args) = parts.take().expect("app parts are taken once");
+    no_ui_zoom_keys(ctx);
     crate::ui::fonts::install(ctx);
     theme::set_accent(settings.accent.or_else(crate::platform::system_accent));
     theme::install(ctx);
@@ -356,6 +357,12 @@ fn create(parts: &mut Option<(Settings, Loader, crate::cli::Args)>, ctx: &egui::
     });
     loader.set_context(ctx.clone());
     App::new(settings, loader, args, ctx)
+}
+
+/// Ctrl+= / Ctrl+- / Ctrl+0 只缩放图片：设置、对话框、改名框里我们不处理这几个键时，egui 会拿去缩放整个界面
+/// （界面大小跟着系统的显示缩放）
+fn no_ui_zoom_keys(ctx: &egui::Context) {
+    ctx.options_mut(|o| o.zoom_with_keyboard = false);
 }
 
 /// 命令行 / 另一个实例要求打开后进入的工具
@@ -721,5 +728,28 @@ impl App {
     pub(crate) fn background(&self) -> [f32; 4] {
         let p = if self.titlebar_dark == Some(true) { &theme::DARK } else { &theme::LIGHT };
         p.canvas.to_normalized_gamma_f32()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    /// 按下 key（带 Ctrl / Cmd）后再画一帧，返回 egui 的整体界面缩放
+    fn zoom_after(ctx: &egui::Context, key: egui::Key) -> f32 {
+        let press = egui::Event::Key { key, physical_key: None, pressed: true, repeat: false, modifiers: egui::Modifiers::COMMAND };
+        let _ = ctx.run_ui(egui::RawInput { events: vec![press], ..Default::default() }, |_| {});
+        let _ = ctx.run_ui(egui::RawInput::default(), |_| {});
+        ctx.zoom_factor()
+    }
+
+    #[test]
+    fn ctrl_plus_minus_zero_do_not_zoom_the_whole_ui() {
+        // 不关的话 egui 会拿这几个键缩放整个界面（设置、对话框有焦点时我们不处理它们）
+        let plain = egui::Context::default();
+        assert!(zoom_after(&plain, egui::Key::Equals) > 1.0);
+        let ctx = egui::Context::default();
+        super::no_ui_zoom_keys(&ctx);
+        for key in [egui::Key::Equals, egui::Key::Plus, egui::Key::Minus, egui::Key::Num0] {
+            assert_eq!(zoom_after(&ctx, key), 1.0, "{key:?}");
+        }
     }
 }
