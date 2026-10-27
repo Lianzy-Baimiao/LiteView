@@ -14,6 +14,9 @@ pub struct Playback {
 
 pub const SPEEDS: [f32; 5] = [0.25, 0.5, 1.0, 2.0, 4.0];
 
+/// 提前这么多以内醒来也换帧（计时器的误差）
+const SLACK: Duration = Duration::from_millis(2);
+
 impl Playback {
     pub fn new(count: usize, plays: Option<u32>, autoplay: bool, always_loop: bool) -> Self {
         Self {
@@ -66,7 +69,8 @@ impl Playback {
         self.due = None;
     }
 
-    /// 推进到 now 应显示的帧；返回离下一帧还有多久（暂停或播完时 None）
+    /// 推进到 now 应显示的帧；返回离下一帧还有多久（暂停或播完时 None）。离换帧不到 SLACK 也算到点：
+    /// 计时器早醒一点时不为了这一点再画一次旧帧
     pub fn tick(&mut self, now: Instant, delay_of: impl Fn(usize) -> Duration) -> Option<Duration> {
         if !self.playing || self.count < 2 {
             return None;
@@ -75,7 +79,7 @@ impl Playback {
         let scaled = |d: Duration| d.div_f32(speed);
         let mut due = *self.due.get_or_insert_with(|| now + scaled(delay_of(self.index)));
         let mut steps = 0;
-        while now >= due {
+        while now + SLACK >= due {
             if self.index + 1 >= self.count {
                 self.plays_done += 1;
                 if self.finished() {
@@ -147,6 +151,19 @@ mod tests {
         p.step(1);
         p.buffering();
         assert!(!p.playing);
+    }
+
+    #[test]
+    fn waking_a_little_early_still_changes_frame() {
+        let mut p = Playback::new(4, None, true, false);
+        let t0 = Instant::now();
+        p.tick(t0, |_| D);
+        // 早 1 ms 醒：算到点，下一帧仍按原定时间（不累积误差）
+        assert_eq!(p.tick(t0 + D - Duration::from_millis(1), |_| D), Some(D + Duration::from_millis(1)));
+        assert_eq!(p.index, 1);
+        // 早 5 ms：还不到，接着等
+        assert_eq!(p.tick(t0 + D * 2 - Duration::from_millis(5), |_| D), Some(Duration::from_millis(5)));
+        assert_eq!(p.index, 1);
     }
 
     #[test]

@@ -1,6 +1,6 @@
 //! 画布：背景、棋盘格、图片；拖动平移（带惯性）、滚轮缩放、双击切换；空状态 / 出错 / 加载中。
 
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, CursorIcon, FontId, Rect, Sense, Vec2, vec2};
 
@@ -118,7 +118,10 @@ impl App {
                         if frames.request(play.index, play.playing)?
                             && let Some(wait) = play.tick(Instant::now(), |i| delays[i])
                         {
-                            ctx.request_repaint_after(wait);
+                            // egui 会从延时里减去预计的一帧时间（提前醒），醒来时离换帧还差一截，就要多画一次旧帧；
+                            // 先加回去，到点才醒
+                            let early = Duration::try_from_secs_f32(ctx.input(|i| i.predicted_dt)).unwrap_or_default();
+                            ctx.request_repaint_after(wait + early);
                         }
                         if !frames.request(play.index, play.playing)? {
                             play.buffering();

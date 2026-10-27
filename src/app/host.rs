@@ -191,8 +191,12 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         let close_requested = raw.viewport().close_requested();
         let hwnd = hwnd(&r.window).map(|h| h.0 as isize);
         let app = &mut r.app;
+        let started = Instant::now();
         let out = r.ctx.run_ui(raw, |ui| app.frame(ui, hwnd));
         r.info.events.clear();
+        // 下一帧按这一帧要的时间排（帧里所有重绘请求取最早的）；之前排下的时间已经由这一帧画过了
+        let delay = out.viewport_output.get(&ViewportId::ROOT).map_or(Duration::MAX, |v| v.repaint_delay);
+        self.next_repaint = started.checked_add(delay).map(|t| if r.window.is_minimized() == Some(true) { t.max(started + HIDDEN_REPAINT) } else { t });
         if close_requested && !out.viewport_output.get(&ViewportId::ROOT).is_some_and(|v| v.commands.contains(&egui::ViewportCommand::CancelClose)) {
             self.close = true;
         }
@@ -307,8 +311,9 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
         match event {
             UserEvent::RequestRepaint { when, pass } => {
                 let now = r.ctx.cumulative_pass_nr_for(ViewportId::ROOT);
-                // 已经过去的请求（之后又画过两帧）不用管
-                if now == pass || now == pass + 1 {
+                // 只管帧外的请求（后台线程等）。帧里的请求已经算进那一帧的 repaint_delay（见 paint）；它们的回调
+                // 要等 Present 等完垂直同步才送到，这时再按它排就会多画一帧（30 ms 一帧的动图每帧画两次）
+                if now == pass {
                     let minimized = r.window.is_minimized() == Some(true);
                     let when = if minimized { when.max(Instant::now() + HIDDEN_REPAINT) } else { when };
                     self.next_repaint = Some(self.next_repaint.map_or(when, |t| t.min(when)));
