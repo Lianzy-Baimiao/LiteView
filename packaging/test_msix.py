@@ -84,11 +84,18 @@ class Msix(unittest.TestCase):
             self.assertEqual(set(entries), referenced)
             self.assertTrue(all(entries.values()))
         for name, size in [("StoreLogo", 50), ("Square44x44Logo", 44), ("Square150x150Logo", 150)]:
-            for scale in [100, 125, 150, 200, 400]:
+            for scale in msix.SCALES:
                 data = (msix.TEMPLATE / "Assets" / f"{name}.scale-{scale}.png").read_bytes()
                 self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
                 px = (size * scale + 50) // 100
                 self.assertEqual(struct.unpack(">II", data[16:24]), (px, px))
+        # 开始菜单 / 任务栏 / 资源管理器按像素取图：每个大小都有原图大小的 targetsize 图（含不加底板的）
+        for size in msix.TARGET_SIZES:
+            for alt in ["", "_altform-unplated"]:
+                data = (msix.TEMPLATE / "Assets" / f"Square44x44Logo.targetsize-{size}{alt}.png").read_bytes()
+                self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+                self.assertEqual(struct.unpack(">II", data[16:24]), (size, size))
+        self.assertEqual(len(msix.ASSETS), len(set(msix.ASSETS)))
 
     def test_layout_is_whitelisted_and_rejects_non_x64(self):
         output = msix.ROOT / "dist"

@@ -16,7 +16,12 @@ import zipfile
 ROOT = Path(__file__).resolve().parent.parent
 TEMPLATE = ROOT / "packaging/msix"
 FOUNDATION = "http://schemas.microsoft.com/appx/manifest/foundation/windows10"
-ASSETS = [f"{name}.scale-{scale}.png" for name in ["StoreLogo", "Square44x44Logo", "Square150x150Logo"] for scale in [100, 125, 150, 200, 400]]
+SCALES = [100, 125, 150, 200, 400]
+# 开始菜单、任务栏、资源管理器、右键菜单按像素大小取 Square44x44Logo 的 targetsize 图；只有 scale 图时系统把 44 px 的图
+# 缩小来用，图标发糊。unplated：任务栏等处不加底板
+TARGET_SIZES = [16, 20, 24, 30, 32, 36, 40, 48, 60, 64, 72, 80, 96, 256]
+ASSETS = [f"{name}.scale-{scale}.png" for name in ["StoreLogo", "Square44x44Logo", "Square150x150Logo"] for scale in SCALES]
+ASSETS += [f"Square44x44Logo.targetsize-{size}{alt}.png" for size in TARGET_SIZES for alt in ["", "_altform-unplated"]]
 LANGUAGES = ["en-US", "zh-CN"]
 
 
