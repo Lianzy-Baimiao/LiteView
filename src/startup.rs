@@ -262,6 +262,11 @@ pub fn confirmed() -> bool {
     CONFIRMED.load(Ordering::SeqCst)
 }
 
+/// 正在用软件渲染（Windows 的 WARP）：画一帧全靠 CPU
+pub fn software() -> bool {
+    BACKEND.lock().is_ok_and(|b| *b == "warp")
+}
+
 /// 记一条退出原因，下次启动显示（panic 或第一帧之后的错误；`main_thread` = 怪不怪显卡接口）
 pub fn record_exit(text: &str, blame_backend: bool) {
     let c = Crash { pid: std::process::id(), main_thread: blame_backend, text: text.to_owned() };

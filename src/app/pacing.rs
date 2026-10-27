@@ -1,18 +1,26 @@
 //! 省电模式：连续画面（拖动、缩放、动图、淡入淡出）最多画多快。静止时 egui 本来就不画（不加定时重绘）。
-//! 自动：高刷新率屏按刷新周期的整数倍画（144 Hz → 72、160 Hz → 80），帧间隔均匀，不低于 60 帧；
+//! 自动：高刷新率屏按刷新周期的整数倍画（144 Hz → 72、160 Hz → 80），帧间隔均匀，不低于 60 帧；软件渲染（WARP，
+//! 每帧都占 CPU）时不超过 60 帧（160 Hz → 53）；
 //! 60 Hz：最多 60 帧；不限：跟显示器。按理想时间线排下一帧（不按实际开始时间），不会越睡越慢。
 
 use std::time::{Duration, Instant};
 
 use crate::settings::FrameCap;
 
-/// 两帧之间至少隔多久；None = 不限
-pub fn interval(cap: FrameCap, refresh_hz: Option<f32>) -> Option<Duration> {
+/// 两帧之间至少隔多久；None = 不限。software：软件渲染（WARP），每帧都占 CPU
+pub fn interval(cap: FrameCap, refresh_hz: Option<f32>, software: bool) -> Option<Duration> {
     let secs = match (cap, refresh_hz) {
         (FrameCap::Unlimited, _) => return None,
         // 刷新率本来就不超过 60：不用限（再限只会因为计时误差偶尔错过一次刷新）
         (FrameCap::Hz60, Some(hz)) if hz <= 61.0 => return None,
         (FrameCap::Hz60, _) => 1.0 / 60.0,
+        // 软件渲染：按刷新周期的整数倍画、不超过 60 帧（160 Hz → 53、144 Hz → 48）；75 Hz 以下不限（分频就太慢了）
+        (FrameCap::Auto, Some(hz)) if software => {
+            if hz <= 75.0 {
+                return None;
+            }
+            (hz / 60.0).ceil() / hz
+        }
         (FrameCap::Auto, Some(hz)) => {
             let k = (hz / 60.0).floor().max(1.0);
             if k < 2.0 {
@@ -51,7 +59,7 @@ impl Pacer {
         if self.refresh.is_none_or(|(at, _)| now.duration_since(at) > Duration::from_secs(1)) {
             self.refresh = Some((now, refresh()));
         }
-        let Some(step) = interval(cap, self.refresh.and_then(|(_, hz)| hz)) else {
+        let Some(step) = interval(cap, self.refresh.and_then(|(_, hz)| hz), crate::startup::software()) else {
             self.due = None;
             return;
         };
@@ -70,18 +78,34 @@ mod tests {
     #[test]
     fn auto_uses_even_divisions_of_high_refresh_rates() {
         let ms = |d: Option<Duration>| d.map(|d| (d.as_secs_f64() * 1000.0 * 100.0).round() / 100.0);
-        assert_eq!(ms(interval(FrameCap::Auto, Some(144.0))), Some(13.89));
-        assert_eq!(ms(interval(FrameCap::Auto, Some(160.0))), Some(12.5));
-        assert_eq!(ms(interval(FrameCap::Auto, Some(120.0))), Some(16.67));
-        assert_eq!(ms(interval(FrameCap::Auto, Some(240.0))), Some(16.67));
+        assert_eq!(ms(interval(FrameCap::Auto, Some(144.0), false)), Some(13.89));
+        assert_eq!(ms(interval(FrameCap::Auto, Some(160.0), false)), Some(12.5));
+        assert_eq!(ms(interval(FrameCap::Auto, Some(120.0), false)), Some(16.67));
+        assert_eq!(ms(interval(FrameCap::Auto, Some(240.0), false)), Some(16.67));
         // 60 / 75 / 100 Hz：分频后不到 60，不限
         for hz in [60.0, 75.0, 100.0] {
-            assert_eq!(interval(FrameCap::Auto, Some(hz)), None);
+            assert_eq!(interval(FrameCap::Auto, Some(hz), false), None);
         }
-        assert_eq!(interval(FrameCap::Auto, None), None);
-        assert_eq!(ms(interval(FrameCap::Hz60, Some(144.0))), Some(16.67));
-        assert_eq!(interval(FrameCap::Hz60, Some(60.0)), None);
-        assert_eq!(interval(FrameCap::Unlimited, Some(144.0)), None);
+        assert_eq!(interval(FrameCap::Auto, None, false), None);
+        assert_eq!(ms(interval(FrameCap::Hz60, Some(144.0), false)), Some(16.67));
+        assert_eq!(interval(FrameCap::Hz60, Some(60.0), false), None);
+        assert_eq!(interval(FrameCap::Unlimited, Some(144.0), false), None);
+    }
+
+    #[test]
+    fn software_rendering_stays_at_or_below_60_fps_on_fast_screens() {
+        let fps = |hz: f32| interval(FrameCap::Auto, Some(hz), true).map(|d| (1.0 / d.as_secs_f64() * 10.0).round() / 10.0);
+        assert_eq!(fps(160.0), Some(53.3));
+        assert_eq!(fps(144.0), Some(48.0));
+        assert_eq!(fps(120.0), Some(60.0));
+        assert_eq!(fps(240.0), Some(60.0));
+        assert_eq!(fps(100.0), Some(50.0));
+        // 60 / 75 Hz 本来就不快：不限
+        assert_eq!(fps(60.0), None);
+        assert_eq!(fps(75.0), None);
+        // 用户选了「不限」/「60 Hz」照旧
+        assert_eq!(interval(FrameCap::Unlimited, Some(160.0), true), None);
+        assert_eq!(interval(FrameCap::Hz60, Some(160.0), true), interval(FrameCap::Hz60, Some(160.0), false));
     }
 
     #[test]
