@@ -13,13 +13,16 @@ enum Choice {
 }
 
 impl App {
-    /// 画布的右键菜单；返回菜单是否开着。窗口比菜单矮时菜单可以用滚轮滚动（egui 的菜单画不到窗口外面）
+    /// 画布的右键菜单；返回菜单是否开着。窗口放得下就完整显示，放不下才用滚轮滚动（egui 的菜单画不到窗口外面）
     pub(crate) fn context_menu(&mut self, resp: &egui::Response) -> bool {
         let max_h = (resp.ctx.content_rect().height() - 16.0).max(80.0);
         // 每次打开都从第一项开始
         let fresh = resp.secondary_clicked();
         let shown = resp.context_menu(|ui| {
-            let mut area = egui::ScrollArea::vertical().max_height(max_h);
+            // 滚动条单独占一列（默认的浮动滚动条压在文字和快捷键上），菜单跟着变宽
+            ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
+            // 菜单第一次打开时 egui 按 400 高排版、之后一直用这个高度；按窗口能放下的高度排，内容矮时再缩回去
+            let mut area = egui::ScrollArea::vertical().max_height(max_h).min_scrolled_height(max_h);
             if fresh {
                 area = area.vertical_scroll_offset(0.0);
             }
@@ -30,6 +33,8 @@ impl App {
 
     fn menu_items(&mut self, ui: &mut egui::Ui) {
         ui.set_min_width(230.0);
+        // 菜单项不折行：留出滚动条后宁可变宽
+        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
         let t = tr();
         let p = theme::palette(ui.ctx());
         let has_img = self.has_image();
