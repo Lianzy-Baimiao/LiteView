@@ -3,7 +3,14 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊 / 涂抹画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v1.5.0。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+> v1.5.1。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+
+### v1.5.1 更新
+
+- 在缩放不同的两块屏之间拖动时，窗口不再来回变大小、闪烁、拖不动：只在过界时变一次（Windows 11）。
+- 商店版在资源管理器里的「类型」重新按格式显示（「JPG 文件」「PNG 文件」），按类型分组不再只剩「LiteView 图片」一组。
+- GIF 每次换帧只画一次、时间更准，放动图时 CPU 更低；软件渲染时最多约 60 帧。
+- 设置、改名框里按 Ctrl+= / Ctrl+- / Ctrl+0 不再缩放整个界面；商店版各尺寸图标更清楚。
 
 ### v1.5.0 更新
 
