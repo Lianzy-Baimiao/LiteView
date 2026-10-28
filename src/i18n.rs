@@ -188,7 +188,7 @@ strings! {
     s_sort_size: "大小", "Size";
     s_sort_type: "类型", "Type";
     s_sort_desc: "降序", "Descending";
-    lock_zoom: "锁定缩放：切到同样尺寸的图时保持缩放与位置", "Lock zoom: keep zoom and position for images of the same size";
+    lock_zoom: "锁定缩放：切图时保持缩放比例（同样尺寸的图连位置也保持）", "Lock zoom: keep the zoom when changing images (and the position for images of the same size)";
     s_fit_window: "窗口适应图片大小", "Resize window to fit the image";
     s_autoplay: "打开时自动播放", "Play automatically";
     s_always_loop: "始终循环（忽略文件里的次数）", "Always loop (ignore the file's play count)";

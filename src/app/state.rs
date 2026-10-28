@@ -247,15 +247,20 @@ impl App {
         self.sync_current();
     }
 
-    /// 开始显示另一张图：复位旋转、播放；同样尺寸且「锁定缩放」时保持缩放与位置
+    /// 开始显示另一张图：复位旋转、播放。「锁定缩放」时保持缩放比例（同样尺寸的图连位置也保持，方便对比；
+    /// 尺寸不同时放在中间）；正「适应窗口」着的照样适应新图
     fn begin_show(&mut self, shown: Shown) {
         self.view.xf = Default::default();
         self.play = None;
         let before = self.shown.replace(shown);
-        // 「锁定缩放与位置」：切到同样尺寸的图时保持缩放与位置，方便对比
         let same = before.is_some_and(|b| (b.width, b.height) == (shown.width, shown.height));
-        if !(self.settings.lock_zoom && same) {
+        if !self.settings.lock_zoom || self.view.fitted || before.is_none() {
             self.pending_reset = true;
+        } else {
+            self.view.settle(self.canvas);
+            if !same {
+                self.view.offset = egui::Vec2::ZERO;
+            }
         }
         if self.settings.fit_window {
             self.pending_window_fit = true;
@@ -368,5 +373,46 @@ impl App {
     /// 开着对话框（确认框、设置、重命名、打印）：查看模式的快捷键和浮动工具栏都不出来
     pub(crate) fn modal_open(&self) -> bool {
         self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || self.printing()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::app::{App, Shown};
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    fn app(lock: bool) -> App {
+        let settings = Settings { ask_default_app: false, lock_zoom: lock, ..Default::default() };
+        App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &egui::Context::default())
+    }
+
+    #[test]
+    fn lock_zoom_keeps_the_zoom_for_any_size_and_the_position_only_for_the_same_size() {
+        let shown = |width, height| Shown { width, height, has_alpha: false };
+        let mut a = app(true);
+        a.canvas = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
+        a.begin_show(shown(4000, 3000));
+        a.pending_reset = false;
+        // 放大到 50%、挪了位置
+        (a.view.zoom, a.view.fitted, a.view.offset) = (0.5, false, egui::vec2(30.0, -20.0));
+        // 同样尺寸：缩放、位置都保持
+        a.begin_show(shown(4000, 3000));
+        assert!(!a.pending_reset);
+        assert_eq!((a.view.zoom, a.view.offset), (0.5, egui::vec2(30.0, -20.0)));
+        // 尺寸不同：缩放保持，放在中间（以前这里会重新适应窗口）
+        a.begin_show(shown(1200, 1600));
+        assert!(!a.pending_reset);
+        assert_eq!((a.view.zoom, a.view.offset), (0.5, egui::Vec2::ZERO));
+        // 正「适应窗口」着：照样适应新图
+        a.view.fitted = true;
+        a.begin_show(shown(640, 480));
+        assert!(a.pending_reset);
+        // 不锁：每张都重新适应
+        let mut b = app(false);
+        b.begin_show(shown(4000, 3000));
+        (b.pending_reset, b.view.fitted) = (false, false);
+        b.begin_show(shown(4000, 3000));
+        assert!(b.pending_reset);
     }
 }
