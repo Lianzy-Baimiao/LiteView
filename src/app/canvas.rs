@@ -53,7 +53,7 @@ impl App {
         self.pointer(&ctx, &resp);
         self.menu_open = self.context_menu(&resp);
         // 图片信息开着：点一下图片区域（不拖动）就关掉
-        if self.info_open && resp.clicked() {
+        if self.info_open && resp.clicked() && !self.window_op {
             self.info_open = false;
         }
         match &self.cur {
@@ -148,6 +148,14 @@ impl App {
     }
 
     fn pointer(&mut self, ctx: &egui::Context, resp: &egui::Response) {
+        // 这次按下已经交给系统移动 / 改大小窗口（无边框模式）：松开之前不平移、不算点击
+        if self.window_op {
+            return;
+        }
+        if resp.drag_started_by(egui::PointerButton::Primary) && self.drag_moves_window(ctx, self.shown.map(|s| self.view.shown_size(s.width, s.height))) {
+            self.start_window_drag(ctx);
+            return;
+        }
         let ppp = ctx.pixels_per_point();
         let rect = self.canvas;
         let Some(s) = self.shown else { return };

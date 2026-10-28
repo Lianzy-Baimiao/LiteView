@@ -153,6 +153,12 @@ pub struct WindowState {
     pub pos: Option<[f32; 2]>,
     pub size: Option<[f32; 2]>,
     pub maximized: bool,
+    /// 无边框（只有 Windows；编辑时临时恢复标题栏）。旧设置文件没有这一项，按关
+    #[serde(default)]
+    pub borderless: bool,
+    /// 窗口置顶
+    #[serde(default)]
+    pub always_on_top: bool,
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -377,6 +383,9 @@ mod tests {
 
     #[test]
     fn tolerant_parse() {
+        // 1.5.1 及以前的窗口设置没有无边框、置顶：照常读进来，按关
+        let old: Settings = serde_json::from_str(r#"{"window": {"pos": [10.0, 20.0], "size": [800.0, 600.0], "maximized": true}}"#).unwrap();
+        assert_eq!(old.window, WindowState { pos: Some([10.0, 20.0]), size: Some([800.0, 600.0]), maximized: true, borderless: false, always_on_top: false });
         let s: Settings = serde_json::from_str(r#"{"wrap_around": false, "unknown": 1}"#).unwrap();
         assert!(!s.wrap_around);
         assert_eq!(s.jpeg_quality, 90);

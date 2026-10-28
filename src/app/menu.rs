@@ -119,6 +119,17 @@ impl App {
             self.request_delete(false);
         }
         ui.separator();
+        if super::frameless::SUPPORTED {
+            let mut on = self.settings.window.borderless;
+            if ui.checkbox(&mut on, format!("{}    Ctrl+B", t.borderless)).clicked() {
+                ui.close();
+                self.toggle_borderless();
+            }
+        }
+        if ui.checkbox(&mut self.settings.window.always_on_top, t.always_on_top).clicked() {
+            ui.close();
+        }
+        ui.separator();
         if item(ui, t.info, "I".into(), has_img) {
             ui.close();
             self.info_open = true;

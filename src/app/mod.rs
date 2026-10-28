@@ -8,6 +8,7 @@ mod canvas;
 mod chrome;
 pub(crate) mod edit;
 mod flip;
+mod frameless;
 #[cfg(windows)]
 mod host;
 pub(crate) mod info;
@@ -139,6 +140,13 @@ pub struct App {
     pub(crate) bar_shown: bool,
     /// 画布的右键菜单开着（浮动工具栏、左右按钮不出来，免得盖住菜单）
     pub(crate) menu_open: bool,
+    /// 窗口现在有没有系统标题栏、是不是置顶（和设置不一样时 `sync_frame` 去改）
+    decorated: bool,
+    on_top: bool,
+    /// 无边框时的细标题栏上一帧是否显示
+    titlebar_shown: bool,
+    /// 这次按下已经交给系统移动 / 改大小窗口：松开之前画布不再处理拖动、点击
+    window_op: bool,
     /// 按住翻页
     pub(crate) flip: flip::Flip,
     /// 窗口中间的翻页提示（已回到第一张、已经是最后一张……）
@@ -336,6 +344,8 @@ fn viewport(settings: &Settings) -> egui::ViewportBuilder {
         .with_min_inner_size([520.0, 360.0])
         .with_drag_and_drop(true)
         .with_maximized(w.maximized)
+        .with_decorations(!(frameless::SUPPORTED && w.borderless))
+        .with_window_level(if w.always_on_top { egui::WindowLevel::AlwaysOnTop } else { egui::WindowLevel::Normal })
         .with_icon(app_icon());
     if let Some(pos) = w.pos {
         vp = vp.with_position(pos);
@@ -388,6 +398,7 @@ fn app_icon() -> egui::IconData {
 impl App {
     fn new(settings: Settings, loader: Loader, args: crate::cli::Args, ctx: &egui::Context) -> Self {
         let (tx, rx) = channel();
+        let window = settings.window;
         let mut app = Self {
             settings,
             loader,
@@ -417,6 +428,10 @@ impl App {
             ctx: ctx.clone(),
             bar_shown: false,
             menu_open: false,
+            decorated: !(frameless::SUPPORTED && window.borderless),
+            on_top: window.always_on_top,
+            titlebar_shown: false,
+            window_op: false,
             flip: Default::default(),
             notice: None,
             settings_page: None,
@@ -677,6 +692,7 @@ impl App {
         self.poll_loader(&ctx);
         self.poll_watch(&ctx);
         self.update_window(&ctx, hwnd);
+        self.sync_frame(&ctx);
         self.start_pending_edit();
         self.start_pending_action();
         if self.editor.is_some() {
@@ -686,9 +702,11 @@ impl App {
             self.edit_frame(ui);
         } else {
             self.canvas_ui(ui);
+            self.resize_edges(&ctx);
             self.keyboard(&ctx);
             self.chrome(&ctx);
             self.info_panel(&ctx);
+            self.titlebar(&ctx);
             self.flip_tick(&ctx);
         }
         self.toast_ui(&ctx);
@@ -714,6 +732,9 @@ impl App {
             Some((Some(Err(_)), _)) => crate::devtools::LoadState::Error,
             _ => crate::devtools::LoadState::Pending,
         };
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.window_op = false;
+        }
         self.script.after_frame(&ctx, self.first_paint_logged, load_state);
         self.pacer.pace(self.settings.frame_cap, || refresh_hz(hwnd));
     }

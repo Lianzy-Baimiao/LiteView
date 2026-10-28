@@ -88,6 +88,9 @@ impl App {
         if k(none, Key::F11) {
             self.toggle_fullscreen(ctx);
         }
+        if super::frameless::SUPPORTED && k(cmd, Key::B) {
+            self.toggle_borderless();
+        }
         // Windows 上 egui 把 Shift+Del 转成「剪切」事件
         let cut = ctx.input(|i| i.events.iter().any(|e| matches!(e, egui::Event::Cut)) && i.modifiers.shift && !i.modifiers.command);
         if cut || k(shift, Key::Delete) {
