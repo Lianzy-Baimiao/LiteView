@@ -147,6 +147,17 @@ pub struct App {
     titlebar_shown: bool,
     /// 这次按下已经交给系统移动 / 改大小窗口：松开之前画布不再处理拖动、点击
     window_op: bool,
+    /// 无边框时窗口包着图片：这一帧要的窗口位置和大小（物理像素），窗口循环画完后去改
+    #[cfg_attr(not(windows), allow(dead_code))]
+    window_rect: Option<(i32, i32, i32, i32)>,
+    /// 窗口包着图片时「适应窗口」按的大小（工作区的九成，点）
+    hug_area: Option<egui::Vec2>,
+    /// 上一帧包着的是哪张图（换图时窗口按中心缩放，不按鼠标）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    hug_image: Option<std::path::PathBuf>,
+    /// 窗口最后一次包着图片时是哪张图、什么缩放（从编辑、最大化等回来时接着用）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    hug_zoom: Option<(std::path::PathBuf, f32)>,
     /// 按住翻页
     pub(crate) flip: flip::Flip,
     /// 窗口中间的翻页提示（已回到第一张、已经是最后一张……）
@@ -432,6 +443,10 @@ impl App {
             on_top: window.always_on_top,
             titlebar_shown: false,
             window_op: false,
+            window_rect: None,
+            hug_area: None,
+            hug_image: None,
+            hug_zoom: None,
             flip: Default::default(),
             notice: None,
             settings_page: None,
@@ -595,7 +610,8 @@ impl App {
         {
             let (maximized, full, monitor) =
                 ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.viewport().fullscreen.unwrap_or(false), i.viewport().monitor_size));
-            if !maximized && !full {
+            // 无边框时窗口本来就包着图片
+            if !maximized && !full && !self.frameless() {
                 let size = self.view.shown_size(s.width, s.height) / ctx.pixels_per_point();
                 let max = monitor.map_or(egui::vec2(1600.0, 1000.0), |m| m * 0.9);
                 let want = size.min(max).max(egui::vec2(520.0, 360.0));
@@ -708,6 +724,7 @@ impl App {
             self.info_panel(&ctx);
             self.titlebar(&ctx);
             self.flip_tick(&ctx);
+            self.hug(&ctx);
         }
         self.toast_ui(&ctx);
         self.notice_ui(&ctx);

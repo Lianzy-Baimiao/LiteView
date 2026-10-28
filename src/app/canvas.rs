@@ -84,7 +84,9 @@ impl App {
         self.canvas_ppp = ppp;
         if self.pending_reset || (resized && self.view.fitted) {
             let mode = if self.pending_reset { fit_mode } else { FitMode::Fit };
-            self.view.reset(mode, rect.size(), ppp, size);
+            // 无边框时新图按工作区的九成适应，窗口再跟着它变（只按现在的窗口适应的话，窗口会越换越小）
+            let area = if self.pending_reset { self.fit_area() } else { rect.size() };
+            self.view.reset(mode, area, ppp, size);
             self.pending_reset = false;
         }
         if self.view.tick(rect) {
@@ -206,7 +208,7 @@ impl App {
             });
             if (factor - 1.0).abs() > 1e-4 {
                 let anchor = ctx.input(|i| i.pointer.hover_pos()).unwrap_or(rect.center());
-                let fit = View::fit_zoom(FitMode::Fit, rect.size(), ppp, size);
+                let fit = View::fit_zoom(FitMode::Fit, self.fit_area(), ppp, size);
                 let from = self.view.target_zoom();
                 let to = snap(from, from * factor, &[1.0, fit]);
                 self.view.zoom_to(to, anchor, self.settings.smooth_zoom, rect);

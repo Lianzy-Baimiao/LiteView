@@ -18,6 +18,23 @@ const BUTTON_W: f32 = 46.0;
 /// 边缘改大小的范围：四边 / 四角
 const EDGE: f32 = 6.0;
 const CORNER: f32 = 12.0;
+/// 窗口跟着图片时的最小窗口（点）：放得下细标题栏的三个按钮；比它小的图周围才有背景
+pub(crate) const HUG_MIN: egui::Vec2 = egui::vec2(160.0, 100.0);
+/// 有标题栏时的最小窗口（与 `app::viewport` 相同）
+const NORMAL_MIN: egui::Vec2 = egui::vec2(520.0, 360.0);
+/// 打开新图时最多占工作区的这么多（与「窗口适应图片大小」相同）
+const HUG_SCREEN: f32 = 0.9;
+
+/// 窗口跟着图片：想要的客户区大小 want（物理像素，已限在最小 / 工作区之间），让 anchor（窗口里的相对位置，0..1）
+/// 在屏幕上不动，再整个挪进工作区。返回 (左, 上, 右, 下)
+pub(crate) fn hug_rect(cur: (i32, i32, i32, i32), want: (i32, i32), anchor: (f32, f32), work: (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
+    let (w, h) = (want.0.clamp(1, (work.2 - work.0).max(1)), want.1.clamp(1, (work.3 - work.1).max(1)));
+    let ax = cur.0 as f32 + (cur.2 - cur.0) as f32 * anchor.0;
+    let ay = cur.1 as f32 + (cur.3 - cur.1) as f32 * anchor.1;
+    let l = ((ax - w as f32 * anchor.0).round() as i32).clamp(work.0, work.2 - w);
+    let t = ((ay - h as f32 * anchor.1).round() as i32).clamp(work.1, work.3 - h);
+    (l, t, l + w, t + h)
+}
 
 /// 鼠标在窗口的哪条边、哪个角上（四角优先）
 pub(crate) fn edge_at(r: Rect, q: Pos2) -> Option<ResizeDirection> {
@@ -68,6 +85,8 @@ impl App {
         let decorated = !self.frameless();
         if decorated != self.decorated && !self.fullscreen {
             ctx.send_viewport_cmd(ViewportCommand::Decorations(decorated));
+            // 无边框时比缩小停下的大小再小一点：winit 的最小值另加几像素边框，Windows 改大小时会照它限住，图片旁边就露出一条背景
+            ctx.send_viewport_cmd(ViewportCommand::MinInnerSize(if decorated { NORMAL_MIN } else { HUG_MIN * 0.75 }));
             self.decorated = decorated;
         }
         let top = self.settings.window.always_on_top;
@@ -89,6 +108,91 @@ impl App {
         }
         self.window_op = true;
         ctx.send_viewport_cmd(ViewportCommand::StartDrag);
+    }
+
+    /// 「适应窗口」按的大小：窗口跟着图片时按工作区的九成（不然只会适应现在这个窗口，越缩越小）
+    pub(crate) fn fit_area(&self) -> egui::Vec2 {
+        self.hug_area.unwrap_or(self.canvas.size())
+    }
+
+    /// 每帧最后：无边框时窗口正好包着图片。滚轮缩放时鼠标下的点不动，换图时窗口中心不动；放不下时最大到工作区，
+    /// 再放大就在窗口里平移。最大化、全屏、拖动 / 改大小中、开着菜单 / 对话框 / 图片信息时不动窗口
+    pub(crate) fn hug(&mut self, ctx: &egui::Context) {
+        // 移动 / 改大小窗口时什么都不动（改大小时宽高比要一直锁着）
+        if self.window_op {
+            return;
+        }
+        #[cfg(windows)]
+        if self.hug_now(ctx) {
+            return;
+        }
+        let _ = ctx;
+        self.hug_area = None;
+        self.hug_image = None;
+        // 用户关掉了无边框：下次打开时按那时的缩放，不回到以前的
+        if !self.settings.window.borderless {
+            self.hug_zoom = None;
+        }
+        #[cfg(windows)]
+        crate::platform::windows::set_resize_aspect(0.0);
+    }
+
+    #[cfg(windows)]
+    fn hug_now(&mut self, ctx: &egui::Context) -> bool {
+        use crate::platform::windows as win;
+        let maximized = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+        let (Some(hwnd), Some(s)) = (self.hwnd, self.shown) else { return false };
+        if !self.frameless() || self.fullscreen || maximized || self.menu_open || self.modal_open() || self.info_open {
+            return false;
+        }
+        let (Some(work), Some(cur)) = (win::work_area(hwnd), win::window_rect(hwnd)) else { return false };
+        let ppp = ctx.pixels_per_point();
+        let work_size = egui::vec2((work.2 - work.0) as f32, (work.3 - work.1) as f32);
+        self.hug_area = Some(work_size * HUG_SCREEN / ppp);
+        self.view.settle(self.canvas);
+        let path = self.cur.as_ref().map(|c| c.path.clone());
+        // 编辑、最大化、全屏、图片信息之后回来，还是同一张图：用原来的缩放（不然每来回一次窗口就小一点）
+        if self.hug_image.is_none()
+            && let Some((p, z)) = self.hug_zoom.clone()
+            && path.as_ref() == Some(&p)
+        {
+            self.view.zoom_to(z, self.canvas.center(), false, self.canvas);
+        }
+        let size = self.view.shown_size(s.width, s.height).max(egui::Vec2::splat(1.0));
+        // 缩小到窗口最小时就不再缩（否则窗口停在最小、图片四周露出背景）；本来就比最小还小的图按 100% 显示
+        let min_px = HUG_MIN * ppp;
+        let floor = (min_px.x / size.x).max(min_px.y / size.y).min(1.0);
+        if self.view.zoom < floor - 1e-4 {
+            self.view.zoom_to(floor, self.canvas.center(), false, self.canvas);
+        }
+        let shown = size * self.view.zoom;
+        let want = (shown.x.round().max(min_px.x.round()) as i32, shown.y.round().max(min_px.y.round()) as i32);
+        // 同一张图：鼠标在窗口里时按鼠标的位置缩放；换了图或鼠标不在窗口里时按窗口中心。
+        // 用系统的鼠标位置：窗口在不动的鼠标下面变了大小时，egui 记的鼠标位置还是旧的，连着滚几格窗口会跑偏
+        let same = self.hug_image.is_some() && self.hug_image == path;
+        let anchor = match win::cursor_pos() {
+            Some((x, y)) if same && x >= cur.0 && x < cur.2 && y >= cur.1 && y < cur.3 => {
+                ((x - cur.0) as f32 / (cur.2 - cur.0) as f32, (y - cur.1) as f32 / (cur.3 - cur.1) as f32)
+            }
+            _ => (0.5, 0.5),
+        };
+        self.hug_zoom = path.clone().map(|p| (p, self.view.zoom));
+        self.hug_image = path;
+        // 大小没变就不动窗口（用户把它拖到一半出了屏幕也不拉回来）；要变大小时才按锚点放、挪进工作区
+        let w = (want.0.min(work.2 - work.0), want.1.min(work.3 - work.1));
+        if (w.0 - (cur.2 - cur.0)).abs() > 1 || (w.1 - (cur.3 - cur.1)).abs() > 1 {
+            self.window_rect = Some(hug_rect(cur, want, anchor, work));
+        }
+        // 拖边缘改大小时保持图片的宽高比；窗口已经被工作区限住（图片比屏幕大）时不锁
+        let clamped = shown.x > work_size.x + 0.5 || shown.y > work_size.y + 0.5;
+        win::set_resize_aspect(if clamped { 0.0 } else { size.x / size.y });
+        true
+    }
+
+    /// 这一帧要的窗口位置和大小（物理像素），由窗口循环在画完之后一次改好
+    #[cfg(windows)]
+    pub(crate) fn take_window_rect(&mut self) -> Option<(i32, i32, i32, i32)> {
+        self.window_rect.take()
     }
 
     pub(crate) fn toggle_borderless(&mut self) {
@@ -118,6 +222,8 @@ impl App {
         ctx.set_cursor_icon(cursor(d));
         if !self.window_op && ctx.input(|i| i.pointer.primary_pressed()) {
             self.window_op = true;
+            // 改大小时图片一直适应窗口（窗口保持图片的宽高比），松开后窗口正好包着图片
+            self.view.fitted = true;
             ctx.send_viewport_cmd(ViewportCommand::BeginResize(d));
         }
     }
@@ -239,6 +345,21 @@ mod tests {
         assert_eq!(edge_at(r, pos2(20.0, 300.0)), None);
         assert_eq!(edge_at(r, pos2(400.0, 300.0)), None);
         assert_eq!(edge_at(r, pos2(900.0, 300.0)), None);
+    }
+
+    #[test]
+    fn the_hugging_window_keeps_the_anchor_still_and_stays_inside_the_work_area() {
+        let work = (0, 0, 3840, 2160);
+        // 按中心放大：中心不动
+        assert_eq!(hug_rect((1000, 800, 1400, 1100), (800, 600), (0.5, 0.5), work), (800, 650, 1600, 1250));
+        // 鼠标在左上角：左上角不动
+        assert_eq!(hug_rect((1000, 800, 1400, 1100), (200, 150), (0.0, 0.0), work), (1000, 800, 1200, 950));
+        // 比工作区大：限在工作区里
+        assert_eq!(hug_rect((1000, 800, 1400, 1100), (5000, 3000), (0.5, 0.5), work), (0, 0, 3840, 2160));
+        // 会超出右边：整个挪回工作区
+        assert_eq!(hug_rect((3500, 100, 3800, 300), (600, 400), (0.5, 0.5), work), (3240, 0, 3840, 400));
+        // 第二块屏（工作区不从 0 开始）、大小不变：原样
+        assert_eq!(hug_rect((3900, 50, 4300, 350), (400, 300), (0.3, 0.7), (3840, 0, 6400, 1560)), (3900, 50, 4300, 350));
     }
 
     #[test]

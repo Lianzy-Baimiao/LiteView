@@ -241,7 +241,7 @@ impl App {
 
     fn fit_zoom(&self) -> f32 {
         let Some(s) = self.shown else { return 1.0 };
-        View::fit_zoom(FitMode::Fit, self.canvas.size(), self.ctx.pixels_per_point(), self.view.shown_size(s.width, s.height))
+        View::fit_zoom(FitMode::Fit, self.fit_area(), self.ctx.pixels_per_point(), self.view.shown_size(s.width, s.height))
     }
 
     pub(crate) fn zoom_step(&mut self, zoom_in: bool) {
@@ -258,7 +258,7 @@ impl App {
     pub(crate) fn zoom_fit(&mut self) {
         if let Some(s) = self.shown {
             let size = self.view.shown_size(s.width, s.height);
-            self.view.reset(FitMode::Fit, self.canvas.size(), self.ctx.pixels_per_point(), size);
+            self.view.reset(FitMode::Fit, self.fit_area(), self.ctx.pixels_per_point(), size);
         }
     }
 

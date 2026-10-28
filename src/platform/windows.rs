@@ -187,6 +187,98 @@ pub fn use_system_dpi_rect(hwnd: isize) {
     }
 }
 
+/// 窗口所在显示器的工作区（去掉任务栏），物理像素 (左, 上, 右, 下)
+pub fn work_area(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Graphics::Gdi::{GetMonitorInfoW, MONITOR_DEFAULTTONEAREST, MONITORINFO, MonitorFromWindow};
+    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+    let ok = unsafe { GetMonitorInfoW(MonitorFromWindow(HWND(hwnd as *mut core::ffi::c_void), MONITOR_DEFAULTTONEAREST), &mut info) }.as_bool();
+    ok.then_some((info.rcWork.left, info.rcWork.top, info.rcWork.right, info.rcWork.bottom))
+}
+
+/// 窗口外框，物理像素 (左, 上, 右, 下)
+pub fn window_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::UI::WindowsAndMessaging::GetWindowRect;
+    let mut r = windows::Win32::Foundation::RECT::default();
+    unsafe { GetWindowRect(HWND(hwnd as *mut core::ffi::c_void), &mut r) }.ok()?;
+    Some((r.left, r.top, r.right, r.bottom))
+}
+
+/// 鼠标在屏幕上的位置，物理像素
+pub fn cursor_pos() -> Option<(i32, i32)> {
+    use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;
+    let mut p = windows::Win32::Foundation::POINT::default();
+    unsafe { GetCursorPos(&mut p) }.ok()?;
+    Some((p.x, p.y))
+}
+
+/// 一次同时改位置和大小（分两次改时中间那一下会看得见）
+pub fn set_window_rect(hwnd: isize, r: (i32, i32, i32, i32)) {
+    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos};
+    let _ = unsafe { SetWindowPos(HWND(hwnd as *mut core::ffi::c_void), None, r.0, r.1, r.2 - r.0, r.3 - r.1, SWP_NOZORDER | SWP_NOACTIVATE) };
+}
+
+/// 拖窗口边缘改大小时保持这个宽高比（0 = 不管）。无边框、窗口跟着图片时用
+pub fn set_resize_aspect(aspect: f32) {
+    aspect::RATIO.store(aspect.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// 在窗口过程前面接一层，处理 WM_SIZING（winit 不处理它）
+pub fn keep_resize_aspect(hwnd: isize) {
+    aspect::install(HWND(hwnd as *mut core::ffi::c_void));
+}
+
+/// 拖动中的矩形按宽高比改：拖左右边时按宽算高，拖上下边时按高算宽，拖角时取大的一边；不动被拖的对边
+pub(crate) fn fit_aspect(r: (i32, i32, i32, i32), edge: u32, aspect: f32) -> (i32, i32, i32, i32) {
+    // WMSZ_LEFT 1, RIGHT 2, TOP 3, TOPLEFT 4, TOPRIGHT 5, BOTTOM 6, BOTTOMLEFT 7, BOTTOMRIGHT 8
+    let (mut l, mut t, mut rt, mut b) = r;
+    let (w, h) = ((rt - l) as f32, (b - t) as f32);
+    let by_width = match edge {
+        1 | 2 => true,
+        3 | 6 => false,
+        _ => w / aspect >= h,
+    };
+    if by_width {
+        let nh = (w / aspect).round() as i32;
+        if matches!(edge, 3..=5) { t = b - nh } else { b = t + nh }
+    } else {
+        let nw = (h * aspect).round() as i32;
+        if matches!(edge, 1 | 4 | 7) { l = rt - nw } else { rt = l + nw }
+    }
+    (l, t, rt, b)
+}
+
+mod aspect {
+    use std::sync::OnceLock;
+    use std::sync::atomic::{AtomicU32, Ordering};
+
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{CallWindowProcW, DefWindowProcW, GWLP_WNDPROC, SetWindowLongPtrW, WM_SIZING, WNDPROC};
+
+    pub(super) static RATIO: AtomicU32 = AtomicU32::new(0);
+    static NEXT: OnceLock<WNDPROC> = OnceLock::new();
+
+    pub fn install(hwnd: HWND) {
+        if NEXT.get().is_some() {
+            return;
+        }
+        let old = unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as *const () as isize) };
+        if old != 0 {
+            let _ = NEXT.set(unsafe { std::mem::transmute::<isize, WNDPROC>(old) });
+        }
+    }
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        let Some(&next) = NEXT.get() else { return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) } };
+        let aspect = f32::from_bits(RATIO.load(Ordering::Relaxed));
+        if msg == WM_SIZING && lparam.0 != 0 && aspect > 0.0 {
+            let r = unsafe { &mut *(lparam.0 as *mut RECT) };
+            (r.left, r.top, r.right, r.bottom) = super::fit_aspect((r.left, r.top, r.right, r.bottom), wparam.0 as u32, aspect);
+            return LRESULT(1);
+        }
+        unsafe { CallWindowProcW(next, hwnd, msg, wparam, lparam) }
+    }
+}
+
 /// Windows 的版本号（26100 等）；读不到时 None
 fn windows_build() -> Option<u32> {
     use windows::Win32::Foundation::ERROR_SUCCESS;
@@ -275,6 +367,19 @@ mod tests {
         assert_eq!(placed(SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE), (1, 2, 3, 4));
         assert_eq!(placed(SWP_NOMOVE), (1, 2, 3, 4));
         assert_eq!(placed(SWP_NOSIZE), (1, 2, 3, 4));
+    }
+
+    #[test]
+    fn resizing_keeps_the_aspect_and_holds_the_opposite_side() {
+        use super::fit_aspect;
+        // 宽高比 2：拖右边、左边按宽算高（下边动）；拖上边按高算宽（右边动）
+        assert_eq!(fit_aspect((0, 0, 400, 100), 2, 2.0), (0, 0, 400, 200));
+        assert_eq!(fit_aspect((100, 0, 500, 100), 1, 2.0), (100, 0, 500, 200));
+        assert_eq!(fit_aspect((0, 0, 400, 300), 3, 2.0), (0, 0, 600, 300));
+        // 拖角取大的一边，对角不动
+        assert_eq!(fit_aspect((0, 0, 400, 300), 4, 2.0), (-200, 0, 400, 300));
+        assert_eq!(fit_aspect((0, 0, 800, 300), 8, 2.0), (0, 0, 800, 400));
+        assert_eq!(fit_aspect((0, 0, 800, 300), 5, 2.0), (0, -100, 800, 300));
     }
 
     /// 真的 winit 窗口收 WM_DPICHANGED（换成另一个缩放）：没接时 winit 用自己算的矩形，接上后用系统给的

@@ -120,6 +120,7 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         let window = Arc::new(egui_winit::create_window(&ctx, event_loop, &builder).map_err(|e| format!("create window: {e}"))?);
         let hwnd = hwnd(&window).ok_or("no HWND")?;
         crate::platform::windows::use_system_dpi_rect(hwnd.0 as isize);
+        crate::platform::windows::keep_resize_aspect(hwnd.0 as isize);
         let mut last = String::new();
         let mut painter = None;
         for name in self.renderers.clone() {
@@ -243,6 +244,10 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         }
         if let Some(v) = out.viewport_output.get(&ViewportId::ROOT) {
             egui_winit::process_viewport_commands(&r.ctx, &mut r.info, v.commands.clone(), &r.window, &mut r.actions);
+        }
+        // 无边框时窗口包着图片：画完这一帧再一次改好位置和大小（Resized 会马上按新大小再画）
+        if let (Some(rect), Some(h)) = (r.app.take_window_rect(), hwnd) {
+            crate::platform::windows::set_window_rect(h, rect);
         }
         Ok(())
     }

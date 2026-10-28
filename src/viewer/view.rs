@@ -144,6 +144,13 @@ impl View {
         }
     }
 
+    /// 缩放动画直接跳到终点（窗口跟着图片变大小时：窗口一下就变到位，图片不能慢慢变）
+    pub fn settle(&mut self, canvas: Rect) {
+        if let Some(a) = self.anim.take() {
+            self.apply_zoom(a.to, a.anchor, canvas);
+        }
+    }
+
     /// 推进缩放动画；返回是否还要继续重绘
     pub fn tick(&mut self, canvas: Rect) -> bool {
         let Some(a) = self.anim else { return false };
