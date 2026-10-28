@@ -72,6 +72,10 @@ class Msix(unittest.TestCase):
         association = root.find(".//uap3:FileTypeAssociation", NS)
         self.assertEqual(association.get("Parameters"), '"%1"')
         self.assertEqual(association.get("MultiSelectModel"), "Single")
+        # 不写 DisplayName：资源管理器按扩展名显示「JPG 文件」「PNG 文件」（照片应用也不写）；写了就所有图片同一个类型。
+        # Name 不能改：它决定关联的 ProgID，改了用户已设的默认应用会失效
+        self.assertIsNone(association.find("uap:DisplayName", NS))
+        self.assertEqual(association.get("Name"), "liteviewimages")
         verbs = association.findall("uap2:SupportedVerbs/uap3:Verb", NS)
         self.assertEqual({v.get("Id"): v.get("Parameters") for v in verbs}, {"edit": '--edit "%1"', "mosaic": '--mosaic "%1"'})
 

@@ -33,7 +33,6 @@
       <Extensions>
         <uap:Extension Category="windows.fileTypeAssociation">
           <uap3:FileTypeAssociation Name="liteviewimages" Parameters="&quot;%1&quot;" MultiSelectModel="Single">
-            <uap:DisplayName>ms-resource:ImageFile</uap:DisplayName>
             <uap:Logo>Assets\Square44x44Logo.png</uap:Logo>
             <uap:SupportedFileTypes>
               <uap:FileType>.jpg</uap:FileType>

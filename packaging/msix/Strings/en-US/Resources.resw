@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
   <data name="AppDescription" xml:space="preserve"><value>Offline image viewer, editor and redaction tool</value></data>
-  <data name="ImageFile" xml:space="preserve"><value>LiteView image</value></data>
   <data name="EditVerb" xml:space="preserve"><value>Edit with LiteView</value></data>
   <data name="MosaicVerb" xml:space="preserve"><value>Redact with LiteView</value></data>
 </root>

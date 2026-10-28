@@ -1,7 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <root>
   <data name="AppDescription" xml:space="preserve"><value>离线看图、编辑与打码工具</value></data>
-  <data name="ImageFile" xml:space="preserve"><value>LiteView 图片</value></data>
   <data name="EditVerb" xml:space="preserve"><value>用 LiteView 编辑</value></data>
   <data name="MosaicVerb" xml:space="preserve"><value>用 LiteView 打码</value></data>
 </root>
