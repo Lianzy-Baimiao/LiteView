@@ -174,3 +174,170 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     let p = wide(path.as_os_str());
     unsafe { SystemParametersInfoW(SPI_SETDESKWALLPAPER, 0, Some(p.as_ptr() as *mut core::ffi::c_void), SPIF_UPDATEINIFILE | SPIF_SENDCHANGE) }.map_err(|e| e.to_string())
 }
+
+/// 拖到缩放不同的显示器上时，用系统给的新位置和大小（Win11 起；Win10 不变）。
+///
+/// winit 0.30.13 收到 WM_DPICHANGED 时不用系统给的矩形，自己按原来的逻辑大小算一个，再用 MonitorFromWindow
+/// 检查它在不在新显示器上；拖动中窗口其实还在原来的显示器上，于是又被推回去，缩放来回变，窗口一次比一次大、
+/// 闪烁、拖不动（winit #4600）。winit 主线已改成 Win11 上直接用系统的矩形（#4341），还没发到 0.30；
+/// 升级到带这个改动的 winit 后删掉这里。
+pub fn use_system_dpi_rect(hwnd: isize) {
+    if windows_build().is_none_or(|b| b >= 22000) {
+        dpi_rect::install(HWND(hwnd as *mut core::ffi::c_void));
+    }
+}
+
+/// Windows 的版本号（26100 等）；读不到时 None
+fn windows_build() -> Option<u32> {
+    use windows::Win32::Foundation::ERROR_SUCCESS;
+    use windows::Win32::System::Registry::{HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ, RegGetValueW};
+    let key = wide(std::ffi::OsStr::new("SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion"));
+    let name = wide(std::ffi::OsStr::new("CurrentBuildNumber"));
+    let mut buf = [0u16; 16];
+    let mut len = (buf.len() * 2) as u32;
+    let r = unsafe { RegGetValueW(HKEY_LOCAL_MACHINE, PCWSTR(key.as_ptr()), PCWSTR(name.as_ptr()), RRF_RT_REG_SZ, None, Some(buf.as_mut_ptr().cast()), Some(&mut len)) };
+    (r == ERROR_SUCCESS).then(|| String::from_utf16_lossy(&buf[..(len as usize / 2).saturating_sub(1)])).and_then(|s| s.parse().ok())
+}
+
+/// 在 winit 的窗口过程前面接一层：WM_DPICHANGED 处理期间，winit 移动窗口的 SetWindowPos 改成系统给的矩形。
+/// 只接一个窗口（主窗口）。
+mod dpi_rect {
+    use std::cell::Cell;
+    use std::sync::OnceLock;
+
+    use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        CallWindowProcW, DefWindowProcW, GWLP_WNDPROC, SWP_NOMOVE, SWP_NOSIZE, SetWindowLongPtrW, WINDOWPOS, WM_DPICHANGED, WM_WINDOWPOSCHANGING, WNDPROC,
+    };
+
+    /// winit 原来的窗口过程
+    static NEXT: OnceLock<WNDPROC> = OnceLock::new();
+
+    thread_local! {
+        /// 正在处理的 WM_DPICHANGED 里系统给的矩形
+        static SUGGESTED: Cell<Option<RECT>> = const { Cell::new(None) };
+    }
+
+    pub fn install(hwnd: HWND) {
+        if NEXT.get().is_some() {
+            return;
+        }
+        let old = unsafe { SetWindowLongPtrW(hwnd, GWLP_WNDPROC, proc as *const () as isize) };
+        if old != 0 {
+            let _ = NEXT.set(unsafe { std::mem::transmute::<isize, WNDPROC>(old) });
+        }
+    }
+
+    unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+        let Some(&next) = NEXT.get() else { return unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) } };
+        // 窗口过程里 panic 会直接结束进程；线程局部变量销毁后 get / set 会 panic，所以都用 try_with
+        match msg {
+            WM_DPICHANGED if lparam.0 != 0 => {
+                let rect = unsafe { *(lparam.0 as *const RECT) };
+                let outer = SUGGESTED.try_with(|s| s.replace(Some(rect))).ok().flatten();
+                let r = unsafe { CallWindowProcW(next, hwnd, msg, wparam, lparam) };
+                let _ = SUGGESTED.try_with(|s| s.set(outer));
+                r
+            }
+            WM_WINDOWPOSCHANGING if lparam.0 != 0 => {
+                if let Some(rect) = SUGGESTED.try_with(Cell::get).ok().flatten() {
+                    place(unsafe { &mut *(lparam.0 as *mut WINDOWPOS) }, rect);
+                }
+                unsafe { CallWindowProcW(next, hwnd, msg, wparam, lparam) }
+            }
+            _ => unsafe { CallWindowProcW(next, hwnd, msg, wparam, lparam) },
+        }
+    }
+
+    /// 同时改位置和大小的那次（winit 自己算的矩形）换成系统给的；只改样式、Z 序等的不动
+    pub(super) fn place(pos: &mut WINDOWPOS, rect: RECT) {
+        if pos.flags.0 & (SWP_NOMOVE.0 | SWP_NOSIZE.0) == 0 {
+            (pos.x, pos.y, pos.cx, pos.cy) = (rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use windows::Win32::Foundation::RECT;
+    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, WINDOWPOS};
+
+    #[test]
+    fn only_a_move_and_resize_takes_the_suggested_rect() {
+        let rect = RECT { left: 10, top: 20, right: 110, bottom: 220 };
+        let placed = |flags| {
+            let mut p = WINDOWPOS { x: 1, y: 2, cx: 3, cy: 4, flags, ..Default::default() };
+            super::dpi_rect::place(&mut p, rect);
+            (p.x, p.y, p.cx, p.cy)
+        };
+        assert_eq!(placed(SWP_NOZORDER | SWP_NOACTIVATE), (10, 20, 100, 200));
+        // winit 改样式、只改大小或只移动的调用不动
+        assert_eq!(placed(SWP_NOZORDER | SWP_NOMOVE | SWP_NOSIZE), (1, 2, 3, 4));
+        assert_eq!(placed(SWP_NOMOVE), (1, 2, 3, 4));
+        assert_eq!(placed(SWP_NOSIZE), (1, 2, 3, 4));
+    }
+
+    /// 真的 winit 窗口收 WM_DPICHANGED（换成另一个缩放）：没接时 winit 用自己算的矩形，接上后用系统给的
+    #[test]
+    fn dpi_change_takes_the_rect_windows_suggests() {
+        use raw_window_handle::{HasWindowHandle, RawWindowHandle};
+        use windows::Win32::Foundation::{HWND, LPARAM, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::{GetWindowRect, SendMessageW, WM_DPICHANGED};
+        use winit::application::ApplicationHandler;
+        use winit::event::WindowEvent;
+        use winit::event_loop::{ActiveEventLoop, EventLoop};
+        use winit::platform::windows::EventLoopBuilderExtWindows;
+        use winit::window::{Window, WindowId};
+
+        // 故意和「保持逻辑大小」算出来的不一样
+        const S1: RECT = RECT { left: 130, top: 120, right: 907, bottom: 675 };
+        const S2: RECT = RECT { left: 150, top: 140, right: 705, bottom: 584 };
+
+        #[derive(Default)]
+        struct Probe {
+            rects: Option<(RECT, RECT)>,
+        }
+        impl ApplicationHandler for Probe {
+            fn resumed(&mut self, el: &ActiveEventLoop) {
+                if self.rects.is_some() {
+                    return;
+                }
+                let attrs = Window::default_attributes()
+                    .with_visible(false)
+                    .with_position(winit::dpi::PhysicalPosition::new(100, 100))
+                    .with_inner_size(winit::dpi::PhysicalSize::new(640, 480));
+                let window = el.create_window(attrs).unwrap();
+                let Ok(RawWindowHandle::Win32(h)) = window.window_handle().map(|h| h.as_raw()) else { panic!("no HWND") };
+                let hwnd = HWND(h.hwnd.get() as *mut core::ffi::c_void);
+                let change = |dpi: u32, rect: RECT| {
+                    unsafe { SendMessageW(hwnd, WM_DPICHANGED, Some(WPARAM(((dpi << 16) | dpi) as usize)), Some(LPARAM(&raw const rect as isize))) };
+                    let mut now = RECT::default();
+                    unsafe { GetWindowRect(hwnd, &mut now) }.unwrap();
+                    now
+                };
+                // 96 = 100 %，144 = 150 %；先换成和现在不同的
+                let (a, b) = if window.scale_factor() > 1.2 { (96, 144) } else { (144, 96) };
+                let unhooked = change(a, S1);
+                super::dpi_rect::install(hwnd);
+                let hooked = change(b, S2);
+                self.rects = Some((unhooked, hooked));
+                // Drop 只投递销毁消息：收到 Destroyed 再退出
+                drop(window);
+            }
+
+            fn window_event(&mut self, el: &ActiveEventLoop, _: WindowId, event: WindowEvent) {
+                if matches!(event, WindowEvent::Destroyed) {
+                    el.exit();
+                }
+            }
+        }
+
+        let event_loop = EventLoop::builder().with_any_thread(true).build().unwrap();
+        let mut probe = Probe::default();
+        event_loop.run_app(&mut probe).unwrap();
+        let (unhooked, hooked) = probe.rects.expect("window created");
+        assert_eq!(hooked, S2);
+        // 这条失败 = winit 自己已经用系统给的矩形了，可以删掉 use_system_dpi_rect
+        assert_ne!(unhooked, S1, "winit now applies the suggested rect itself");
+    }
+}

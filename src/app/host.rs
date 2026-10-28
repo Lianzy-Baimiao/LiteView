@@ -119,6 +119,7 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         }
         let window = Arc::new(egui_winit::create_window(&ctx, event_loop, &builder).map_err(|e| format!("create window: {e}"))?);
         let hwnd = hwnd(&window).ok_or("no HWND")?;
+        crate::platform::windows::use_system_dpi_rect(hwnd.0 as isize);
         let mut last = String::new();
         let mut painter = None;
         for name in self.renderers.clone() {
