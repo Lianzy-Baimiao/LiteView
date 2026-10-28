@@ -16,13 +16,20 @@ const BAR_H: f32 = 44.0;
 const BAR_GAP: f32 = 16.0;
 /// 底部感应区比工具栏（动图时连同播放条）再高出这么多
 const ZONE_MARGIN: f32 = 32.0;
+/// 鼠标离开浮动工具栏的小窗口后过这么久才收起（从图片移过去要经过中间的缝）
+const DOCK_GRACE: std::time::Duration = std::time::Duration::from_millis(500);
+/// 工具栏两边至少留这么多（点），窗口再窄就放到下面的小窗口里
+const DOCK_ROOM: f32 = 16.0;
 
 impl App {
     pub(crate) fn chrome(&mut self, ctx: &egui::Context) {
         // 开着对话框、右键菜单时都不出来：重新出现的浮层会排到它们上面，盖住按钮、抢走点击
         let blocked = self.modal_open() || self.menu_open;
         let inside = !blocked && ctx.input(|i| i.pointer.has_pointer());
-        if !ctx.input(|i| i.pointer.primary_down()) {
+        // 无边框、窗口比工具栏还窄时，工具栏和播放条放到图片下面的小窗口里（`dock_ui`，窗口循环去画），不在窗口里截断
+        // 按这个窗口宽度下会画的那种工具栏（窄时没有「适应窗口」「原始大小」，动图另有播放条）比，放得下就留在窗口里
+        self.docked = self.frameless() && self.canvas.width() < self.toolbar_w[self.bar_kind()] + DOCK_ROOM;
+        if !self.docked && !ctx.input(|i| i.pointer.primary_down()) {
             self.flip.button = None;
         }
         // 只在鼠标移到窗口底部时显示；它的弹出菜单（比例预设、播放速度）开着时不收起。图片信息面板开着时放在剩下的地方
@@ -30,13 +37,25 @@ impl App {
         let bars = if self.is_animated() { 2.0 } else { 1.0 };
         let zone = BAR_GAP + bars * (BAR_H + 8.0) + ZONE_MARGIN;
         let near = ctx.input(|i| i.pointer.hover_pos()).is_some_and(|q| free.contains(q) && q.y >= free.bottom() - zone);
-        let show = self.cur.is_some() && !blocked && (near || (self.bar_shown && ctx.any_popup_open()));
+        // 小窗口：鼠标在它上面、它的弹出菜单开着、刚离开图片底部或小窗口不到半秒（中间隔着一条缝）时都不收起
+        if self.docked && (near || self.dock_hover) {
+            self.dock_seen = Some(std::time::Instant::now());
+        }
+        let on_dock = self.docked && (self.dock_hover || self.dock_popup || self.dock_seen.is_some_and(|t| t.elapsed() < DOCK_GRACE));
+        let show = self.cur.is_some() && !blocked && (near || on_dock || (self.bar_shown && ctx.any_popup_open()));
         self.bar_shown = show;
+        if self.docked {
+            if show {
+                // 鼠标在小窗口上时这个窗口收不到移动，过一会儿再看一次
+                ctx.request_repaint_after(DOCK_GRACE / 4);
+            }
+            return;
+        }
         let o = ctx.animate_bool_with_time(Id::new("toolbar-shown"), show, 0.15);
         let p = theme::palette(ctx);
         let dx = free.center().x - ctx.content_rect().center().x;
         if o > 0.0 {
-            Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP)).interactable(o > 0.5).show(ctx, |ui| {
+            let bar = Area::new(Id::new("toolbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP)).interactable(o > 0.5).show(ctx, |ui| {
                 ui.set_opacity(o);
                 widgets::floating_frame(p).show(ui, |ui| {
                     ui.horizontal(|ui| {
@@ -45,11 +64,12 @@ impl App {
                     });
                 });
             });
+            self.toolbar_w[self.bar_kind()] = bar.response.rect.width();
         }
         let paused = self.play.as_ref().is_some_and(|pl| !pl.playing);
         let oa = ctx.animate_bool_with_time(Id::new("animbar-shown"), self.is_animated() && (show || paused && inside), 0.15);
         if oa > 0.0 {
-            Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP - BAR_H - 8.0)).interactable(oa > 0.5).show(
+            let anim = Area::new(Id::new("animbar")).order(Order::Foreground).anchor(Align2::CENTER_BOTTOM, vec2(dx, -BAR_GAP - BAR_H - 8.0)).interactable(oa > 0.5).show(
                 ctx,
                 |ui| {
                     ui.set_opacity(oa);
@@ -61,8 +81,59 @@ impl App {
                     });
                 },
             );
+            // 动图：播放条和工具栏取宽的那个
+            let k = self.bar_kind();
+            self.toolbar_w[k] = self.toolbar_w[k].max(anim.response.rect.width());
         }
         self.edge_arrows(ctx);
+    }
+
+    /// 浮动工具栏的小窗口里画什么（窗口循环在它自己的 egui 里调）：动图的播放条和工具栏。返回工具栏占的地方
+    /// （提示、弹出菜单另外占的不算：小窗口按工具栏放，它们只让窗口往右、往下变大，工具栏不跟着跑）
+    #[cfg(windows)]
+    pub(crate) fn dock_ui(&mut self, ctx: &egui::Context) -> egui::Rect {
+        if !ctx.input(|i| i.pointer.primary_down()) {
+            self.flip.button = None;
+        }
+        let p = theme::palette(ctx);
+        let kind = self.bar_kind();
+        let area = Area::new(Id::new("dock")).order(Order::Foreground).fixed_pos(egui::Pos2::ZERO).show(ctx, |ui| {
+            egui::Frame::new().fill(p.floating).inner_margin(egui::Margin::symmetric(6, 6)).show(ui, |ui| {
+                ui.vertical(|ui| {
+                    if self.is_animated() {
+                        ui.horizontal(|ui| {
+                            ui.spacing_mut().item_spacing.x = 2.0;
+                            self.anim_contents(ui);
+                        });
+                    }
+                    ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 2.0;
+                        self.toolbar_contents(ui);
+                    });
+                });
+            });
+        });
+        // 和窗口里那条比：那条多 1 点的边框
+        self.toolbar_w[kind] = area.response.rect.width() + 2.0;
+        self.dock_popup = ctx.any_popup_open();
+        area.response.rect
+    }
+
+    /// 工具栏的样子：0 / 1 = 窄（没有「适应窗口」「原始大小」），2 / 3 = 宽；单数 = 动图（多一条播放条）
+    pub(crate) fn bar_kind(&self) -> usize {
+        usize::from(self.canvas.width() >= 640.0) * 2 + usize::from(self.is_animated())
+    }
+
+    /// 窗口循环问：要不要显示浮动工具栏的小窗口
+    #[cfg(windows)]
+    pub(crate) fn dock_wanted(&self) -> bool {
+        self.docked && self.bar_shown && !self.window_op && !self.fullscreen
+    }
+
+    /// 窗口循环告诉界面鼠标在不在小窗口上
+    #[cfg(windows)]
+    pub(crate) fn set_dock_hover(&mut self, on: bool) {
+        self.dock_hover = on;
     }
 
     fn toolbar_contents(&mut self, ui: &mut egui::Ui) {

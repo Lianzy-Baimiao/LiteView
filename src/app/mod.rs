@@ -158,6 +158,14 @@ pub struct App {
     /// 窗口最后一次包着图片时是哪张图、什么缩放（从编辑、最大化等回来时接着用）
     #[cfg_attr(not(windows), allow(dead_code))]
     hug_zoom: Option<(std::path::PathBuf, f32)>,
+    /// 工具栏放在图片下面的小窗口里（无边框、窗口比工具栏窄时）
+    pub(crate) docked: bool,
+    /// 每种工具栏（`bar_kind`）上一次画出来的宽度（点），没画过时按本机量的值
+    pub(crate) toolbar_w: [f32; 4],
+    /// 鼠标在小窗口上 / 上次离开它的时间 / 它的弹出菜单开着（窗口循环告诉界面）
+    pub(crate) dock_hover: bool,
+    pub(crate) dock_seen: Option<Instant>,
+    pub(crate) dock_popup: bool,
     /// 按住翻页
     pub(crate) flip: flip::Flip,
     /// 窗口中间的翻页提示（已回到第一张、已经是最后一张……）
@@ -447,6 +455,11 @@ impl App {
             hug_area: None,
             hug_image: None,
             hug_zoom: None,
+            docked: false,
+            toolbar_w: [478.0, 600.0, 546.0, 600.0],
+            dock_hover: false,
+            dock_seen: None,
+            dock_popup: false,
             flip: Default::default(),
             notice: None,
             settings_page: None,

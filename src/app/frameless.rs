@@ -36,6 +36,15 @@ pub(crate) fn hug_rect(cur: (i32, i32, i32, i32), want: (i32, i32), anchor: (f32
     (l, t, l + w, t + h)
 }
 
+/// 浮动工具栏的小窗口放在哪（物理像素）：图片窗口下面居中、隔 gap；下面放不下就放上面；都放不下时贴着工作区
+#[cfg(windows)]
+pub(crate) fn dock_rect(main: (i32, i32, i32, i32), size: (i32, i32), work: (i32, i32, i32, i32), gap: i32) -> (i32, i32, i32, i32) {
+    let (w, h) = (size.0.min(work.2 - work.0), size.1.min(work.3 - work.1));
+    let l = ((main.0 + main.2) / 2 - w / 2).clamp(work.0, work.2 - w);
+    let t = if main.3 + gap + h <= work.3 { main.3 + gap } else { (main.1 - gap - h).clamp(work.1, work.3 - h) };
+    (l, t, l + w, t + h)
+}
+
 /// 鼠标在窗口的哪条边、哪个角上（四角优先）
 pub(crate) fn edge_at(r: Rect, q: Pos2) -> Option<ResizeDirection> {
     if !r.contains(q) {
@@ -328,6 +337,18 @@ mod tests {
     use super::*;
     use crate::settings::Settings;
     use crate::viewer::loader::Loader;
+
+    #[cfg(windows)]
+    #[test]
+    fn the_toolbar_window_goes_under_the_image_or_above_it_when_there_is_no_room() {
+        let work = (0, 0, 1920, 1040);
+        // 下面放得下：居中、隔 6
+        assert_eq!(dock_rect((800, 300, 1100, 500), (600, 56), work, 6), (650, 506, 1250, 562));
+        // 下面放不下：放上面
+        assert_eq!(dock_rect((800, 900, 1100, 1030), (600, 56), work, 6), (650, 838, 1250, 894));
+        // 左边会出工作区：贴着左边
+        assert_eq!(dock_rect((0, 300, 200, 433), (600, 56), work, 6), (0, 439, 600, 495));
+    }
 
     #[test]
     fn corners_win_over_edges_and_the_inside_is_not_an_edge() {

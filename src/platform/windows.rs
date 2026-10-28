@@ -203,6 +203,30 @@ pub fn window_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
     Some((r.left, r.top, r.right, r.bottom))
 }
 
+/// 浮动工具栏的小窗口：不出现在任务栏和 Alt+Tab 里，点它不抢图片窗口的焦点；Win11 圆角
+pub fn style_dock(hwnd: isize) {
+    use windows::Win32::Graphics::Dwm::{DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND};
+    use windows::Win32::UI::WindowsAndMessaging::{GWL_EXSTYLE, GetWindowLongPtrW, SetWindowLongPtrW, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW};
+    let h = HWND(hwnd as *mut core::ffi::c_void);
+    let pref = DWMWCP_ROUND;
+    unsafe {
+        let ex = GetWindowLongPtrW(h, GWL_EXSTYLE);
+        SetWindowLongPtrW(h, GWL_EXSTYLE, ex | (WS_EX_NOACTIVATE.0 | WS_EX_TOOLWINDOW.0) as isize);
+        let _ = DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, (&raw const pref).cast(), 4);
+    }
+}
+
+/// 显示在 r（物理像素，左上右下），不激活
+pub fn show_at(hwnd: isize, r: (i32, i32, i32, i32)) {
+    use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_SHOWWINDOW, SetWindowPos};
+    let _ = unsafe { SetWindowPos(HWND(hwnd as *mut core::ffi::c_void), None, r.0, r.1, r.2 - r.0, r.3 - r.1, SWP_NOACTIVATE | SWP_SHOWWINDOW) };
+}
+
+pub fn hide(hwnd: isize) {
+    use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
+    let _ = unsafe { ShowWindow(HWND(hwnd as *mut core::ffi::c_void), SW_HIDE) };
+}
+
 /// 鼠标在屏幕上的位置，物理像素
 pub fn cursor_pos() -> Option<(i32, i32)> {
     use windows::Win32::UI::WindowsAndMessaging::GetCursorPos;

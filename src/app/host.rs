@@ -52,6 +52,90 @@ struct Running {
     screenshot: Option<egui::Event>,
     shown: bool,
     beginning: Instant,
+    /// 用的哪种画法（浮动工具栏的小窗口用同一种）
+    driver: Driver,
+    dock: Option<Dock>,
+    /// 小窗口建不起来：不再试
+    dock_failed: bool,
+}
+
+/// 浮动工具栏的小窗口（无边框、窗口比工具栏还窄时放在图片下面）：没有标题栏，不进任务栏，点它不抢焦点，
+/// 跟着图片窗口最小化。自己的 Direct3D 交换链和 egui（字体是同一份映射的文件），第一次要用时才建
+struct Dock {
+    window: Window,
+    painter: Painter,
+    state: egui_winit::State,
+    ctx: egui::Context,
+    hwnd: isize,
+    /// 工具栏的大小、连同提示 / 弹出菜单的大小（物理像素），上次放的位置
+    bar: (i32, i32),
+    size: (i32, i32),
+    rect: Option<(i32, i32, i32, i32)>,
+    dirty: bool,
+    next: Option<Instant>,
+    /// 还没交给显卡的纹理变化（egui 第一帧量大小时什么都不画，字体纹理也在那一帧，不能丢）
+    pending: egui::TexturesDelta,
+}
+
+/// 小窗口里排版用的大小（点）：工具栏和它的弹出菜单都放得下；实际窗口只有画出来的那么大
+const DOCK_LAYOUT: egui::Vec2 = egui::vec2(900.0, 420.0);
+/// 小窗口离图片窗口的距离（物理像素）
+const DOCK_GAP: i32 = 6;
+
+impl Dock {
+    fn new(event_loop: &ActiveEventLoop, owner: &Window, driver: Driver, main: &egui::Context) -> Result<Self, String> {
+        use winit::platform::windows::WindowAttributesExtWindows;
+        let owner_hwnd = hwnd(owner).ok_or("no HWND")?;
+        let pos = owner.outer_position().unwrap_or_default();
+        let attrs = Window::default_attributes()
+            .with_title("")
+            .with_decorations(false)
+            .with_resizable(false)
+            .with_visible(false)
+            .with_position(pos)
+            .with_inner_size(winit::dpi::PhysicalSize::new(400u32, 60u32))
+            .with_skip_taskbar(true)
+            .with_undecorated_shadow(false)
+            .with_owner_window(owner_hwnd.0 as isize);
+        let window = event_loop.create_window(attrs).map_err(|e| e.to_string())?;
+        let h = hwnd(&window).ok_or("no HWND")?;
+        crate::platform::windows::style_dock(h.0 as isize);
+        let painter = Painter::new(h, driver, [400, 60]).map_err(|e| e.to_string())?;
+        let ctx = egui::Context::default();
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        crate::ui::fonts::install(&ctx);
+        crate::ui::theme::install(&ctx);
+        ctx.set_theme(main.theme());
+        let state = egui_winit::State::new(ctx.clone(), ViewportId::ROOT, event_loop, Some(window.scale_factor() as f32), event_loop.system_theme(), Some(painter.max_texture_side));
+        Ok(Self { window, painter, state, ctx, hwnd: h.0 as isize, bar: (0, 0), size: (0, 0), rect: None, dirty: true, next: None, pending: Default::default() })
+    }
+
+    /// 画一帧；返回这一帧有没有鼠标 / 键盘输入（有的话图片窗口也要跟着重画）
+    fn paint(&mut self, app: &mut App) -> Result<bool, String> {
+        let mut raw = self.state.take_egui_input(&self.window);
+        let input = !raw.events.is_empty();
+        raw.screen_rect = Some(egui::Rect::from_min_size(egui::Pos2::ZERO, DOCK_LAYOUT));
+        self.ctx.set_theme(app.ctx.theme());
+        let ctx = self.ctx.clone();
+        let mut bar = egui::Rect::NOTHING;
+        let out = self.ctx.run_ui(raw, |_| bar = app.dock_ui(&ctx));
+        self.state.handle_platform_output(&self.window, out.platform_output);
+        self.pending.append(out.textures_delta);
+        let used = out.shapes.iter().map(|s| s.shape.visual_bounding_rect().intersect(s.clip_rect)).filter(|r| r.is_positive()).fold(egui::Rect::NOTHING, |a, b| a.union(b));
+        let ppp = out.pixels_per_point;
+        self.bar = if bar.is_positive() { ((bar.max.x * ppp).ceil() as i32, (bar.max.y * ppp).ceil() as i32) } else { (0, 0) };
+        self.size = if used.is_positive() { ((used.max.x * ppp).ceil() as i32, (used.max.y * ppp).ceil() as i32) } else { (0, 0) };
+        self.next = out.viewport_output.get(&ViewportId::ROOT).and_then(|v| Instant::now().checked_add(v.repaint_delay));
+        if self.size.0 > 0 && self.size.1 > 0 {
+            self.painter.resize([self.size.0 as u32, self.size.1 as u32]).map_err(|e| e.0)?;
+            let prims = self.ctx.tessellate(out.shapes, ppp);
+            let p = crate::ui::theme::palette(&self.ctx);
+            let delta = std::mem::take(&mut self.pending);
+            self.painter.paint(p.floating.to_normalized_gamma_f32(), ppp, &prims, &delta, false).map_err(|e| e.0)?;
+        }
+        self.dirty = false;
+        Ok(input)
+    }
 }
 
 struct Host<'a, F: FnOnce(&egui::Context) -> App> {
@@ -132,7 +216,7 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             let err = match made {
                 Ok(Ok(p)) => {
                     log::info!("显卡接口：{}（{}）", crate::gpu::display_name(name), p.adapter);
-                    painter = Some(p);
+                    painter = Some((p, driver));
                     break;
                 }
                 Ok(Err(e)) => e.to_string(),
@@ -143,7 +227,7 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             self.guard.fail(name, &err);
             last = err;
         }
-        let Some(painter) = painter else { return Err(last) };
+        let Some((painter, driver)) = painter else { return Err(last) };
         let mut info = ViewportInfo::default();
         egui_winit::update_viewport_info(&mut info, &ctx, &window, true);
         let ppp = egui_winit::pixels_per_point(&ctx, &window);
@@ -174,6 +258,9 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             screenshot: None,
             shown: false,
             beginning: Instant::now(),
+            driver,
+            dock: None,
+            dock_failed: false,
         });
         self.next_repaint = Some(Instant::now());
         Ok(())
@@ -224,6 +311,9 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
                 r.screenshot = Some(egui::Event::Screenshot { viewport_id: ViewportId::ROOT, user_data, image: Arc::new(image) });
                 r.ctx.request_repaint();
             }
+            if let Some(d) = &mut r.dock {
+                d.dirty = true;
+            }
             if !r.shown {
                 // 画好第一帧才显示（之前显示会白屏闪一下；驱动卡住时也不会出现一个空窗口）
                 r.shown = true;
@@ -252,6 +342,56 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         Ok(())
     }
 
+    /// 浮动工具栏的小窗口：界面要时建（只建一次）、画、放到图片窗口下面；鼠标在不在它上面告诉界面
+    fn dock_tick(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(r) = &mut self.running else { return };
+        let wanted = r.shown && r.app.dock_wanted() && r.window.is_minimized() != Some(true);
+        if !wanted {
+            if let Some(d) = &mut r.dock
+                && d.rect.take().is_some()
+            {
+                crate::platform::windows::hide(d.hwnd);
+            }
+            r.app.set_dock_hover(false);
+            return;
+        }
+        if r.dock.is_none() && !r.dock_failed {
+            match Dock::new(event_loop, &r.window, r.driver, &r.ctx) {
+                Ok(d) => r.dock = Some(d),
+                Err(e) => {
+                    log::warn!("浮动工具栏的小窗口建不起来：{e}");
+                    r.dock_failed = true;
+                }
+            }
+        }
+        let Some(d) = &mut r.dock else { return };
+        if d.dirty || d.next.is_some_and(|t| Instant::now() >= t) {
+            match d.paint(&mut r.app) {
+                Ok(true) => r.window.request_redraw(),
+                Ok(false) => {}
+                Err(e) => log::warn!("浮动工具栏画不出来：{e}"),
+            }
+        }
+        if let Some(t) = d.next {
+            self.next_repaint = Some(self.next_repaint.map_or(t, |n| n.min(t)));
+        }
+        use crate::platform::windows as win;
+        let main = hwnd(&r.window).map(|h| h.0 as isize);
+        if let (Some(m), true) = (main, d.bar.0 > 0 && d.size.0 > 0)
+            && let (Some(mr), Some(work)) = (win::window_rect(m), win::work_area(m))
+        {
+            // 按工具栏放；提示、弹出菜单只让窗口往右、往下变大
+            let at = super::frameless::dock_rect(mr, d.bar, work, DOCK_GAP);
+            let rect = (at.0, at.1, at.0 + d.size.0.max(d.bar.0), at.1 + d.size.1.max(d.bar.1));
+            if d.rect != Some(rect) {
+                win::show_at(d.hwnd, rect);
+                d.rect = Some(rect);
+            }
+            let on = win::cursor_pos().is_some_and(|(x, y)| x >= rect.0 && x < rect.2 && y >= rect.1 && y < rect.3);
+            r.app.set_dock_hover(on);
+        }
+    }
+
     fn paint_or_exit(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(e) = self.paint() {
             log::error!("画图失败：{e}");
@@ -274,7 +414,14 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
         }
     }
 
-    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        // 浮动工具栏的小窗口：交给它自己的 egui，画留到 about_to_wait
+        if let Some(d) = self.running.as_mut().and_then(|r| r.dock.as_mut()).filter(|d| d.window.id() == id) {
+            if !matches!(event, WindowEvent::CloseRequested) && (d.state.on_window_event(&d.window, &event).repaint || matches!(event, WindowEvent::RedrawRequested)) {
+                d.dirty = true;
+            }
+            return;
+        }
         let Some(r) = &mut self.running else { return };
         let mut paint_now = false;
         match &event {
@@ -340,6 +487,7 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        self.dock_tick(event_loop);
         if let Some(t) = self.next_repaint
             && Instant::now() >= t
         {
