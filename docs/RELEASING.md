@@ -36,7 +36,7 @@ Windows 安装包需 Inno Setup 6：
 
 ## Microsoft Store MSIX
 
-产品身份来自已经预留的 LiteView（Store ID `9PCG7D394JFC`），源清单位于 `packaging/msix/AppxManifest.xml`。产品版本 `1.6.0` 对应包版本 `1.6.0.0`（1.5.1 为 `1.5.1.0`，1.5.0 为 `1.5.0.0`，1.4.0 为 `1.4.0.0`，1.3.1 为 `1.3.1.0`，1.3.0 为 `1.3.0.0`，1.2.0 为 `1.2.0.0`，1.1.0 为 `1.1.0.0`，1.0.0 为 `1.0.0.0`）；商店包第一段必须非零、第四段必须为零。每次已提交版本更新应使用更高版本，不覆盖旧包。
+产品身份来自已经预留的 LiteView（Store ID `9PCG7D394JFC`），源清单位于 `packaging/msix/AppxManifest.xml`。产品版本 `1.6.1` 对应包版本 `1.6.1.0`（1.6.0 为 `1.6.0.0`，1.5.1 为 `1.5.1.0`，1.5.0 为 `1.5.0.0`，1.4.0 为 `1.4.0.0`，1.3.1 为 `1.3.1.0`，1.3.0 为 `1.3.0.0`，1.2.0 为 `1.2.0.0`，1.1.0 为 `1.1.0.0`，1.0.0 为 `1.0.0.0`）；商店包第一段必须非零、第四段必须为零。每次已提交版本更新应使用更高版本，不覆盖旧包。
 
 Windows MSVC 的 CI 和 Release 使用 `RUSTFLAGS=-C target-feature=+crt-static`，静态链接 VC 运行库。MSIX 打包器读取 PE 导入表，拒绝未附带的 VCRUNTIME/MSVCP/MinGW 运行库；不因为开发机装了运行库就假设用户也有。
 
@@ -45,7 +45,7 @@ $env:RUSTFLAGS = '-C target-feature=+crt-static' # MSVC
 cargo build --locked --release
 cargo about generate --locked -o LICENSES.html packaging/licenses.hbs
 python -m unittest discover -s packaging -p 'test_*.py'
-python packaging/msix.py --binary target/release/LiteView.exe --store-version 1.6.0.0 --makeappx 'C:\Program Files (x86)\Windows Kits\10\bin\<SDK版本>\x64\makeappx.exe'
+python packaging/msix.py --binary target/release/LiteView.exe --store-version 1.6.1.0 --makeappx 'C:\Program Files (x86)\Windows Kits\10\bin\<SDK版本>\x64\makeappx.exe'
 ```
 
 MakePri 与 MakeAppx 必须来自 Windows SDK。默认在同目录寻找 MakePri，也可显式传 `--makepri`。打包器不安装任何包/证书，不关闭验证，不需要商用证书；输出未签名的商店提交候选及 JSON 记录（版本、身份、SHA-256、导入DLL和暂存路径）。输出目录默认 `dist/store`，已有同名产物会拒绝覆盖；本地重试用新的 `--output`。暂存布局保留，不递归删除已有目录。

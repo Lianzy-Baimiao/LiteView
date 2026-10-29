@@ -3,7 +3,11 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊 / 涂抹画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v1.6.0。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+> v1.6.1。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+
+### v1.6.1 更新
+
+- 打开、缩小大图时少占内存：JPEG、PNG 等 8 位图直接解到最后的缓冲区里，解码快约三成；从 100% 缩小时一条条算、直接写进结果。4800 万像素的照片翻图时内存最高约 370 → 300 MB，从 100% 缩小一点时约 620 → 450 MB。
 
 ### v1.6.0 更新
 
