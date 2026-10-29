@@ -233,6 +233,8 @@ pub struct Loader {
     budget: usize,
     /// 收到了新结果，下次 poll 时整理缓存
     dirty: bool,
+    /// 收到了结果（解码线程空出来了）：`wake` 时叫醒解码线程
+    wake_pending: bool,
     /// 当前图要留原图（放大、编辑、复制要用）；换图后清掉
     pinned: Option<PathBuf>,
 }
@@ -250,7 +252,7 @@ impl Loader {
             let (shared, tx) = (shared.clone(), tx.clone());
             std::thread::Builder::new().name(format!("decode-{i}")).spawn(move || worker(&shared, &tx)).expect("spawn decode thread");
         }
-        Self { shared, rx, cache: HashMap::new(), current: None, neighbors: Vec::new(), target: None, generations: HashMap::new(), budget, dirty: false, pinned: None }
+        Self { shared, rx, cache: HashMap::new(), current: None, neighbors: Vec::new(), target: None, generations: HashMap::new(), budget, dirty: false, wake_pending: false, pinned: None }
     }
 
     /// 界面建好后告诉解码线程，解完时让界面重绘
@@ -280,8 +282,8 @@ impl Loader {
         self.generations.get(path).copied().unwrap_or(0)
     }
 
-    /// 把解码线程送回来的结果收进缓存；返回收到了完整解码的图、有没有收到任何结果
-    fn drain(&mut self) -> (Vec<PathBuf>, bool) {
+    /// 把解码线程送回来的结果收进缓存；返回收到了完整解码的图
+    fn drain(&mut self) -> Vec<PathBuf> {
         let mut done = Vec::new();
         let mut any = false;
         while let Ok(d) = self.rx.try_recv() {
@@ -312,8 +314,10 @@ impl Loader {
             }
             self.dirty = true;
         }
-        // 不在这里唤醒解码线程：先整理缓存（排好缩小任务）再唤醒，否则下一张预读会抢在原图放掉之前开始
-        (done, any)
+        // 不在这里唤醒解码线程：先整理缓存（排好缩小任务）、界面也换下不要的原图后再唤醒（`wake`），
+        // 否则下一张预读会抢在原图放掉之前开始
+        self.wake_pending |= any;
+        done
     }
 
     /// 要看这一张：有原图就返回；有按当前窗口做的缩略图就不解码（显示它就够了）；
@@ -476,16 +480,21 @@ impl Loader {
         self.shared.queue.lock().expect("lock").jobs.retain(|job| job.path != path);
     }
 
-    /// 取回解码完成的结果并整理缓存；返回这次收到了哪些图的完整解码
+    /// 取回解码完成的结果并整理缓存；返回这次收到了哪些图的完整解码。
+    /// 不叫醒解码线程：界面先按新的缓存换掉画面（换回缩略图时放掉原图），然后调用 `wake`
     pub fn poll(&mut self) -> Vec<PathBuf> {
-        let (done, any) = self.drain();
+        let done = self.drain();
         if self.dirty {
             self.trim();
         }
-        if any {
+        done
+    }
+
+    /// 收到过结果就叫醒解码线程（排着的缩小、预读可以开始了）
+    pub fn wake(&mut self) {
+        if std::mem::take(&mut self.wake_pending) {
             self.shared.cv.notify_all();
         }
-        done
     }
 }
 

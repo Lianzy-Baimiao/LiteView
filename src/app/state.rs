@@ -204,6 +204,8 @@ impl App {
         self.loader.poll();
         // 结果也可能是 request / preload 时收进缓存的，所以每帧直接看缓存
         self.sync_current();
+        // 换回缩略图时界面放掉了原图，再让下一张预读开始（不然两张大图的像素会同时在内存里）
+        self.loader.wake();
     }
 
     /// 监听当前文件夹：列表变化时重新扫描；图片被外部修改后丢掉缓存，当前图重新载入

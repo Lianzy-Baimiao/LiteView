@@ -4,7 +4,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, channel};
 
-use egui::{ColorImage, Painter, Rect, TextureHandle, TextureOptions, pos2, vec2};
+use egui::{Color32, ColorImage, Painter, Rect, TextureHandle, TextureOptions, pos2, vec2};
 use image::RgbaImage;
 
 use crate::editor::IRect;
@@ -47,8 +47,16 @@ fn target(img: &RgbaImage, zoom: f32) -> (u32, u32) {
 fn compute(img: &RgbaImage, zoom: f32) -> (Axis, Axis, ColorImage) {
     let (w, h) = target(img, zoom);
     let (ax, ay) = (Axis::new(img.width(), w, Filter::CatmullRom), Axis::new(img.height(), h, Filter::CatmullRom));
-    let px = resample::render_all(img, &ax, &ay, true);
-    (ax, ay, ColorImage::from_rgba_premultiplied([w as usize, h as usize], &px))
+    let ci = render_part(img, &ax, &ay, IRect::new(0, 0, w, h));
+    (ax, ay, ci)
+}
+
+/// 输出的 out 这块：一条条算、直接写进结果的像素（不另外留一份 RGBA 再转；4800 万像素缩到九成时这一份约 150 MB）
+fn render_part(img: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect) -> ColorImage {
+    let (w, h) = (out.width() as usize, out.height() as usize);
+    let mut pixels = vec![Color32::TRANSPARENT; w * h];
+    resample::render_banded_into(bytemuck::cast_slice_mut(&mut pixels), img, ax, ay, out, true);
+    ColorImage::new([w, h], pixels)
 }
 
 impl Exact {
@@ -58,8 +66,7 @@ impl Exact {
         if out.is_empty() {
             return;
         }
-        let px = resample::render(img, &self.ax, &self.ay, out, true);
-        let ci = ColorImage::from_rgba_premultiplied([out.width() as usize, out.height() as usize], &px);
+        let ci = render_part(img, &self.ax, &self.ay, out);
         self.tex.set_partial([out.x0 as usize, out.y0 as usize], ci, TextureOptions::LINEAR);
     }
 }
@@ -139,5 +146,23 @@ impl EditTextures {
             e.patch(img, dirty);
         }
         self.exact = Some(e);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// 直接写进 ColorImage 的像素，与以前「算出 RGBA → from_rgba_premultiplied」的结果相同（整张和改了一块）
+    #[test]
+    fn writes_the_same_pixels_as_the_rgba_copy() {
+        let img = RgbaImage::from_fn(900, 700, |x, y| image::Rgba([(x * 7) as u8, (y * 3) as u8, ((x ^ y) * 5) as u8, 128 + (x % 128) as u8]));
+        let (ax, ay, ci) = compute(&img, 0.37);
+        let full = IRect::new(0, 0, ax.len(), ay.len());
+        let old = ColorImage::from_rgba_premultiplied(ci.size, &resample::render(&img, &ax, &ay, full, true));
+        assert_eq!(ci.pixels, old.pixels);
+        let part = IRect::new(13, 40, 300, 233);
+        let old = ColorImage::from_rgba_premultiplied([part.width() as usize, part.height() as usize], &resample::render(&img, &ax, &ay, part, true));
+        assert_eq!(render_part(&img, &ax, &ay, part).pixels, old.pixels);
     }
 }

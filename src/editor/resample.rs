@@ -196,24 +196,26 @@ pub fn resize_into(dst: &mut [u8], src: &RgbaImage, w: u32, h: u32, filter: Filt
     render_all_into(dst, src, &Axis::new(src.width(), w, filter), &Axis::new(src.height(), h, filter), premultiplied);
 }
 
-/// 按已经算好的两个方向整张算
-pub fn render_all(src: &RgbaImage, ax: &Axis, ay: &Axis, premultiplied: bool) -> Vec<u8> {
-    let mut dst = vec![0u8; ax.len() as usize * ay.len() as usize * 4];
-    render_all_into(&mut dst, src, ax, ay, premultiplied);
-    dst
-}
-
 /// 一条一条算、直接写进 dst（每条里面并行）。以前各条同时算再拼起来：16 线程时三十多条的中间结果同时在内存里，
 /// 再加拼接、转换各一份结果，4800 万像素缩到九成时要多几百 MB。每个输出行怎么算与分条无关，结果不变
 pub fn render_all_into(dst: &mut [u8], src: &RgbaImage, ax: &Axis, ay: &Axis, premultiplied: bool) {
-    let (w, h) = (ax.len(), ay.len());
+    render_banded_into(dst, src, ax, ay, IRect::new(0, 0, ax.len(), ay.len()), premultiplied);
+}
+
+/// 输出的 out 这块一条条算、写进 dst（out 那么大）。一次算一大块时中间结果是源行数 × 输出宽：
+/// 编辑时整张图翻转，4800 万像素在 90% 下要约 660 MB；一条条算只有约 8 MB。结果与 `render_into` 一次算的相同
+pub fn render_banded_into(dst: &mut [u8], src: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect, premultiplied: bool) {
+    let (ow, oh) = (out.width(), out.height());
+    if ow == 0 || oh == 0 {
+        return;
+    }
     // 每条的中间结果（源行数 × 输出宽 × 4 个 f32）不超过约 8 MB
-    let src_per_row = f64::from(src.height()) / f64::from(h.max(1));
-    let rows = (8.0 * 1048576.0 / (f64::from(w.max(1)) * 16.0)).max(8.0);
-    let band = ((rows / (src_per_row + 1.0)) as u32).clamp(8, h.max(8));
-    for (i, part) in dst.chunks_mut(band as usize * w as usize * 4).enumerate() {
-        let y0 = i as u32 * band;
-        render_into(part, src, ax, ay, IRect::new(0, y0, w, (y0 + band).min(h)), premultiplied);
+    let src_per_row = f64::from(src.height()) / f64::from(ay.len().max(1));
+    let rows = (8.0 * 1048576.0 / (f64::from(ow) * 16.0)).max(8.0);
+    let band = ((rows / (src_per_row + 1.0)) as u32).clamp(8, oh.max(8));
+    for (i, part) in dst.chunks_mut(band as usize * ow as usize * 4).enumerate() {
+        let y0 = out.y0 + i as u32 * band;
+        render_into(part, src, ax, ay, IRect::new(out.x0, y0, out.x1, (y0 + band).min(out.y1)), premultiplied);
     }
 }
 
@@ -247,6 +249,18 @@ mod tests {
         let mut pixels = vec![egui::Color32::TRANSPARENT; (w * h) as usize];
         resize_into(bytemuck::cast_slice_mut(&mut pixels), &src, w, h, Filter::CatmullRom, true);
         assert_eq!(bytemuck::cast_slice::<_, u8>(&pixels), &one[..]);
+    }
+
+    /// 只算一块（编辑时改了一部分）也一条条算：十来条，与这块一次算出来的逐字节相同
+    #[test]
+    fn banded_part_matches_one_pass() {
+        let src = noise(3000, 2000);
+        let (ax, ay) = (Axis::new(3000, 2000, Filter::CatmullRom), Axis::new(2000, 900, Filter::CatmullRom));
+        let part = IRect::new(100, 50, 1900, 870);
+        let one = render(&src, &ax, &ay, part, true);
+        let mut banded = vec![0u8; one.len()];
+        render_banded_into(&mut banded, &src, &ax, &ay, part, true);
+        assert_eq!(banded, one);
     }
 
     #[test]
