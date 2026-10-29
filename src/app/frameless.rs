@@ -23,10 +23,12 @@ pub(crate) const HUG_MIN: egui::Vec2 = egui::vec2(160.0, 100.0);
 /// 有标题栏时的最小窗口（与 `app::viewport` 相同）
 const NORMAL_MIN: egui::Vec2 = egui::vec2(520.0, 360.0);
 /// 打开新图时最多占工作区的这么多（与「窗口适应图片大小」相同）
+#[cfg(windows)]
 const HUG_SCREEN: f32 = 0.9;
 
 /// 窗口跟着图片：想要的客户区大小 want（物理像素，已限在最小 / 工作区之间），让 anchor（窗口里的相对位置，0..1）
 /// 在屏幕上不动，再整个挪进工作区。返回 (左, 上, 右, 下)
+#[cfg(windows)]
 pub(crate) fn hug_rect(cur: (i32, i32, i32, i32), want: (i32, i32), anchor: (f32, f32), work: (i32, i32, i32, i32)) -> (i32, i32, i32, i32) {
     let (w, h) = (want.0.clamp(1, (work.2 - work.0).max(1)), want.1.clamp(1, (work.3 - work.1).max(1)));
     let ax = cur.0 as f32 + (cur.2 - cur.0) as f32 * anchor.0;
@@ -335,7 +337,9 @@ fn caption_button(ui: &mut egui::Ui, r: Rect, glyph: Glyph, tip: &str, p: &theme
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(windows)]
     use crate::settings::Settings;
+    #[cfg(windows)]
     use crate::viewer::loader::Loader;
 
     #[cfg(windows)]
@@ -368,6 +372,7 @@ mod tests {
         assert_eq!(edge_at(r, pos2(900.0, 300.0)), None);
     }
 
+    #[cfg(windows)]
     #[test]
     fn the_hugging_window_keeps_the_anchor_still_and_stays_inside_the_work_area() {
         let work = (0, 0, 3840, 2160);
