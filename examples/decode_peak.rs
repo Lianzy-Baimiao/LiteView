@@ -76,7 +76,14 @@ fn main() {
             std::hint::black_box(out);
             return;
         }
-        _ => panic!("mode: native / old / inplace / full / resample-old-0.9 / resample-new-0.9"),
+        // 做测试图：同一张图存成 16 位 RGB（按扩展名选 PNG / TIFF）
+        m if m.starts_with("save16=") => {
+            let out = &m["save16=".len()..];
+            image::load_from_memory(&data).expect("decode").into_rgb16().save(out).expect("save");
+            println!("{out}");
+            return;
+        }
+        _ => panic!("mode: native / old / inplace / full / resample-old-0.9 / resample-new-0.9 / save16=<out.png|tif>"),
     };
     let (peak, now) = peak_mb();
     println!(
