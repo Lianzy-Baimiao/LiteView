@@ -37,6 +37,21 @@ impl Transform {
         pos2(rect.left() + s * rect.width(), rect.top() + t * rect.height())
     }
 
+    /// `map` 反过来：屏幕坐标 → 原图上的归一化坐标
+    pub fn unmap(&self, rect: Rect, p: Pos2) -> (f32, f32) {
+        let (mut s, mut t) = ((p.x - rect.left()) / rect.width(), (p.y - rect.top()) / rect.height());
+        if self.flip_v {
+            t = 1.0 - t;
+        }
+        if self.flip_h {
+            s = 1.0 - s;
+        }
+        for _ in 0..self.rotation % 4 {
+            (s, t) = (t, 1.0 - s);
+        }
+        (s, t)
+    }
+
     /// 屏幕上顺时针 / 逆时针转 90°（转之前的翻转方向随之互换）
     pub fn rotate(&mut self, clockwise: bool) {
         self.rotation = (self.rotation + if clockwise { 1 } else { 3 }) % 4;
@@ -191,6 +206,20 @@ mod tests {
 
     fn canvas() -> Rect {
         Rect::from_min_size(Pos2::ZERO, vec2(800.0, 600.0))
+    }
+
+    #[test]
+    fn unmap_undoes_map_for_every_rotation_and_flip() {
+        let rect = Rect::from_min_size(pos2(30.0, -40.0), vec2(300.0, 200.0));
+        for rotation in 0..4 {
+            for (flip_h, flip_v) in [(false, false), (true, false), (false, true), (true, true)] {
+                let xf = Transform { rotation, flip_h, flip_v };
+                for (u, v) in [(0.0, 0.0), (0.25, 0.75), (1.0, 0.5), (0.9, 0.1)] {
+                    let (a, b) = xf.unmap(rect, xf.map(rect, u, v));
+                    assert!((a - u).abs() < 1e-5 && (b - v).abs() < 1e-5, "{xf:?} ({u}, {v}) -> ({a}, {b})");
+                }
+            }
+        }
     }
 
     #[test]

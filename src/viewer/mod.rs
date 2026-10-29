@@ -4,6 +4,7 @@ pub mod animation;
 pub mod folder;
 pub mod loader;
 pub mod playback;
+pub mod svg;
 pub mod texture;
 pub mod view;
 pub mod watch;

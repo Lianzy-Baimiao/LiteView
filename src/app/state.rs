@@ -42,6 +42,7 @@ impl App {
             return;
         };
         self.cur = Some(Current { path: path.clone(), loaded: None, preview: None, since: Instant::now(), clipboard: false });
+        self.sharp_svg.reset();
         self.full_requested = false;
         self.settle_since = None;
         self.pending_action = None;
@@ -301,6 +302,8 @@ impl App {
         let Some(cur) = &mut self.cur else { return };
         cur.loaded = Some(l.clone());
         cur.preview = None;
+        // 当新图处理（包括文件在外面改了、重新载入）：之前按旧内容重画的不要了
+        self.sharp_svg.reset();
         match l {
             Ok(d) => {
                 self.begin_show(Shown { width: d.info.width, height: d.info.height, has_alpha: d.info.has_alpha });

@@ -45,14 +45,34 @@ pub fn preload_fontdb() {
     }
 }
 
-pub fn svg(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
+/// 解析 SVG（有文字时带上系统字体）
+pub fn parse_svg(data: &[u8]) -> Result<resvg::usvg::Tree, Error> {
     let mut opt = resvg::usvg::Options::default();
     if data.windows(5).any(|w| w == b"<text") {
         opt.fontdb = fontdb();
     }
-    let tree = resvg::usvg::Tree::from_data(data, &opt).map_err(|e| Error::Corrupt(e.to_string()))?;
+    resvg::usvg::Tree::from_data(data, &opt).map_err(|e| Error::Corrupt(e.to_string()))
+}
+
+/// SVG 栅格化成多大（长边 2048）：显示、编辑用的就是这张
+pub fn svg_raster_scale(tree: &resvg::usvg::Tree) -> f32 {
     let s = tree.size();
-    let scale = SVG_SIDE / s.width().max(s.height()).max(1.0);
+    SVG_SIDE / s.width().max(s.height()).max(1.0)
+}
+
+/// 放大看 SVG 时按屏幕重画看得见的那块：栅格（长边 2048）上从 (x0, y0) 起放大 zoom 倍，画进 out_w × out_h 的
+/// 预乘透明度 RGBA（out 要先清成全透明；与 egui 的 Color32 排列相同）。out 大小不对时返回 false
+pub fn render_svg_region_into(tree: &resvg::usvg::Tree, zoom: f32, x0: f32, y0: f32, out: &mut [u8], out_w: u32, out_h: u32) -> bool {
+    let s = svg_raster_scale(tree) * zoom;
+    let Some(mut pix) = resvg::tiny_skia::PixmapMut::from_bytes(out, out_w, out_h) else { return false };
+    resvg::render(tree, resvg::tiny_skia::Transform::from_row(s, 0.0, 0.0, s, -x0 * zoom, -y0 * zoom), &mut pix);
+    true
+}
+
+pub fn svg(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
+    let tree = parse_svg(data)?;
+    let s = tree.size();
+    let scale = svg_raster_scale(&tree);
     let (w, h) = ((s.width() * scale).round().max(1.0) as u32, (s.height() * scale).round().max(1.0) as u32);
     opts.check_working(w, h, 16)?;
     let mut pix = resvg::tiny_skia::Pixmap::new(w, h).ok_or(Error::TooLarge { width: w, height: h })?;
@@ -309,6 +329,46 @@ mod tests {
         let d = svg(br#"<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="red"/></svg>"#, &Options::default()).unwrap();
         assert_eq!((d.info.width, d.info.height), (2048, 1024));
         assert_eq!(d.first_image().get_pixel(5, 5).0, [255, 0, 0, 255]);
+    }
+
+    /// 放大重画的一块与按同样倍数整张画出来的对应部分相同；zoom = 1 时就是显示用的那张
+    #[test]
+    fn svg_region_matches_the_same_part_of_a_full_render() {
+        let data = br##"<svg xmlns="http://www.w3.org/2000/svg" width="40" height="30"><circle cx="17" cy="13" r="9" fill="#2a6" stroke="#000" stroke-width="0.7"/><path d="M2 28 L38 3" stroke="#c22" stroke-width="0.4"/></svg>"##;
+        let tree = parse_svg(data).unwrap();
+        let render = |zoom: f32, x0: f32, y0: f32, w: u32, h: u32| {
+            let mut out = vec![0u8; (w * h * 4) as usize];
+            assert!(render_svg_region_into(&tree, zoom, x0, y0, &mut out, w, h));
+            out
+        };
+        let (zoom, full_w, full_h) = (1.5f32, 3072, 2304);
+        let full = render(zoom, 0.0, 0.0, full_w, full_h);
+        let (x0, y0, w, h) = (700u32, 400u32, 333u32, 210u32);
+        let part = render(zoom, x0 as f32 / zoom, y0 as f32 / zoom, w, h);
+        // 与整张画的错开 (dx, dy) 比：差超过 1 的像素数。只画一块时抗锯齿的边缘与整张画的有一点不同（tiny-skia），
+        // 对齐时只有边缘上少数几个像素；错开一个像素，每条边都会差
+        let differ = |dx: u32, dy: u32| {
+            let (mut n, mut sum) = (0usize, 0u64);
+            for y in 0..h {
+                for x in 0..w {
+                    let a = &part[((y * w + x) * 4) as usize..][..4];
+                    let b = &full[(((y0 + dy + y) * full_w + x0 + dx + x) * 4) as usize..][..4];
+                    n += usize::from(a.iter().zip(b).any(|(a, b)| a.abs_diff(*b) > 1));
+                    sum += a.iter().zip(b).map(|(a, b)| u64::from(a.abs_diff(*b))).sum::<u64>();
+                }
+            }
+            (n, sum)
+        };
+        // 本机：对齐时 459 个像素、差的总和 14245；错开一个像素 107143 / 118303
+        let (aligned, (dx, dy)) = (differ(0, 0), (differ(1, 0), differ(0, 1)));
+        assert!(aligned.0 * 100 < (w * h) as usize, "{aligned:?} of {} pixels differ", w * h);
+        assert!(aligned.1 * 4 < dx.1 && aligned.1 * 4 < dy.1, "aligned {aligned:?}, off by one {dx:?} / {dy:?}");
+        let base = svg(data, &Options::default()).unwrap();
+        let one = render(1.0, 0.0, 0.0, 2048, 1536);
+        // 圆里面一点（不透明，预乘与否一样）
+        let px = |v: &[u8], x: u32, y: u32| v[((y * 2048 + x) * 4) as usize..][..4].to_vec();
+        assert_eq!(px(&one, 870, 665)[3], 255);
+        assert_eq!(px(&one, 870, 665), base.first_image().get_pixel(870, 665).0.to_vec());
     }
 
     #[test]

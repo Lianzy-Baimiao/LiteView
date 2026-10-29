@@ -101,6 +101,17 @@ impl App {
         self.view.image_rect(rect, ppp, size)
     }
 
+    /// 正在看的是 SVG（原图或缩略图里记着格式）
+    fn svg_format(&self) -> bool {
+        let Some(c) = &self.cur else { return false };
+        let format = match (&c.loaded, &c.preview) {
+            (Some(Ok(d)), _) => d.info.format,
+            (_, Some(p)) => p.info.format,
+            _ => return false,
+        };
+        format == "SVG"
+    }
+
     fn paint_image(&mut self, ctx: &egui::Context, painter: &egui::Painter, img_rect: Rect) {
         let (xf, zoom, settled) = (self.view.xf, self.view.zoom, !self.view.animating());
         let nearest = self.settings.nearest_above as f32 / 100.0;
@@ -110,8 +121,22 @@ impl App {
         {
             self.want_full();
         }
+        // 放大看 SVG：看得见的那块按屏幕重画后叠上去；盖住整块时底下发虚的栅格不画
+        let svg = match (&self.tex, &self.cur, self.shown) {
+            (Tex::Still(_), Some(c), Some(s)) if zoom > 1.0 && !c.clipboard && self.svg_format() => Some((c.path.clone(), (s.width, s.height))),
+            _ => None,
+        };
+        let sharp = match &svg {
+            Some((path, size)) => self.sharp_svg.overlay(ctx, painter.clip_rect(), path, img_rect, xf, *size, zoom, settled),
+            None => {
+                self.sharp_svg.drop_overlay();
+                None
+            }
+        };
+        let covered = sharp.as_ref().is_some_and(|s| s.1);
         match &mut self.tex {
             Tex::None => {}
+            Tex::Still(_) if covered => {}
             Tex::Still(t) => t.paint(ctx, painter, img_rect, zoom, xf, nearest, settled),
             Tex::Anim { decoded, tex, frames } => {
                 let crate::decode::Content::Animation { delays, .. } = &decoded.content else { return };
@@ -142,6 +167,9 @@ impl App {
                     self.show_toast(tr().err_corrupt);
                 }
             }
+        }
+        if let Some((mesh, _)) = sharp {
+            painter.add(mesh);
         }
         if !self.first_paint_logged {
             self.first_paint_logged = true;

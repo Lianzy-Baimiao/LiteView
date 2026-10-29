@@ -114,6 +114,8 @@ pub struct App {
     pub(crate) cur: Option<Current>,
     pub(crate) view: View,
     pub(crate) tex: Tex,
+    /// 放大看 SVG 时按屏幕重画的那块
+    pub(crate) sharp_svg: crate::viewer::svg::SharpSvg,
     pub(crate) shown: Option<Shown>,
     pub(crate) wheel_acc: f32,
     pub(crate) play: Option<Playback>,
@@ -425,6 +427,7 @@ impl App {
             cur: None,
             view: View::default(),
             tex: Tex::None,
+            sharp_svg: Default::default(),
             shown: None,
             wheel_acc: 0.0,
             play: None,

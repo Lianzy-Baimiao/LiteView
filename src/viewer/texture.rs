@@ -200,6 +200,11 @@ pub fn update_tiles(tiles: &mut [Tile], img: &RgbaImage, x0: u32, y0: u32, x1: u
 
 /// 画一块：原图归一化区域 src = [u0, v0, u1, v1] 经 xf 映射到屏幕
 pub fn quad(painter: &Painter, tex: egui::TextureId, rect: Rect, xf: Transform, src: [f32; 4], uv: Rect) {
+    painter.add(quad_mesh(tex, rect, xf, src, uv));
+}
+
+/// 同 `quad`，只给出要画的网格
+pub fn quad_mesh(tex: egui::TextureId, rect: Rect, xf: Transform, src: [f32; 4], uv: Rect) -> Mesh {
     let [u0, v0, u1, v1] = src;
     let mut mesh = Mesh::with_texture(tex);
     let corners = [(u0, v0, uv.left_top()), (u1, v0, uv.right_top()), (u1, v1, uv.right_bottom()), (u0, v1, uv.left_bottom())];
@@ -210,7 +215,7 @@ pub fn quad(painter: &Painter, tex: egui::TextureId, rect: Rect, xf: Transform, 
     }
     mesh.add_triangle(0, 1, 2);
     mesh.add_triangle(0, 2, 3);
-    painter.add(mesh);
+    mesh
 }
 
 fn options(nearest: bool) -> TextureOptions {
