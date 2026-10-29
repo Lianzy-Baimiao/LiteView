@@ -246,8 +246,11 @@ pub fn upload(ctx: &egui::Context, name: &str, img: &RgbaImage, max_side: usize,
 
 /// 高质量缩小到 w × h（与编辑时缩小显示用同一个算法，多线程）
 pub(crate) fn resample(src: &RgbaImage, w: u32, h: u32) -> ColorImage {
-    let out = crate::editor::resample::resize(src, w, h, crate::editor::resample::Filter::CatmullRom, true);
-    ColorImage::from_rgba_premultiplied([w as usize, h as usize], &out)
+    // 直接写进结果的像素（不另外留一份 RGBA 再转）
+    let (w, h) = (w.max(1), h.max(1));
+    let mut pixels = vec![Color32::TRANSPARENT; w as usize * h as usize];
+    crate::editor::resample::resize_into(bytemuck::cast_slice_mut(&mut pixels), src, w, h, crate::editor::resample::Filter::CatmullRom, true);
+    ColorImage::new([w as usize, h as usize], pixels)
 }
 
 /// 这么多像素以下单线程转换（不到 1 ms）：动图每次换帧都叫醒全部线程池线程，它们空转一会儿才睡，

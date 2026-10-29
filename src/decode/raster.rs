@@ -24,10 +24,21 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
         Ok(o) => o,
     };
     let color = decoder.color_type();
-    let mut img = DynamicImage::from_decoder(decoder).map_err(img_error)?;
-    img.apply_orientation(orientation);
     let channels = color.channel_count();
-    let rgba = to_rgba8(img, format);
+    let rgba = if let (Some(bpp), true) = (expandable(color), in_place(orientation)) {
+        // 8 位灰度 / RGB / RGBA（大多数 JPEG、PNG）：直接解到最后的 RGBA 缓冲区开头，再原地展开；
+        // 不旋转 90° 时翻转也原地做。以前原始像素和 RGBA 同时在内存里（1200 万像素 RGB 多 36 MB）
+        let mut buf = vec![0u8; w as usize * h as usize * 4];
+        decoder.read_image(&mut buf[..w as usize * h as usize * bpp]).map_err(img_error)?;
+        expand_in_place(&mut buf, bpp);
+        let mut img = RgbaImage::from_raw(w, h, buf).expect("buffer size");
+        orient_in_place(&mut img, orientation);
+        img
+    } else {
+        let mut img = DynamicImage::from_decoder(decoder).map_err(img_error)?;
+        img.apply_orientation(orientation);
+        to_rgba8(img, format)
+    };
     Ok(Decoded {
         info: Info {
             format: format_name(format),
@@ -43,6 +54,42 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
         },
         content: Content::Still { image: Arc::new(rgba), levels: Vec::new() },
     })
+}
+
+/// 能在 RGBA 缓冲区里原地展开的像素格式：每像素几个字节
+fn expandable(c: image::ColorType) -> Option<usize> {
+    use image::ColorType::{L8, La8, Rgb8, Rgba8};
+    matches!(c, L8 | La8 | Rgb8 | Rgba8).then(|| usize::from(c.bytes_per_pixel()))
+}
+
+/// 不改变宽高的方向（不转 90°）：可以在 RGBA 上原地翻转
+fn in_place(o: Orientation) -> bool {
+    matches!(o, Orientation::NoTransforms | Orientation::Rotate180 | Orientation::FlipHorizontal | Orientation::FlipVertical)
+}
+
+/// buf 开头是每像素 bpp 字节的灰度 / 灰度 + 透明 / RGB / RGBA，从后往前展开成 RGBA（写的位置总不在还没读的前面）
+fn expand_in_place(buf: &mut [u8], bpp: usize) {
+    let n = buf.len() / 4;
+    for i in (0..n).rev() {
+        let s = i * bpp;
+        let p = match bpp {
+            1 => [buf[s], buf[s], buf[s], 255],
+            2 => [buf[s], buf[s], buf[s], buf[s + 1]],
+            3 => [buf[s], buf[s + 1], buf[s + 2], 255],
+            _ => return,
+        };
+        buf[i * 4..i * 4 + 4].copy_from_slice(&p);
+    }
+}
+
+fn orient_in_place(img: &mut RgbaImage, o: Orientation) {
+    use image::imageops::{flip_horizontal_in_place, flip_vertical_in_place, rotate180_in_place};
+    match o {
+        Orientation::Rotate180 => rotate180_in_place(img),
+        Orientation::FlipHorizontal => flip_horizontal_in_place(img),
+        Orientation::FlipVertical => flip_vertical_in_place(img),
+        _ => {}
+    }
 }
 
 fn to_rgba8(img: DynamicImage, format: ImageFormat) -> RgbaImage {
@@ -115,6 +162,49 @@ pub fn halve(src: &RgbaImage) -> RgbaImage {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 原地展开 + 原地翻转与以前的「解成原始格式 → 转方向 → 转 RGBA」逐像素相同
+    #[test]
+    fn in_place_expansion_matches_the_old_conversion() {
+        use image::{GrayAlphaImage, GrayImage, RgbImage};
+        let (w, h) = (5u32, 3u32);
+        let byte = |i: usize| (i * 37 % 251) as u8;
+        let bufs: Vec<(DynamicImage, usize)> = vec![
+            (DynamicImage::ImageLuma8(GrayImage::from_fn(w, h, |x, y| image::Luma([byte((y * w + x) as usize)]))), 1),
+            (DynamicImage::ImageLumaA8(GrayAlphaImage::from_fn(w, h, |x, y| image::LumaA([byte((y * w + x) as usize), byte(x as usize * 9)]))), 2),
+            (DynamicImage::ImageRgb8(RgbImage::from_fn(w, h, |x, y| image::Rgb([byte(x as usize), byte(y as usize * 5), byte((x + y) as usize * 3)]))), 3),
+            (DynamicImage::ImageRgba8(RgbaImage::from_fn(w, h, |x, y| image::Rgba([byte(x as usize), byte(y as usize), 7, byte(x as usize * 11)]))), 4),
+        ];
+        for (src, bpp) in bufs {
+            assert_eq!(expandable(src.color()), Some(bpp));
+            for o in [Orientation::NoTransforms, Orientation::Rotate180, Orientation::FlipHorizontal, Orientation::FlipVertical] {
+                let mut old = src.clone();
+                old.apply_orientation(o);
+                let old = old.into_rgba8();
+                let mut buf = vec![0u8; (w * h * 4) as usize];
+                buf[..src.as_bytes().len()].copy_from_slice(src.as_bytes());
+                expand_in_place(&mut buf, bpp);
+                let mut new = RgbaImage::from_raw(w, h, buf).unwrap();
+                orient_in_place(&mut new, o);
+                assert_eq!(new, old, "{:?} {o:?}", src.color());
+            }
+        }
+        // 转 90° 的、16 位的还走以前的路
+        assert!(!in_place(Orientation::Rotate90));
+        assert_eq!(expandable(image::ColorType::Rgb16), None);
+    }
+
+    /// 整个解码：8 位 RGB 的 PNG 走新路，结果与 image 自己转的一样
+    #[test]
+    fn rgb_png_decodes_to_the_same_pixels() {
+        let src = image::RgbImage::from_fn(7, 4, |x, y| image::Rgb([(x * 30) as u8, (y * 60) as u8, (x * y) as u8]));
+        let mut png = Vec::new();
+        src.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
+        let d = decode(&png, ImageFormat::Png, &Options::default()).unwrap();
+        let Content::Still { image, .. } = d.content else { panic!("still") };
+        assert_eq!(*image, DynamicImage::ImageRgb8(src).into_rgba8());
+        assert_eq!((d.info.channels, d.info.has_alpha), (3, false));
+    }
 
     #[test]
     fn halve_weights_alpha_and_handles_odd_sizes() {

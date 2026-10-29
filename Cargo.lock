@@ -2168,6 +2168,7 @@ name = "liteview"
 version = "1.6.0"
 dependencies = [
  "arboard",
+ "bytemuck",
  "chrono",
  "color_quant",
  "eframe",

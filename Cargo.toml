@@ -30,6 +30,8 @@ rfd = "=0.17.2"
 trash = { version = "=5.2.9", default-features = false, features = ["coinit_apartmentthreaded"] }
 sys-locale = "=0.3.2"
 raw-window-handle = "=0.6.2"
+# egui 的 Color32 当字节切片写（已经由 egui-winit 带进来）
+bytemuck = "=1.25.2"
 kamadak-exif = "=0.6.1"
 jxl-oxide = "=0.12.6"
 chrono = { version = "=0.4.45", default-features = false, features = ["clock", "std"] }

@@ -117,9 +117,16 @@ pub fn affected(ax: &Axis, ay: &Axis, src: IRect) -> IRect {
 
 /// 算输出的 out 这块；premultiplied = 结果是预乘透明度的（给显卡），否则是普通 RGBA
 pub fn render(src: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect, premultiplied: bool) -> Vec<u8> {
+    let mut dst = vec![0u8; out.width() as usize * out.height() as usize * 4];
+    render_into(&mut dst, src, ax, ay, out, premultiplied);
+    dst
+}
+
+/// 同 `render`，写进 dst（out 那么大）
+pub fn render_into(dst: &mut [u8], src: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect, premultiplied: bool) {
     let (ow, oh) = (out.width() as usize, out.height() as usize);
     if ow == 0 || oh == 0 {
-        return Vec::new();
+        return;
     }
     // 竖直方向要用到的源行
     let sy0 = ay.span(out.y0).0;
@@ -146,7 +153,7 @@ pub fn render(src: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect, premultiplied: 
         }
     });
     // 竖直方向
-    let mut dst = vec![0u8; ow * oh * 4];
+    debug_assert_eq!(dst.len(), ow * oh * 4);
     dst.par_chunks_mut(ow * 4).enumerate().for_each(|(k, line)| {
         let (l, w) = &ay.taps[(out.y0 as usize) + k];
         for x in 0..ow {
@@ -174,22 +181,40 @@ pub fn render(src: &RgbaImage, ax: &Axis, ay: &Axis, out: IRect, premultiplied: 
             px[3] = a.round() as u8;
         }
     });
-    dst
 }
 
 /// 整张图缩放到 w × h（分成几条并行算）
 pub fn resize(src: &RgbaImage, w: u32, h: u32, filter: Filter, premultiplied: bool) -> Vec<u8> {
     let (w, h) = (w.max(1), h.max(1));
-    render_all(src, &Axis::new(src.width(), w, filter), &Axis::new(src.height(), h, filter), premultiplied)
+    let mut dst = vec![0u8; w as usize * h as usize * 4];
+    resize_into(&mut dst, src, w, h, filter, premultiplied);
+    dst
+}
+
+/// 同 `resize`，写进 dst（w × h × 4 字节）
+pub fn resize_into(dst: &mut [u8], src: &RgbaImage, w: u32, h: u32, filter: Filter, premultiplied: bool) {
+    render_all_into(dst, src, &Axis::new(src.width(), w, filter), &Axis::new(src.height(), h, filter), premultiplied);
 }
 
 /// 按已经算好的两个方向整张算
 pub fn render_all(src: &RgbaImage, ax: &Axis, ay: &Axis, premultiplied: bool) -> Vec<u8> {
+    let mut dst = vec![0u8; ax.len() as usize * ay.len() as usize * 4];
+    render_all_into(&mut dst, src, ax, ay, premultiplied);
+    dst
+}
+
+/// 一条一条算、直接写进 dst（每条里面并行）。以前各条同时算再拼起来：16 线程时三十多条的中间结果同时在内存里，
+/// 再加拼接、转换各一份结果，4800 万像素缩到九成时要多几百 MB。每个输出行怎么算与分条无关，结果不变
+pub fn render_all_into(dst: &mut [u8], src: &RgbaImage, ax: &Axis, ay: &Axis, premultiplied: bool) {
     let (w, h) = (ax.len(), ay.len());
-    let band = (h as usize / (rayon::current_num_threads() * 2).max(1)).clamp(16, 256) as u32;
-    let bands: Vec<u32> = (0..h).step_by(band as usize).collect();
-    let parts: Vec<Vec<u8>> = bands.par_iter().map(|&y0| render(src, ax, ay, IRect::new(0, y0, w, (y0 + band).min(h)), premultiplied)).collect();
-    parts.concat()
+    // 每条的中间结果（源行数 × 输出宽 × 4 个 f32）不超过约 8 MB
+    let src_per_row = f64::from(src.height()) / f64::from(h.max(1));
+    let rows = (8.0 * 1048576.0 / (f64::from(w.max(1)) * 16.0)).max(8.0);
+    let band = ((rows / (src_per_row + 1.0)) as u32).clamp(8, h.max(8));
+    for (i, part) in dst.chunks_mut(band as usize * w as usize * 4).enumerate() {
+        let y0 = i as u32 * band;
+        render_into(part, src, ax, ay, IRect::new(0, y0, w, (y0 + band).min(h)), premultiplied);
+    }
 }
 
 /// 调整大小：普通 RGBA 结果
@@ -209,6 +234,19 @@ mod tests {
             let v = s.to_le_bytes();
             image::Rgba([v[0], v[1], v[2], v[3] | 0x80])
         })
+    }
+
+    /// 输出宽 2000 时每条约 37 行、分二十多条一条条算：与整张一次算出来的逐字节相同
+    #[test]
+    fn banded_resize_matches_one_pass() {
+        let src = noise(3000, 2000);
+        let (w, h) = (2000, 900);
+        let (ax, ay) = (Axis::new(3000, w, Filter::CatmullRom), Axis::new(2000, h, Filter::CatmullRom));
+        let one = render(&src, &ax, &ay, IRect::new(0, 0, w, h), true);
+        assert_eq!(resize(&src, w, h, Filter::CatmullRom, true), one);
+        let mut pixels = vec![egui::Color32::TRANSPARENT; (w * h) as usize];
+        resize_into(bytemuck::cast_slice_mut(&mut pixels), &src, w, h, Filter::CatmullRom, true);
+        assert_eq!(bytemuck::cast_slice::<_, u8>(&pixels), &one[..]);
     }
 
     #[test]
