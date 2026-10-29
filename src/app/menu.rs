@@ -31,6 +31,7 @@ impl App {
         shown.is_some()
     }
 
+    /// 常用的放在第一层；同类的收进子菜单（鼠标指上去才出来），窗口矮时也少滚动
     fn menu_items(&mut self, ui: &mut egui::Ui) {
         ui.set_min_width(230.0);
         // 菜单项不折行：留出滚动条后宁可变宽
@@ -60,58 +61,60 @@ impl App {
             self.copy_image();
             ui.close();
         }
-        if item(ui, t.copy_path, format!("{c}Shift+C"), has_file) {
-            self.copy_path(ui.ctx());
-            ui.close();
-        }
-        ui.separator();
-        if item(ui, t.rotate_cw, format!("{c}R"), has_img) {
-            self.rotate(true);
-            ui.close();
-        }
-        if item(ui, t.rotate_ccw, format!("{c}Shift+R"), has_img) {
-            self.rotate(false);
-            ui.close();
-        }
-        if item(ui, t.flip_h, String::new(), has_img) {
-            self.view.xf.flip_h = !self.view.xf.flip_h;
-            ui.close();
-        }
-        if item(ui, t.flip_v, String::new(), has_img) {
-            self.view.xf.flip_v = !self.view.xf.flip_v;
-            ui.close();
-        }
-        ui.separator();
         let save_label = if self.is_animated() { t.export_frame } else { t.save_as };
         if item(ui, save_label, format!("{c}Shift+S"), has_img) {
             ui.close();
             self.save_as();
-        }
-        if item(ui, t.rename, "F2".into(), has_file) {
-            ui.close();
-            self.start_rename();
-        }
-        if crate::platform::has_wallpaper() && item(ui, t.set_wallpaper, String::new(), has_img) {
-            ui.close();
-            self.set_wallpaper();
-        }
-        if item(ui, super::canvas::folder_label(), String::new(), has_file) {
-            if let Some(cur) = &self.cur {
-                crate::platform::show_in_folder(&cur.path);
-            }
-            ui.close();
-        }
-        if crate::platform::has_open_with() && item(ui, t.open_with, String::new(), has_file) {
-            if let Some(cur) = &self.cur {
-                crate::platform::open_with(&cur.path);
-            }
-            ui.close();
         }
         #[cfg(windows)]
         if item(ui, t.print, format!("{c}P"), has_img) {
             ui.close();
             self.open_print();
         }
+        ui.menu_button(t.rotate_flip, |ui| {
+            if item(ui, t.rotate_cw, format!("{c}R"), has_img) {
+                self.rotate(true);
+                ui.close();
+            }
+            if item(ui, t.rotate_ccw, format!("{c}Shift+R"), has_img) {
+                self.rotate(false);
+                ui.close();
+            }
+            if item(ui, t.flip_h, String::new(), has_img) {
+                self.view.xf.flip_h = !self.view.xf.flip_h;
+                ui.close();
+            }
+            if item(ui, t.flip_v, String::new(), has_img) {
+                self.view.xf.flip_v = !self.view.xf.flip_v;
+                ui.close();
+            }
+        });
+        ui.menu_button(t.file_menu, |ui| {
+            if item(ui, t.copy_path, format!("{c}Shift+C"), has_file) {
+                self.copy_path(ui.ctx());
+                ui.close();
+            }
+            if item(ui, t.rename, "F2".into(), has_file) {
+                ui.close();
+                self.start_rename();
+            }
+            if item(ui, super::canvas::folder_label(), String::new(), has_file) {
+                if let Some(cur) = &self.cur {
+                    crate::platform::show_in_folder(&cur.path);
+                }
+                ui.close();
+            }
+            if crate::platform::has_open_with() && item(ui, t.open_with, String::new(), has_file) {
+                if let Some(cur) = &self.cur {
+                    crate::platform::open_with(&cur.path);
+                }
+                ui.close();
+            }
+            if crate::platform::has_wallpaper() && item(ui, t.set_wallpaper, String::new(), has_img) {
+                ui.close();
+                self.set_wallpaper();
+            }
+        });
         ui.separator();
         let del = egui::Button::new(RichText::new(t.delete).color(if has_file { p.danger } else { p.text_weak })).shortcut_text("Del");
         if ui.add_enabled(has_file, del).clicked() {
@@ -119,17 +122,22 @@ impl App {
             self.request_delete(false);
         }
         ui.separator();
-        if super::frameless::SUPPORTED {
-            let mut on = self.settings.window.borderless;
-            if ui.checkbox(&mut on, format!("{}    Ctrl+B", t.borderless)).clicked() {
-                ui.close();
-                self.toggle_borderless();
+        ui.menu_button(t.window_menu, |ui| {
+            if super::frameless::SUPPORTED {
+                let mut on = self.settings.window.borderless;
+                if ui.checkbox(&mut on, format!("{}    Ctrl+B", t.borderless)).clicked() {
+                    ui.close();
+                    self.toggle_borderless();
+                }
+                // 默认关：要多建一个小窗口（多一份显卡设备和界面）
+                if ui.checkbox(&mut self.settings.window.toolbar_outside, t.toolbar_outside).on_hover_text(t.toolbar_outside_tip).clicked() {
+                    ui.close();
+                }
             }
-        }
-        if ui.checkbox(&mut self.settings.window.always_on_top, t.always_on_top).clicked() {
-            ui.close();
-        }
-        ui.separator();
+            if ui.checkbox(&mut self.settings.window.always_on_top, t.always_on_top).clicked() {
+                ui.close();
+            }
+        });
         if item(ui, t.info, "I".into(), has_img) {
             ui.close();
             self.info_open = true;

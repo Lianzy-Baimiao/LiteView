@@ -28,7 +28,8 @@ impl App {
         let inside = !blocked && ctx.input(|i| i.pointer.has_pointer());
         // 无边框、窗口比工具栏还窄时，工具栏和播放条放到图片下面的小窗口里（`dock_ui`，窗口循环去画），不在窗口里截断
         // 按这个窗口宽度下会画的那种工具栏（窄时没有「适应窗口」「原始大小」，动图另有播放条）比，放得下就留在窗口里
-        self.docked = self.frameless() && self.canvas.width() < self.toolbar_w[self.bar_kind()] + DOCK_ROOM;
+        // 右键菜单「窗口 → 工具栏放不下时放到图片下面」开着才这样（默认关）
+        self.docked = self.frameless() && self.settings.window.toolbar_outside && self.canvas.width() < self.toolbar_w[self.bar_kind()] + DOCK_ROOM;
         if !self.docked && !ctx.input(|i| i.pointer.primary_down()) {
             self.flip.button = None;
         }
@@ -122,6 +123,12 @@ impl App {
     /// 工具栏的样子：0 / 1 = 窄（没有「适应窗口」「原始大小」），2 / 3 = 宽；单数 = 动图（多一条播放条）
     pub(crate) fn bar_kind(&self) -> usize {
         usize::from(self.canvas.width() >= 640.0) * 2 + usize::from(self.is_animated())
+    }
+
+    /// 窗口循环问：小窗口还要不要留着（关掉了这个选项或无边框时连它的显卡设备一起放掉）
+    #[cfg(windows)]
+    pub(crate) fn dock_allowed(&self) -> bool {
+        self.settings.window.borderless && self.settings.window.toolbar_outside
     }
 
     /// 窗口循环问：要不要显示浮动工具栏的小窗口

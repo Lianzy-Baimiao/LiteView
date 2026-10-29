@@ -345,6 +345,13 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
     /// 浮动工具栏的小窗口：界面要时建（只建一次）、画、放到图片窗口下面；鼠标在不在它上面告诉界面
     fn dock_tick(&mut self, event_loop: &ActiveEventLoop) {
         let Some(r) = &mut self.running else { return };
+        if !r.app.dock_allowed() {
+            if r.dock.take().is_some() {
+                r.app.set_dock_hover(false);
+            }
+            r.dock_failed = false;
+            return;
+        }
         let wanted = r.shown && r.app.dock_wanted() && r.window.is_minimized() != Some(true);
         if !wanted {
             if let Some(d) = &mut r.dock
