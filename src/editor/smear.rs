@@ -9,6 +9,7 @@
 //! 上下是起伏的笔触边缘，最多伸出约一个笔触宽度。
 
 use image::RgbaImage;
+use rayon::prelude::*;
 
 use super::IRect;
 use super::history::Saved;
@@ -263,6 +264,242 @@ pub fn tile(saved: &Saved, img: &RgbaImage, strength: u32, tr: IRect) -> Vec<u8>
     out
 }
 
+/// 转过 angle 的笔触坐标：u 顺着笔触，v 垂直于它；分条、分段、取色都在这里与横着的一样做。
+/// 取色的条与段只与整张图有关（与分块无关）
+struct Frame {
+    s: f32,
+    l: f32,
+    sin: f32,
+    cos: f32,
+    /// 整张图（像素边）四个角的 (u, v)，按顺序
+    corners: [(f32, f32); 4],
+    vlo: f32,
+    vhi: f32,
+    /// 取色的第一条、最后一条（图边不到半条的零头并进旁边那条）
+    kfirst: i32,
+    klast: i32,
+}
+
+impl Frame {
+    fn new(w: u32, h: u32, s: f32, angle: f32) -> Self {
+        let (sin, cos) = angle.sin_cos();
+        let uv = |x: f32, y: f32| (x * cos + y * sin, -x * sin + y * cos);
+        let corners = [(0.0, 0.0), (w as f32, 0.0), (w as f32, h as f32), (0.0, h as f32)].map(|(x, y)| uv(x, y));
+        let (vlo, vhi) = corners.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+        let (mut kfirst, mut klast) = ((vlo / s).floor() as i32, (vhi / s).ceil() as i32 - 1);
+        if (kfirst + 1) as f32 * s - vlo < s / 2.0 && kfirst < klast {
+            kfirst += 1;
+        }
+        if vhi - klast as f32 * s < s / 2.0 && klast > kfirst {
+            klast -= 1;
+        }
+        Self { s, l: SEG * s, sin, cos, corners, vlo, vhi, kfirst, klast }
+    }
+
+    fn uv(&self, x: f32, y: f32) -> (f32, f32) {
+        (x * self.cos + y * self.sin, -x * self.sin + y * self.cos)
+    }
+
+    fn xy(&self, u: f32, v: f32) -> (f32, f32) {
+        (u * self.cos - v * self.sin, u * self.sin + v * self.cos)
+    }
+
+    /// v 落在取色的第几条
+    fn color_band(&self, v: f32) -> i32 {
+        ((v / self.s).floor() as i32).clamp(self.kfirst, self.klast)
+    }
+
+    /// 取色的第 k 条的 v 范围（第一条、最后一条延伸到图边）
+    fn band_v(&self, k: i32) -> (f32, f32) {
+        (if k <= self.kfirst { self.vlo } else { k as f32 * self.s }, if k >= self.klast { self.vhi } else { (k + 1) as f32 * self.s })
+    }
+
+    /// 图在 v ∈ [va, vb] 这一条里的 u 范围
+    fn u_extent(&self, va: f32, vb: f32) -> (f32, f32) {
+        let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+        let mut add = |u: f32| {
+            lo = lo.min(u);
+            hi = hi.max(u);
+        };
+        for i in 0..4 {
+            let (p, q) = (self.corners[i], self.corners[(i + 1) % 4]);
+            if (va..=vb).contains(&p.1) {
+                add(p.0);
+            }
+            for c in [va, vb] {
+                if (p.1 - c) * (q.1 - c) <= 0.0 && p.1 != q.1 {
+                    add(p.0 + (c - p.1) / (q.1 - p.1) * (q.0 - p.0));
+                }
+            }
+        }
+        if lo > hi { (0.0, 0.0) } else { (lo, hi) }
+    }
+
+    /// 取色的第 k 条：段错开多少、第一段、最后一段（图边不到半段的零头并进旁边那段）、这一条的 u 范围
+    fn segs(&self, k: i32) -> (f32, i32, i32, f32, f32) {
+        let (l, sh) = (self.l, shift(self.s, k));
+        let (va, vb) = self.band_v(k);
+        let (ulo, uhi) = self.u_extent(va, vb);
+        let (mut first, mut last) = (((ulo + sh) / l).floor() as i32, ((uhi + sh) / l).ceil() as i32 - 1);
+        if (first + 1) as f32 * l - sh - ulo < l / 2.0 && first < last {
+            first += 1;
+        }
+        if uhi - (last as f32 * l - sh) < l / 2.0 && last > first {
+            last -= 1;
+        }
+        (sh, first, last.max(first), ulo, uhi)
+    }
+
+    /// 原图像素 (x, y) 的中心算进哪一条的哪一段（与 tile_angled 里求平均时一样）
+    #[cfg(test)]
+    fn cell(&self, x: u32, y: u32) -> (i32, i32) {
+        let (u, v) = self.uv(x as f32 + 0.5, y as f32 + 0.5);
+        let k = self.color_band(v);
+        let (sh, first, last, _, _) = self.segs(k);
+        (k, (((u + sh) / self.l).floor() as i32).clamp(first, last))
+    }
+}
+
+/// 涂抹沿 angle（弧度，0 = 横着；y 朝下，正的往右下）方向走：像素中心转到笔触坐标（[`Frame`]）里，与横着的一样分条、
+/// 分段；每段的平均色取中心落在这一段里的原图像素（转过的方格），原图的细节同样一点不留。angle = 0 就是 [`tile`]
+pub fn tile_angled(saved: &Saved, img: &RgbaImage, strength: u32, tr: IRect, angle: f32) -> Vec<u8> {
+    if angle == 0.0 {
+        return tile(saved, img, strength, tr);
+    }
+    let (w, h) = img.dimensions();
+    let s = strength.max(1) as f32;
+    let f = Frame::new(w, h, s, angle);
+    let l = f.l;
+    // 这一块（像素边）在笔触坐标里的范围
+    let tc = [(tr.x0, tr.y0), (tr.x1, tr.y0), (tr.x1, tr.y1), (tr.x0, tr.y1)].map(|(x, y)| f.uv(x as f32, y as f32));
+    let (tumin, tumax) = tc.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+    let (tvmin, tvmax) = tc.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+    // 要用到的条（几何上的条边起伏不到 s / 6，上下各多算两条）和它们取色的段
+    let (c0, c1) = (((tvmin / s).floor() as i32 - 2).clamp(f.kfirst, f.klast), ((tvmax / s).floor() as i32 + 2).clamp(f.kfirst, f.klast));
+    let segs: Vec<_> = (c0..=c1).map(|k| f.segs(k)).collect();
+    let mut rows: Vec<Row> = segs
+        .iter()
+        .map(|&(shift, first, last, _, _)| {
+            let j = |u: f32| ((u + shift) / l - 0.5).floor() as i32;
+            let (j0, j1) = (j(tumin).clamp(first, last), (j(tumax) + 1).clamp(first, last));
+            Row { shift, first, last, j0, cells: vec![[0.0; 4]; (j1 - j0 + 1) as usize] }
+        })
+        .collect();
+    // 这些段在笔触坐标里的范围 → 原图上要读的那块
+    let (mut umin, mut umax, mut vmin, mut vmax) = (f32::MAX, f32::MIN, f32::MAX, f32::MIN);
+    for (i, (row, &(sh, first, last, ulo, uhi))) in rows.iter().zip(&segs).enumerate() {
+        let k = c0 + i as i32;
+        let j1 = row.j0 + row.cells.len() as i32 - 1;
+        umin = umin.min(if row.j0 <= first { ulo } else { row.j0 as f32 * l - sh });
+        umax = umax.max(if j1 >= last { uhi } else { (j1 + 1) as f32 * l - sh });
+        let (va, vb) = f.band_v(k);
+        (vmin, vmax) = (vmin.min(va), vmax.max(vb));
+    }
+    let bc = [(umin, vmin), (umax, vmin), (umax, vmax), (umin, vmax)].map(|(u, v)| f.xy(u, v));
+    let (bx0, bx1) = bc.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.0), b.max(c.0)));
+    let (by0, by1) = bc.iter().fold((f32::MAX, f32::MIN), |(a, b), c| (a.min(c.1), b.max(c.1)));
+    let clampx = |v: f32| (v.max(0.0) as u32).min(w);
+    let clampy = |v: f32| (v.max(0.0) as u32).min(h);
+    let src = IRect::new(clampx(bx0.floor() - 1.0), clampy(by0.floor() - 1.0), clampx(bx1.ceil() + 1.0), clampy(by1.ceil() + 1.0));
+    let data = saved.region(img, src);
+    let sw = src.width() as usize;
+    type Sums = Vec<Vec<([u64; 4], u64)>>;
+    let zero = || -> Sums { rows.iter().map(|r| vec![([0; 4], 0); r.cells.len()]).collect() };
+    // 每一行只走 [umin, umax] × [vmin, vmax] 那个（转过的）框落在这一行的那一段（多留一个像素；里面还逐个判断条和段）
+    let span = |py: f32| -> (u32, u32) {
+        let (mut lo, mut hi) = (f32::MIN, f32::MAX);
+        let mut within = |a: f32, b0: f32, b1: f32| {
+            // b0 ≤ a·px ≤ b1
+            if a.abs() > 1e-6 {
+                let (p, q) = ((b0 / a).min(b1 / a), (b0 / a).max(b1 / a));
+                (lo, hi) = (lo.max(p), hi.min(q));
+            }
+        };
+        within(f.cos, umin - py * f.sin, umax - py * f.sin);
+        within(-f.sin, vmin - py * f.cos, vmax - py * f.cos);
+        let x0 = if lo == f32::MIN { src.x0 } else { ((lo - 1.5).floor().max(0.0) as u32).clamp(src.x0, src.x1) };
+        let x1 = if hi == f32::MAX { src.x1 } else { ((hi + 1.5).ceil().max(0.0) as u32).clamp(x0, src.x1) };
+        (x0, x1)
+    };
+    // 整数相加，与分几份、什么顺序加无关：分给几个线程按行加，再合起来
+    let sums: Sums = (src.y0..src.y1)
+        .into_par_iter()
+        .fold(zero, |mut sums, y| {
+            let py = y as f32 + 0.5;
+            let (x0, x1) = span(py);
+            for x in x0..x1 {
+                let (u, v) = f.uv(x as f32 + 0.5, py);
+                let k = f.color_band(v);
+                if k < c0 || k > c1 {
+                    continue;
+                }
+                let ri = (k - c0) as usize;
+                let row = &rows[ri];
+                let j = (((u + row.shift) / l).floor() as i32).clamp(row.first, row.last);
+                if j < row.j0 || j >= row.j0 + row.cells.len() as i32 {
+                    continue;
+                }
+                let p = &data[((y - src.y0) as usize * sw + (x - src.x0) as usize) * 4..][..4];
+                let (sum, n) = &mut sums[ri][(j - row.j0) as usize];
+                let a = u64::from(p[3]);
+                sum[0] += u64::from(p[0]) * a;
+                sum[1] += u64::from(p[1]) * a;
+                sum[2] += u64::from(p[2]) * a;
+                sum[3] += a;
+                *n += 1;
+            }
+            sums
+        })
+        .reduce(zero, |mut a, b| {
+            for (ra, rb) in a.iter_mut().zip(b) {
+                for ((sa, na), (sb, nb)) in ra.iter_mut().zip(rb) {
+                    for c in 0..4 {
+                        sa[c] += sb[c];
+                    }
+                    *na += nb;
+                }
+            }
+            a
+        });
+    for (row, sums) in rows.iter_mut().zip(&sums) {
+        for (cell, (sum, n)) in row.cells.iter_mut().zip(sums) {
+            let n = (*n).max(1) as f64;
+            let c = |ch: usize, d: f64| (sum[ch] as f64 / n / d) as f32;
+            *cell = [c(0, 255.0), c(1, 255.0), c(2, 255.0), c(3, 1.0)];
+        }
+    }
+    let pal = |k: i32| &rows[(k.clamp(c0, c1) - c0) as usize];
+    let bristles = (s / 3.0).round().max(3.0);
+    let tw = tr.width() as usize;
+    let mut out = vec![0u8; tr.area() as usize * 4];
+    out.par_chunks_mut(tw * 4).enumerate().for_each(|(i, line)| {
+        let y = tr.y0 + i as u32;
+        for x in tr.x0..tr.x1 {
+            let (u, v) = f.uv(x as f32 + 0.5, y as f32 + 0.5);
+            let mut k = (v / s).floor() as i32;
+            let (mut top, mut bottom) = (edge(s, k, u), edge(s, k + 1, u));
+            if v < top {
+                k -= 1;
+                (top, bottom) = (edge(s, k, u), top);
+            } else if v >= bottom {
+                k += 1;
+                (top, bottom) = (bottom, edge(s, k + 1, u));
+            }
+            let (dt, db) = (v - top, bottom - v);
+            let mut c = pal(k).at(l, u);
+            if dt < 0.5 {
+                c = mix(pal(k - 1).at(l, u), c, 0.5 + dt);
+            } else if db < 0.5 {
+                c = mix(pal(k + 1).at(l, u), c, 0.5 + db);
+            }
+            let vr = (dt / (bottom - top)).clamp(0.0, 1.0);
+            let o = (x - tr.x0) as usize * 4;
+            line[o..o + 4].copy_from_slice(&finish(c, texture(s, bristles, k, vr, u, dt.min(db))));
+        }
+    });
+    out
+}
+
 /// 框选的涂抹：框里全部涂满，框外一圈不规则的边
 pub struct Ragged {
     r: IRect,
@@ -359,6 +596,68 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// 斜着涂抹：分块算与整张一次算逐字节相同（几种走向）；取色的方格转过了，分块时要读的范围不能漏
+    #[test]
+    fn angled_tiles_match_one_whole_image_tile() {
+        let img = noise_img(700, 530);
+        for angle in [0.35f32, -0.9, std::f32::consts::FRAC_PI_4, 1.4] {
+            let whole = tile_angled(&Saved::default(), &img, 27, IRect::full(700, 530), angle);
+            for ty in 0..530u32.div_ceil(TILE) {
+                for tx in 0..700u32.div_ceil(TILE) {
+                    let tr = tile_rect(tx, ty, 700, 530);
+                    let part = tile_angled(&Saved::default(), &img, 27, tr, angle);
+                    for y in tr.y0..tr.y1 {
+                        let a = ((y - tr.y0) * tr.width()) as usize * 4;
+                        let b = (y as usize * 700 + tr.x0 as usize) * 4;
+                        assert_eq!(part[a..a + tr.width() as usize * 4], whole[b..b + tr.width() as usize * 4], "angle {angle} tile ({tx}, {ty}) row {y}");
+                    }
+                }
+            }
+        }
+    }
+
+    /// 斜着涂抹也只留下每段的平均色：同一个（转过的）方格里的像素随便换位置，结果完全一样
+    #[test]
+    fn angled_only_cell_averages_survive() {
+        let (w, h, s, angle) = (400u32, 300u32, 27u32, 0.6f32);
+        let img = noise_img(w, h);
+        let f = Frame::new(w, h, s as f32, angle);
+        let target = f.cell(200, 150);
+        let members: Vec<(u32, u32)> = (0..h).flat_map(|y| (0..w).map(move |x| (x, y))).filter(|&(x, y)| f.cell(x, y) == target).collect();
+        assert!(members.len() > 200, "{}", members.len());
+        let mut moved = img.clone();
+        for i in 0..members.len() / 2 {
+            let (a, b) = (members[i], members[members.len() - 1 - i]);
+            let (pa, pb) = (*moved.get_pixel(a.0, a.1), *moved.get_pixel(b.0, b.1));
+            moved.put_pixel(a.0, a.1, pb);
+            moved.put_pixel(b.0, b.1, pa);
+        }
+        assert_ne!(img, moved);
+        let full = IRect::full(w, h);
+        assert_eq!(tile_angled(&Saved::default(), &img, s, full, angle), tile_angled(&Saved::default(), &moved, s, full, angle));
+    }
+
+    /// 45° 涂抹：顺着右下几乎没有起伏，垂直于它（右上）只剩刷毛纹理和笔触交界
+    #[test]
+    fn angled_smear_runs_along_the_angle() {
+        let img = noise_img(512, 512);
+        let out = RgbaImage::from_raw(512, 512, tile_angled(&Saved::default(), &img, 16, IRect::full(512, 512), std::f32::consts::FRAC_PI_4)).unwrap();
+        let grad = |m: &RgbaImage, dy: i32| -> u64 {
+            let mut sum = 0;
+            for y in 1..511u32 {
+                for x in 0..511u32 {
+                    let y2 = (y as i32 + dy) as u32;
+                    sum += u64::from(m.get_pixel(x, y).0[1].abs_diff(m.get_pixel(x + 1, y2).0[1]));
+                }
+            }
+            sum
+        };
+        let (along, across, orig) = (grad(&out, 1), grad(&out, -1), grad(&img, 1));
+        eprintln!("SMEAR along {along} across {across} original {orig}");
+        assert!(along * 3 < across, "along {along} across {across}");
+        assert!(along * 20 < orig, "along {along} original {orig}");
     }
 
     #[test]

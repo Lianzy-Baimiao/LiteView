@@ -61,6 +61,23 @@ pub struct Stroke {
     cache: HashMap<(u32, u32), Vec<u8>>,
     /// 涂到过的范围
     pub bounds: IRect,
+    /// 涂抹的走向（弧度，0 = 横着）：画笔拖出半个笔头宽后按这一段的方向定下来，之后不变；框选总是横着
+    angle: f32,
+    /// 画笔落笔的地方（还没定下走向时）
+    aim_from: Option<(f32, f32)>,
+    /// 走向已经定下
+    aimed: bool,
+}
+
+/// 拖动方向 (dx, dy) → 涂抹的走向：来回一样（折到 −90° ~ 90°），离水平不到 4° 的算横着（与框选一样）
+fn smear_angle(dx: f32, dy: f32) -> f32 {
+    let mut a = dy.atan2(dx);
+    if a > std::f32::consts::FRAC_PI_2 {
+        a -= std::f32::consts::PI;
+    } else if a <= -std::f32::consts::FRAC_PI_2 {
+        a += std::f32::consts::PI;
+    }
+    if a.abs() < 4f32.to_radians() { 0.0 } else { a }
 }
 
 impl Stroke {
@@ -74,7 +91,7 @@ impl Stroke {
     }
 
     fn new(effect: Effect, shape: Shape) -> Self {
-        Self { effect, shape, saved: Saved::default(), cache: HashMap::new(), bounds: IRect::EMPTY }
+        Self { effect, shape, saved: Saved::default(), cache: HashMap::new(), bounds: IRect::EMPTY, angle: 0.0, aim_from: None, aimed: false }
     }
 
     /// 画笔从上一个点涂到 (x, y)（图片像素坐标）；返回这次改到的范围
@@ -92,6 +109,25 @@ impl Stroke {
         }
         stamp(mask, bbox, (px, py), (x, y), radius, tip, w, h);
         self.bounds = self.bounds.union(&bbox);
+        // 涂抹：从落笔处拖出半个笔头宽，按这一段的方向定下走向；之前横着涂的那一小块按新走向重算
+        if let Effect::Smear(_) = self.effect
+            && !self.aimed
+        {
+            let from = *self.aim_from.get_or_insert((px, py));
+            let (dx, dy) = (x - from.0, y - from.1);
+            if dx.hypot(dy) >= radius.max(3.0) {
+                self.aim_from = None;
+                self.aimed = true;
+                let angle = smear_angle(dx, dy);
+                if angle != self.angle {
+                    self.angle = angle;
+                    self.cache.clear();
+                    let all = self.bounds;
+                    self.compose(img, all);
+                    return all;
+                }
+            }
+        }
         self.compose(img, bbox);
         bbox
     }
@@ -135,9 +171,9 @@ impl Stroke {
         if self.effect.is_redact() {
             // 这里用到的块都已存下，没存的块就是落笔前的样子，可以直接读
             let missing: Vec<(u32, u32)> = rect.tiles().filter(|t| !self.cache.contains_key(t)).collect();
-            let (saved, effect) = (&self.saved, self.effect);
+            let (saved, effect, angle) = (&self.saved, self.effect, self.angle);
             let img_ref: &RgbaImage = img;
-            let done: Vec<_> = missing.into_par_iter().map(|t| (t, effect_tile(saved, img_ref, effect, tile_rect(t.0, t.1, w, h)))).collect();
+            let done: Vec<_> = missing.into_par_iter().map(|t| (t, effect_tile(saved, img_ref, effect, angle, tile_rect(t.0, t.1, w, h)))).collect();
             self.cache.extend(done);
         }
         let (saved, cache, shape, effect) = (&self.saved, &self.cache, &self.shape, self.effect);
@@ -278,12 +314,12 @@ pub fn blend(a: [u8; 4], b: [u8; 4], t: u8) -> [u8; 4] {
     [c(0), c(1), c(2), ((alpha + 127) / 255) as u8]
 }
 
-/// 一块的马赛克 / 模糊 / 涂抹结果（从落笔前的图计算）
-fn effect_tile(saved: &Saved, img: &RgbaImage, effect: Effect, tr: IRect) -> Vec<u8> {
+/// 一块的马赛克 / 模糊 / 涂抹结果（从落笔前的图计算）；angle 是涂抹的走向
+fn effect_tile(saved: &Saved, img: &RgbaImage, effect: Effect, angle: f32, tr: IRect) -> Vec<u8> {
     match effect {
         Effect::Mosaic(block) => mosaic_tile(saved, img, block.max(1), tr),
         Effect::Blur(strength) => blur_tile(saved, img, strength, tr),
-        Effect::Smear(strength) => super::smear::tile(saved, img, strength, tr),
+        Effect::Smear(strength) => super::smear::tile_angled(saved, img, strength, tr, angle),
         _ => Vec::new(),
     }
 }
@@ -487,6 +523,31 @@ mod tests {
         let mut s3 = Stroke::brush(Effect::Paint([255, 0, 0, 128]), 20.0, Tip::Round);
         s3.line_to(&mut many, 150.0, 50.0);
         assert!(many.get_pixel(150, 50).0[1] < before[1]);
+    }
+
+    /// 斜着拖的涂抹画笔：拖出半个笔头宽后按这段的方向定下走向，开头先横着涂的那一小块也按新走向重算；
+    /// 笔道中间就是整张按这个走向涂抹的结果。横着拖（差不到 4°）与框选一样是横的；来回方向一样
+    #[test]
+    fn smear_brush_follows_the_drag_direction() {
+        let (w, h, s) = (480u32, 360u32, 20u32);
+        let orig = noise(w, h);
+        let mut img = orig.clone();
+        let mut st = Stroke::brush(Effect::Smear(s), 60.0, Tip::Round);
+        for i in 0..=20 {
+            let t = i as f32 * 10.0;
+            st.line_to(&mut img, 100.0 + t * 0.866, 100.0 + t * 0.5);
+        }
+        assert!(st.aimed && (st.angle - 30f32.to_radians()).abs() < 1e-3, "{}", st.angle.to_degrees());
+        let field = super::super::smear::tile_angled(&Saved::default(), &orig, s, IRect::full(w, h), st.angle);
+        for i in 0..=20 {
+            let t = i as f32 * 10.0;
+            let (x, y) = ((100.0 + t * 0.866) as u32, (100.0 + t * 0.5) as u32);
+            let k = ((y * w + x) * 4) as usize;
+            assert_eq!(img.get_pixel(x, y).0, [field[k], field[k + 1], field[k + 2], field[k + 3]], "({x}, {y})");
+        }
+        assert_eq!(smear_angle(100.0, 3.0), 0.0);
+        assert!((smear_angle(-86.6, -50.0) - smear_angle(86.6, 50.0)).abs() < 1e-5);
+        assert!((smear_angle(0.0, -40.0) - smear_angle(0.0, 40.0)).abs() < 1e-5);
     }
 
     #[test]

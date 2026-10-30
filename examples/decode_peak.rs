@@ -76,6 +76,36 @@ fn main() {
             std::hint::black_box(out);
             return;
         }
+        // 涂抹一块（256 × 256）要多久：横着 / 斜着，强度 27、128
+        "smear" => {
+            use liteview::editor::IRect;
+            let img = image::load_from_memory(&data).expect("decode").into_rgba8();
+            let saved = liteview::editor::history::Saved::default();
+            let tr = IRect::new(1024, 1024, 1280, 1280);
+            for s in [27u32, 128] {
+                for angle in [0.0f32, std::f32::consts::FRAC_PI_4] {
+                    let t = std::time::Instant::now();
+                    let n = 8;
+                    for _ in 0..n {
+                        std::hint::black_box(liteview::editor::smear::tile_angled(&saved, &img, s, tr, angle));
+                    }
+                    println!("smear s={s} angle={:.0}°: {:.1} ms per tile", angle.to_degrees(), t.elapsed().as_secs_f64() * 1000.0 / n as f64);
+                }
+            }
+            // 看效果：同一块图上横着、斜着、竖着各拖一笔涂抹画笔，存成 smear-strokes.png
+            use liteview::editor::stroke::{Effect, Stroke, Tip};
+            let mut crop = image::imageops::crop_imm(&img, 1200, 900, 900, 600).to_image();
+            for (a, b) in [((80.0, 90.0), (820.0, 90.0)), ((100.0, 200.0), (700.0, 560.0)), ((820.0, 180.0), (820.0, 560.0))] {
+                let mut st = Stroke::brush(Effect::Smear(27), 90.0, Tip::Round);
+                for i in 0..=40 {
+                    let t = i as f32 / 40.0;
+                    st.line_to(&mut crop, a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+                }
+            }
+            crop.save("smear-strokes.png").expect("save");
+            println!("smear-strokes.png");
+            return;
+        }
         // 做测试图：同一张图存成 16 位 RGB（按扩展名选 PNG / TIFF）
         m if m.starts_with("save16=") => {
             let out = &m["save16=".len()..];
