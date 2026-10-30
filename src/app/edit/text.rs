@@ -205,6 +205,8 @@ impl App {
             let v = ui.visuals_mut();
             v.selection.bg_fill = p.accent.gamma_multiply(0.35);
             v.text_cursor.stroke = egui::Stroke::new(2.0, p.accent);
+            // Area 给的可用宽度是上一帧的大小：不定死的话框只会变窄，拉宽、放大后字还按原来的宽度换行
+            ui.set_width(width);
             let out = egui::TextEdit::multiline(&mut t.text)
                 .font(font.clone())
                 .text_color(Color32::TRANSPARENT)
@@ -358,5 +360,53 @@ impl App {
         let _ = p;
         ui.add_space(10.0);
         crate::ui::widgets::checkbox(ui, &mut s.text_background, t.p_text_bg);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    /// 画一帧还没确认的文本框，返回文字排成几行
+    fn rows(app: &mut App, ed: &mut Editor, ctx: &egui::Context) -> usize {
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200.0, 800.0))), ..Default::default() };
+        let _ = ctx.run_ui(input, |ui| {
+            app.canvas = ui.max_rect();
+            app.text_ui(ui.ctx(), ui.painter(), ed);
+        });
+        ed.text.as_ref().and_then(|t| t.layout.as_ref()).map_or(0, |l| l.rows.len())
+    }
+
+    #[test]
+    fn the_text_rewraps_when_the_box_gets_wider_or_the_view_zooms_in() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, text_size: 20, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        let doc = crate::editor::history::Doc::new(RgbaImage::new(400, 300), 100, 1 << 20);
+        let src = super::super::Source {
+            path: "a.png".into(), clipboard: false, format: "PNG", file_size: 0,
+            jpeg_quality: None, exif: None, canvas_icc: None, canvas_alpha: false,
+        };
+        let mut ed = Editor::new(doc, src, super::super::Tool::Text, Default::default());
+        let mut t = PendingText::new(pos2(10.0, 10.0), 300.0, false);
+        t.text = "LiteView box".into();
+        t.focus = false;
+        ed.text = Some(t);
+        let mut rows_at = |width: f32, zoom: f32| {
+            if let Some(t) = &mut ed.text {
+                t.width = width;
+            }
+            app.view.zoom = zoom;
+            rows(&mut app, &mut ed, &ctx)
+        };
+        let wide = rows_at(300.0, 1.0);
+        assert_eq!(wide, 1);
+        assert!(rows_at(60.0, 1.0) > wide);
+        // 拉回原来的宽度：按新宽度重排（以前停在拉窄时的宽度）
+        assert_eq!(rows_at(300.0, 1.0), wide);
+        // 放大看：框和字一起变大，换行不变
+        assert_eq!(rows_at(300.0, 2.0), wide);
     }
 }
