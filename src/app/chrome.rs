@@ -351,7 +351,8 @@ impl App {
             -16.0 - BAR_H - 12.0
         };
         let dx = self.free_rect(ctx).center().x - ctx.content_rect().center().x;
-        Area::new(Id::new("toast")).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(dx, y)).interactable(false).show(ctx, |ui| {
+        let id = Id::new("toast");
+        Area::new(id).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(dx, y)).interactable(false).sizing_pass(text_changed(ctx, id, &text)).show(ctx, |ui| {
             ui.set_opacity(o);
             egui::Frame::new().fill(p.text).corner_radius(CornerRadius::same(16)).inner_margin(egui::Margin::symmetric(14, 7)).show(ui, |ui| {
                 ui.label(egui::RichText::new(text).color(p.canvas));
@@ -374,7 +375,8 @@ impl App {
         let p = theme::palette(ctx);
         let text = text.clone();
         let center = if self.canvas.is_positive() { self.free_rect(ctx).center() } else { ctx.content_rect().center() };
-        Area::new(Id::new("notice")).order(Order::Tooltip).pivot(Align2::CENTER_CENTER).fixed_pos(center).interactable(false).show(ctx, |ui| {
+        let id = Id::new("notice");
+        Area::new(id).order(Order::Tooltip).pivot(Align2::CENTER_CENTER).fixed_pos(center).interactable(false).sizing_pass(text_changed(ctx, id, &text)).show(ctx, |ui| {
             ui.set_opacity(o);
             egui::Frame::new()
                 .fill(p.text.gamma_multiply(0.92))
@@ -386,6 +388,18 @@ impl App {
                 });
         });
     }
+}
+
+/// 提示的文字变了：要重新量大小。Area 记着上一次的大小，不重新量的话长提示按上一条短提示的宽度换行，排成一竖条
+fn text_changed(ctx: &egui::Context, id: Id, text: &str) -> bool {
+    ctx.data_mut(|d| {
+        let last = d.get_temp_mut_or_default::<String>(id.with("text"));
+        let changed = last.as_str() != text;
+        if changed {
+            text.clone_into(last);
+        }
+        changed
+    })
 }
 
 /// 帧进度条：返回拖到的帧
@@ -442,5 +456,37 @@ mod tests {
         assert!(!hover_bottom(&mut app, &ctx));
         app.menu_open = false;
         assert!(hover_bottom(&mut app, &ctx));
+    }
+
+    /// 先显示一条短提示，再显示一条长的：长的按自己的宽度排，不按上一条的宽度换行
+    #[test]
+    fn a_long_toast_after_a_short_one_keeps_its_own_width() {
+        let size = |first: Option<&str>| {
+            let ctx = egui::Context::default();
+            let settings = Settings { ask_default_app: false, ..Default::default() };
+            let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+            let frame = |app: &mut App| {
+                let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1000.0, 700.0))), ..Default::default() };
+                let _ = ctx.run_ui(input, |ui| {
+                    app.canvas = ui.max_rect();
+                    app.toast_ui(ui.ctx());
+                    app.notice_ui(ui.ctx());
+                });
+            };
+            if let Some(t) = first {
+                app.show_toast(t);
+                app.show_notice(t);
+                for _ in 0..3 {
+                    frame(&mut app);
+                }
+            }
+            app.show_toast("一条长一点的提示：二十来个字，应该排在一行里");
+            app.show_notice("一条长一点的翻页提示");
+            for _ in 0..3 {
+                frame(&mut app);
+            }
+            ctx.memory(|m| (m.area_rect(Id::new("toast")).map(|r| r.size()), m.area_rect(Id::new("notice")).map(|r| r.size())))
+        };
+        assert_eq!(size(Some("好")), size(None));
     }
 }
