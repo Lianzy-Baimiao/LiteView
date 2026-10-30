@@ -172,9 +172,12 @@ impl App {
                         t.pos = from;
                     }
                 }
-                Drag::TextWidth { from, .. } => {
+                Drag::TextWidth { from, left, .. } => {
                     if let Some(t) = &mut ed.text {
                         t.width = from;
+                        if let Some(x) = left {
+                            t.pos.x = x;
+                        }
                     }
                 }
                 Drag::Select(_) | Drag::Pan => {}

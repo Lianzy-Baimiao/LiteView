@@ -84,10 +84,11 @@ pub(crate) enum Drag {
         grab: egui::Pos2,
         from: egui::Pos2,
     },
-    /// 拉宽文本框
+    /// 拉宽文本框：按下时的宽度与鼠标横坐标；left = 拉的是左边（按下时文本框左边的位置，右边不动）
     TextWidth {
         from: f32,
         grab: f32,
+        left: Option<f32>,
     },
 }
 
@@ -137,6 +138,8 @@ pub(crate) struct Editor {
     pub save_options: Option<save::SaveJob>,
     pub shape: Option<paint::PendingShape>,
     pub text: Option<paint::PendingText>,
+    /// 已经写进图里的文字（那块没被盖过时还能拿起来接着改）
+    pub texts: Vec<text::PlacedText>,
     /// 这一帧开始时有菜单开着（点外面关菜单的那一下不在画布上画）
     pub popup_was_open: bool,
 }
@@ -167,6 +170,7 @@ impl Editor {
             save_options: None,
             shape: None,
             text: None,
+            texts: Vec::new(),
             popup_was_open: false,
         }
     }

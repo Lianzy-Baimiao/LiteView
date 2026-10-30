@@ -100,7 +100,12 @@ impl App {
             ed.sel = None;
             return;
         }
-        if ed.shape.take().is_some() | ed.text.take().is_some() {
+        if ed.shape.take().is_some() {
+            return;
+        }
+        // 还没确认的文字不要了；从图上拿起来的放回原处
+        if ed.text.is_some() {
+            self.drop_text(ed);
             return;
         }
         if ed.doc.undo() {

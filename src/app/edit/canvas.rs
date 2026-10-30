@@ -214,7 +214,13 @@ impl App {
                         None => CursorIcon::Crosshair,
                     }
                 }
-                Tool::Text => CursorIcon::Text,
+                // 文本框两侧：拉宽；上下边：拖动；写进图里、还能拿起来的文字：拖动
+                Tool::Text => match self.text_hit(ed, pos, self.screen_to_image(ed, pos)) {
+                    Some(Drag::TextWidth { .. }) => CursorIcon::ResizeHorizontal,
+                    Some(_) => CursorIcon::Move,
+                    None if ed.text.is_none() && ed.text_at(self.screen_to_image(ed, pos)).is_some() => CursorIcon::Move,
+                    None => CursorIcon::Text,
+                },
                 _ => CursorIcon::Crosshair,
             },
         };
