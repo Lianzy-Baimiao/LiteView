@@ -222,6 +222,18 @@ pub fn show_at(hwnd: isize, r: (i32, i32, i32, i32)) {
     let _ = unsafe { SetWindowPos(HWND(hwnd as *mut core::ffi::c_void), None, r.0, r.1, r.2 - r.0, r.3 - r.1, SWP_NOACTIVATE | SWP_SHOWWINDOW) };
 }
 
+/// 这个窗口在最前面（有键盘焦点的那个）
+pub fn is_foreground(hwnd: isize) -> bool {
+    use windows::Win32::UI::WindowsAndMessaging::GetForegroundWindow;
+    unsafe { GetForegroundWindow() }.0 as isize == hwnd
+}
+
+/// 把最前面换成 hwnd（本进程的窗口在最前面时系统才允许）
+pub fn bring_to_front(hwnd: isize) {
+    use windows::Win32::UI::WindowsAndMessaging::SetForegroundWindow;
+    let _ = unsafe { SetForegroundWindow(HWND(hwnd as *mut core::ffi::c_void)) };
+}
+
 pub fn hide(hwnd: isize) {
     use windows::Win32::UI::WindowsAndMessaging::{SW_HIDE, ShowWindow};
     let _ = unsafe { ShowWindow(HWND(hwnd as *mut core::ffi::c_void), SW_HIDE) };

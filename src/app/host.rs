@@ -75,12 +75,19 @@ struct Dock {
     next: Option<Instant>,
     /// 还没交给显卡的纹理变化（egui 第一帧量大小时什么都不画，字体纹理也在那一帧，不能丢）
     pending: egui::TexturesDelta,
+    /// 上一帧里有输入框有焦点（比例弹出菜单）。点输入框时系统一般会把这个小窗口放到最前面，按键直接到它这里；
+    /// 图片窗口还在最前面时，图片窗口收到的按键转给它
+    typing: bool,
+    /// 点输入框时系统还是把它放到了最前面；从什么时候起它在最前面、却没有输入框有焦点（打完了）
+    stray_since: Option<Instant>,
 }
 
 /// 小窗口里排版用的大小（点）：工具栏和它的弹出菜单都放得下；实际窗口只有画出来的那么大
 const DOCK_LAYOUT: egui::Vec2 = egui::vec2(900.0, 420.0);
 /// 小窗口离图片窗口的距离（物理像素）
 const DOCK_GAP: i32 = 6;
+/// 小窗口在最前面、却没有在打字这么久，就把最前面还给图片窗口
+const DOCK_REFOCUS: std::time::Duration = std::time::Duration::from_millis(150);
 
 impl Dock {
     fn new(event_loop: &ActiveEventLoop, owner: &Window, driver: Driver, main: &egui::Context) -> Result<Self, String> {
@@ -107,7 +114,7 @@ impl Dock {
         crate::ui::theme::install(&ctx);
         ctx.set_theme(main.theme());
         let state = egui_winit::State::new(ctx.clone(), ViewportId::ROOT, event_loop, Some(window.scale_factor() as f32), event_loop.system_theme(), Some(painter.max_texture_side));
-        Ok(Self { window, painter, state, ctx, hwnd: h.0 as isize, bar: (0, 0), size: (0, 0), rect: None, dirty: true, next: None, pending: Default::default() })
+        Ok(Self { window, painter, state, ctx, hwnd: h.0 as isize, bar: (0, 0), size: (0, 0), rect: None, dirty: true, next: None, pending: Default::default(), typing: false, stray_since: None })
     }
 
     /// 画一帧；返回这一帧有没有鼠标 / 键盘输入（有的话图片窗口也要跟着重画）
@@ -119,6 +126,8 @@ impl Dock {
         let ctx = self.ctx.clone();
         let mut bar = egui::Rect::NOTHING;
         let out = self.ctx.run_ui(raw, |_| bar = app.dock_ui(&ctx));
+        // 有输入框有焦点时 egui 给出输入法的位置
+        self.typing = out.platform_output.ime.is_some();
         self.state.handle_platform_output(&self.window, out.platform_output);
         self.pending.append(out.textures_delta);
         let used = out.shapes.iter().map(|s| s.shape.visual_bounding_rect().intersect(s.clip_rect)).filter(|r| r.is_positive()).fold(egui::Rect::NOTHING, |a, b| a.union(b));
@@ -354,10 +363,17 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         }
         let wanted = r.shown && r.app.dock_wanted() && r.window.is_minimized() != Some(true);
         if !wanted {
-            if let Some(d) = &mut r.dock
-                && d.rect.take().is_some()
-            {
-                crate::platform::windows::hide(d.hwnd);
+            if let Some(d) = &mut r.dock {
+                // 藏起来后它不再画，输入框的焦点也不会再变：按键还给图片窗口
+                d.typing = false;
+                d.stray_since = None;
+                if d.rect.take().is_some() {
+                    let front = crate::platform::windows::is_foreground(d.hwnd);
+                    crate::platform::windows::hide(d.hwnd);
+                    if front && let Some(main) = hwnd(&r.window) {
+                        crate::platform::windows::bring_to_front(main.0 as isize);
+                    }
+                }
             }
             r.app.set_dock_hover(false);
             return;
@@ -384,6 +400,22 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         }
         use crate::platform::windows as win;
         let main = hwnd(&r.window).map(|h| h.0 as isize);
+        // 点输入框时它被放到了最前面（WS_EX_NOACTIVATE 也挡不住）。打完（回车、选了预设、点了外面）还在最前面：
+        // 等一小会儿（点的那一下先画完）再把最前面还给图片窗口，不然快捷键都到了它这里
+        if !d.typing && win::is_foreground(d.hwnd) {
+            let since = *d.stray_since.get_or_insert_with(Instant::now);
+            if since.elapsed() >= DOCK_REFOCUS {
+                d.stray_since = None;
+                if let Some(m) = main {
+                    win::bring_to_front(m);
+                }
+            } else {
+                let t = since + DOCK_REFOCUS;
+                self.next_repaint = Some(self.next_repaint.map_or(t, |n| n.min(t)));
+            }
+        } else {
+            d.stray_since = None;
+        }
         if let (Some(m), true) = (main, d.bar.0 > 0 && d.size.0 > 0)
             && let (Some(mr), Some(work)) = (win::window_rect(m), win::work_area(m))
         {
@@ -430,6 +462,18 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
             return;
         }
         let Some(r) = &mut self.running else { return };
+        // 小窗口的输入框有焦点：按键、输入法转给它，图片窗口不处理（否则打的字会变成快捷键：Delete 删文件、方向键翻页）。
+        // 修饰键两边都要知道
+        if let Some(d) = r.dock.as_mut().filter(|d| d.typing) {
+            let modifiers = matches!(event, WindowEvent::ModifiersChanged(_));
+            if modifiers || matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::Ime(_)) {
+                let _ = d.state.on_window_event(&d.window, &event);
+                d.dirty = true;
+                if !modifiers {
+                    return;
+                }
+            }
+        }
         let mut paint_now = false;
         match &event {
             WindowEvent::RedrawRequested => {

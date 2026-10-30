@@ -159,10 +159,21 @@ impl App {
         }
         let pct = format!("{:.0}%", self.view.zoom * 100.0);
         let button = egui::Button::new(egui::RichText::new(pct).size(13.0)).min_size(vec2(58.0, 32.0)).frame_when_inactive(false);
-        let menu = MenuButton::from_button(button).ui(ui, |ui| {
+        // 点菜单里面不关（默认点哪儿都关：点输入框菜单就没了，打的字变成快捷键），点外面、回车、选预设才关
+        let config = egui::containers::menu::MenuConfig::new().close_behavior(egui::PopupCloseBehavior::CloseOnClickOutside);
+        let menu = MenuButton::from_button(button).config(config).ui(ui, |ui| {
             // 输入比例（回车生效），或选预设
             ui.horizontal(|ui| {
-                let r = ui.add(egui::TextEdit::singleline(&mut self.zoom_text).desired_width(56.0).hint_text("100"));
+                let out = egui::TextEdit::singleline(&mut self.zoom_text).desired_width(56.0).hint_text("100").show(ui);
+                let r = out.response;
+                // 刚打开：光标放进去、现在的比例全选，直接打字就换掉
+                if std::mem::take(&mut self.zoom_focus) {
+                    r.request_focus();
+                    let mut state = out.state;
+                    let n = self.zoom_text.chars().count();
+                    state.cursor.set_char_range(Some(egui::text::CCursorRange::two(egui::text::CCursor::new(0), egui::text::CCursor::new(n))));
+                    state.store(ui.ctx(), r.id);
+                }
                 ui.label("%");
                 if r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                     if let Ok(v) = self.zoom_text.trim().trim_end_matches('%').parse::<f32>()
@@ -183,6 +194,7 @@ impl App {
         });
         if menu.0.clicked() {
             self.zoom_text = format!("{:.0}", self.view.zoom * 100.0);
+            self.zoom_focus = true;
         }
         if widgets::icon_button(ui, Icon::ZoomIn, t.zoom_in, "Ctrl+=", has).clicked() {
             self.zoom_step(true);

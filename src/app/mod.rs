@@ -191,6 +191,8 @@ pub struct App {
     pub(crate) pending_window_fit: bool,
     /// 缩放比例输入框里的文字
     pub(crate) zoom_text: String,
+    /// 比例菜单刚打开：下一帧把光标放进输入框
+    pub(crate) zoom_focus: bool,
     /// 省电模式：连续画面的帧率上限
     pacer: pacing::Pacer,
     /// 当前图要了原图（放大、编辑、复制要用），还没放掉
@@ -477,6 +479,7 @@ impl App {
             pending_edit: None,
             pending_window_fit: false,
             zoom_text: String::new(),
+            zoom_focus: false,
             pacer: Default::default(),
             full_requested: false,
             settle_since: None,
