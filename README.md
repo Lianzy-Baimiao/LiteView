@@ -3,7 +3,15 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊 / 涂抹画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> v1.6.1。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+> v1.7.0。Windows 看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 GitHub Releases 安装。系统扩展、平台原生验收与后续优化的边界见 [TODO](docs/TODO.md)。
+
+### v1.7.0 更新
+
+- 打开 WebM 表情包（Windows）：Telegram 那样带透明的 VP9 动图，用系统的「VP9 视频扩展」解码，透明的地方显示棋盘格；翻文件夹、打开对话框都认 .webm。
+- SVG 放大超过 1:1 不再发虚：停下后按屏幕的像素重画看得见的那块。
+- 涂抹画笔顺着拖的方向走（以前总是横的）；框选还是横的。
+- 比例菜单的输入框能打字了（以前一点就关、打的字变成快捷键）；无边框窗口在缩放不同的两块屏之间来回后不再变小。
+- 竖拍照片（EXIF 转 90°）、16 位图解码更快、更省内存；翻大图文件夹、编辑大图时少占内存。
 
 ### v1.6.1 更新
 
