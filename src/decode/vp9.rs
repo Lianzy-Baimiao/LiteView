@@ -19,13 +19,76 @@ thread_local! {
     static STARTED: Cell<bool> = const { Cell::new(false) };
 }
 
+type Raw = *mut core::ffi::c_void;
+
+/// mfplat.dll 里用到的几个函数。用到时才从系统目录加载、不写进导入表：Windows N / KN 版没装「媒体功能包」时没有
+/// mfplat.dll，静态导入的话程序整个打不开（发布前的导入检查会拦下来）
+type Hr = windows::core::HRESULT;
+type Startup = unsafe extern "system" fn(u32, u32) -> Hr;
+type EnumEx = unsafe extern "system" fn(windows::core::GUID, u32, *const MFT_REGISTER_TYPE_INFO, *const MFT_REGISTER_TYPE_INFO, *mut *mut Raw, *mut u32) -> Hr;
+type Create = unsafe extern "system" fn(*mut Raw) -> Hr;
+type CreateBuffer = unsafe extern "system" fn(u32, *mut Raw) -> Hr;
+type Proc = unsafe extern "system" fn() -> isize;
+
+struct Mf {
+    startup: Startup,
+    enum_ex: EnumEx,
+    media_type: Create,
+    memory_buffer: CreateBuffer,
+    sample: Create,
+}
+
+fn mf() -> Option<&'static Mf> {
+    static MF: std::sync::OnceLock<Option<Mf>> = std::sync::OnceLock::new();
+    MF.get_or_init(|| unsafe {
+        use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW};
+        let dll = LoadLibraryExW(windows::core::w!("mfplat.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
+        let f = |name: windows::core::PCSTR| GetProcAddress(dll, name);
+        // SAFETY: 签名与 mfapi.h 里的一样
+        Some(Mf {
+            startup: std::mem::transmute::<Proc, Startup>(f(windows::core::s!("MFStartup"))?),
+            enum_ex: std::mem::transmute::<Proc, EnumEx>(f(windows::core::s!("MFTEnumEx"))?),
+            media_type: std::mem::transmute::<Proc, Create>(f(windows::core::s!("MFCreateMediaType"))?),
+            memory_buffer: std::mem::transmute::<Proc, CreateBuffer>(f(windows::core::s!("MFCreateMemoryBuffer"))?),
+            sample: std::mem::transmute::<Proc, Create>(f(windows::core::s!("MFCreateSample"))?),
+        })
+    })
+    .as_ref()
+}
+
+impl Mf {
+    /// 出参是接口指针的函数：成功且不是空指针时包成接口
+    unsafe fn out<T: Interface>(r: Hr, p: Raw) -> windows::core::Result<T> {
+        r.ok()?;
+        if p.is_null() {
+            return Err(windows::core::Error::from_hresult(windows::Win32::Foundation::E_POINTER));
+        }
+        Ok(unsafe { T::from_raw(p) })
+    }
+
+    fn media_type(&self) -> windows::core::Result<IMFMediaType> {
+        let mut p = std::ptr::null_mut();
+        unsafe { Self::out((self.media_type)(&mut p), p) }
+    }
+
+    fn memory_buffer(&self, len: u32) -> windows::core::Result<IMFMediaBuffer> {
+        let mut p = std::ptr::null_mut();
+        unsafe { Self::out((self.memory_buffer)(len, &mut p), p) }
+    }
+
+    fn sample(&self) -> windows::core::Result<IMFSample> {
+        let mut p = std::ptr::null_mut();
+        unsafe { Self::out((self.sample)(&mut p), p) }
+    }
+}
+
 /// 这个线程上 COM（MTA）和 Media Foundation 准备好了
 fn start() -> bool {
     STARTED.with(|s| {
         if !s.get() {
             unsafe {
                 let com = CoInitializeEx(None, COINIT_MULTITHREADED);
-                s.set(com.is_ok() && MFStartup(MF_VERSION, MFSTARTUP_LITE).is_ok());
+                s.set(com.is_ok() && mf().is_some_and(|m| (m.startup)(MF_VERSION, MFSTARTUP_LITE).is_ok()));
             }
         }
         s.get()
@@ -64,11 +127,17 @@ impl Decoder {
             Codec::Vp9 => MFVideoFormat_VP90,
             Codec::Vp8 => MFVideoFormat_VP80,
         };
+        let m = mf()?;
         unsafe {
             let input = MFT_REGISTER_TYPE_INFO { guidMajorType: MFMediaType_Video, guidSubtype: sub };
-            let (mut list, mut count) = (std::ptr::null_mut::<Option<IMFActivate>>(), 0u32);
-            MFTEnumEx(MFT_CATEGORY_VIDEO_DECODER, MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER, Some(&input), None, &mut list, &mut count).ok()?;
-            let activates: Vec<Option<IMFActivate>> = (0..count as usize).map(|i| std::ptr::read(list.add(i))).collect();
+            let (mut list, mut count) = (std::ptr::null_mut::<Raw>(), 0u32);
+            let flags = (MFT_ENUM_FLAG_SYNCMFT | MFT_ENUM_FLAG_LOCALMFT | MFT_ENUM_FLAG_SORTANDFILTER).0 as u32;
+            (m.enum_ex)(MFT_CATEGORY_VIDEO_DECODER, flags, &input, std::ptr::null(), &mut list, &mut count).ok().ok()?;
+            if list.is_null() {
+                return None;
+            }
+            // 每一项是一个 IMFActivate 指针（可能为空），交给 Option<IMFActivate> 管
+            let activates: Vec<Option<IMFActivate>> = (0..count as usize).map(|i| std::ptr::read(list.add(i).cast::<Option<IMFActivate>>())).collect();
             CoTaskMemFree(Some(list as *const _));
             for a in activates.iter().flatten() {
                 let Ok(mft) = a.ActivateObject::<IMFTransform>() else { continue };
@@ -82,7 +151,7 @@ impl Decoder {
 
     unsafe fn setup(mft: IMFTransform, sub: windows::core::GUID, w: u32, h: u32) -> Option<Self> {
         unsafe {
-            let t = MFCreateMediaType().ok()?;
+            let t = mf()?.media_type().ok()?;
             t.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video).ok()?;
             t.SetGUID(&MF_MT_SUBTYPE, &sub).ok()?;
             t.SetUINT64(&MF_MT_FRAME_SIZE, (u64::from(w) << 32) | u64::from(h)).ok()?;
@@ -116,13 +185,14 @@ impl Decoder {
     fn push(&mut self, data: &[u8]) -> Result<(), Error> {
         let fail = |e: windows::core::Error| Error::Corrupt(format!("VP9 decoder: {}", e.message()));
         unsafe {
-            let buf = MFCreateMemoryBuffer(data.len() as u32).map_err(fail)?;
+            let m = mf().ok_or(Error::MissingCodec(Kind::Webm))?;
+            let buf = m.memory_buffer(data.len() as u32).map_err(fail)?;
             let mut p = std::ptr::null_mut();
             buf.Lock(&mut p, None, None).map_err(fail)?;
             std::ptr::copy_nonoverlapping(data.as_ptr(), p, data.len());
             buf.Unlock().map_err(fail)?;
             buf.SetCurrentLength(data.len() as u32).map_err(fail)?;
-            let s = MFCreateSample().map_err(fail)?;
+            let s = m.sample().map_err(fail)?;
             s.AddBuffer(&buf).map_err(fail)?;
             // 100 纳秒为单位；只用来让解码器知道先后
             s.SetSampleTime(self.n * 333_333).map_err(fail)?;
@@ -158,9 +228,10 @@ impl Decoder {
                 let sample = if provides {
                     None
                 } else {
-                    let s = MFCreateSample().map_err(fail)?;
+                    let m = mf().ok_or(Error::MissingCodec(Kind::Webm))?;
+                    let s = m.sample().map_err(fail)?;
                     let size = info.cbSize.max(self.frame.0 * self.frame.1 * 3 / 2);
-                    s.AddBuffer(&MFCreateMemoryBuffer(size).map_err(fail)?).map_err(fail)?;
+                    s.AddBuffer(&m.memory_buffer(size).map_err(fail)?).map_err(fail)?;
                     Some(s)
                 };
                 let mut out = [MFT_OUTPUT_DATA_BUFFER { dwStreamID: 0, pSample: std::mem::ManuallyDrop::new(sample), dwStatus: 0, pEvents: std::mem::ManuallyDrop::new(None) }];
