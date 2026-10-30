@@ -2,6 +2,11 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
+## 1.7.1.0 更新（2026-10-31，已提交认证）
+
+- 包：`LiteView-store-1.7.1.0-x64.msix`，SHA-256 `26afb817963c75a10ecbc5fb209a1756004795ea4e910fa47c33e350ad8ff465`；来自 Release 运行 41111315274（标签 v1.7.1）的 `Store-submission-x64` artifact（一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.7.1.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.7.1 绿色版里的相同（`6cea621…9df7`）。清单与 1.7.0.0 相同（没有 DisplayName）。
+- 提交：2026-10-31 用户在自己电脑上试过修好的版本后说「可以了，没问题，发版本吧」。临时 Edge 窗口自动登录 Partner Center。开始时 Submission 10（1.7.0.0）已上架、没有进行中的提交。新建 Submission 11 **1152921505702280699**：上传本包（Validated，保留 runFullTrust 受限能力警告），1.7.0.0 随保存从提交中移除，设备仍只勾选 Windows 10/11 Desktop；中英文“此版本的新增功能”改为 1.7.1 的三行，再用一行带过之前的更新（244 / 687 字符，重新加载后逐字一致；说明、功能、关键词、截图未改）；提交选项沿用“通过认证后立即发布”，runFullTrust 用途说明沿用原文（458 字符）；点击“提交进行认证”后总览显示“正在认证更新”。商店在认证通过前仍为 Submission 10（1.7.0.0）。本版没有对应的 GitHub issue 要回复。截图在忽略目录 `dist/store-1.7.1-submission/`。
+
 ## 1.7.0.0 更新（2026-10-30 提交认证，2026-10-30 核实已上架）
 
 - 包：`LiteView-store-1.7.0.0-x64.msix`，SHA-256 `a6c53d123dc0345a5c92cd924906ca623b17d20c7e54bbc8adacfe19df5c9eab`；来自 Release 运行 41010310435（标签 v1.7.0）的 `Store-submission-x64` artifact（一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.7.0.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.7.0 绿色版里的相同（`671a5d0…c46a`）。清单新增 `.webm` 文件类型（共 31 个）；导入表里没有 mfplat.dll（运行时从 System32 加载，CI 的系统导入检查通过）。
