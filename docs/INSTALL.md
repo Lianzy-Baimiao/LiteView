@@ -8,9 +8,9 @@
 - 注册为增量操作：切换勾选不会移除以前注册的格式或破坏已有默认设置。「移除打开方式注册」才会清理 LiteView 的注册，并需要再次确认。Windows 的默认应用仍由用户决定，不破解 UserChoice，也不模拟系统点击。
 - 卸载不删除用户图片及配置。安装包未签名时 Windows 可能提示未知发布者；请先核对来源及 SHA256SUMS.txt，勿关闭系统安全功能。
 
-### Microsoft Store 版（待上架）
+### Microsoft Store 版
 
-商店版尚未提交审核，当前不要把仓库中的 MSIX 测试包当作普通安装包使用。
+从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 安装，由微软签名、自动更新；新版本要等微软审核通过才推送，一般比 GitHub 晚几小时到几天。GitHub Releases 不提供 MSIX 包：CI 构建的未签名 MSIX 只用于提交商店和测试，不要当作普通安装包使用。
 该渠道最低为 Windows 10 2004（19041）x64；图片格式随包安装登记，设置页中的勾选只是待检查范围。默认应用仍需用户在 Windows 中确认。
 商店版与 GitHub 版使用独立配置和单实例通道，二者并存时不会互相移除格式注册。包的安装/卸载由 Windows 管理，不提供手动注销入口。
 
