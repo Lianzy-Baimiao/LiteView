@@ -57,6 +57,7 @@
               <uap:FileType>.exr</uap:FileType>
               <uap:FileType>.hdr</uap:FileType>
               <uap:FileType>.qoi</uap:FileType>
+              <uap:FileType>.webm</uap:FileType>
               <uap:FileType>.cr2</uap:FileType>
               <uap:FileType>.cr3</uap:FileType>
               <uap:FileType>.nef</uap:FileType>

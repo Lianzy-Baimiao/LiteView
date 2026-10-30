@@ -7,7 +7,7 @@ pub const APP: &str = "LiteView";
 pub const GROUPS: [&[&str]; 4] = [
     &["jpg", "jpeg", "jpe", "jfif", "png", "gif", "bmp", "webp"],
     &["tif", "tiff", "ico", "heic", "heif", "avif", "jxl", "svg"],
-    &["tga", "dds", "psd", "exr", "hdr", "qoi"],
+    &["tga", "dds", "psd", "exr", "hdr", "qoi", "webm"],
     &["cr2", "cr3", "nef", "arw", "dng", "raf", "orf", "rw2"],
 ];
 
