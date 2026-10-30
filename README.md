@@ -8,7 +8,7 @@
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊 / 涂抹画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> Windows 上的看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest) 安装。各版本的更新见 [更新日志](docs/CHANGELOG.md)，还没做完、还没实测的事见 [TODO](docs/TODO.md)。
+> Windows 上的看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest) 安装。各版本的更新见 [更新日志](docs/CHANGELOG.md)，还没做完的事见 [TODO](docs/TODO.md)。
 
 ## 界面预览
 

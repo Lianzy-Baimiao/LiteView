@@ -8,7 +8,7 @@
 A lightweight image viewer written in Rust: browse a folder, zoom with the mouse wheel, play GIFs and step through them frame by frame.
 It comes with a Paint-style editor and mosaic / blur / smudge redaction by brush or box. The flat, modern interface is in English and Chinese and follows the system's language and light or dark theme; change the language in Settings → General.
 
-> Windows is the main platform for viewing, editing and redaction. Install from the [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) or [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest). What changed in each version is in the [changelog](docs/CHANGELOG.md) (Chinese); what is unfinished or not yet tested is in [TODO](docs/TODO.md) (Chinese).
+> Windows is the main platform for viewing, editing and redaction. Install from the [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) or [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest). What changed in each version is in the [changelog](docs/CHANGELOG.md) (Chinese); what is still to be done is in [TODO](docs/TODO.md) (Chinese).
 
 ## Screenshots
 
