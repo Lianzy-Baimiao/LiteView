@@ -6,6 +6,7 @@ on:
     # 只改文档的推送不跑（docs/validation 里测试要读的文件不是 .md，照样会跑）
     paths-ignore:
       - "README.md"
+      - "README.*.md"
       - "docs/**/*.md"
   pull_request:
 

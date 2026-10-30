@@ -1,6 +1,6 @@
 # 更新日志
 
-各版本用户能看到的变化，新的在前。完整的发布说明（下载、校验、已知限制）见各版本的 [GitHub Release](https://github.com/Lianzy-Baimiao/LiteView/releases)。README 只留最新一版的更新；发新版时先加到这里最上面，再替换 README 里的那一节。
+各版本用户能看到的变化，新的在前。完整的发布说明（下载、校验、已知限制）见各版本的 [GitHub Release](https://github.com/Lianzy-Baimiao/LiteView/releases)。发新版时加到这里最上面；README 只放这个文件的链接。
 
 ## [v1.7.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.7.0)（2026-10-30）
 

@@ -1,19 +1,14 @@
 # LiteView 轻量看图
 
+**简体中文** · [English](README.en.md)
+
+[![许可 MIT](https://img.shields.io/badge/许可-MIT-blue?style=flat-square)](LICENSE)
+[![赞赏 爱发电](https://img.shields.io/badge/赞赏-爱发电-946ce6?style=flat-square)](https://ifdian.net/a/lianzy)
+
 Rust 编写的轻量图片查看器：同文件夹翻图、鼠标滚轮缩放、GIF 自动播放与逐帧查看；
 自带画图级编辑，以及马赛克 / 模糊 / 涂抹画笔和框选打码。现代扁平界面，中英文，跟随系统深浅色。
 
-> Windows 上的看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest) 安装。还没做完、还没实测的事见 [TODO](docs/TODO.md)。
-
-## v1.7.0 更新（2026-10-30）
-
-- 打开 WebM 表情包（Windows）：Telegram 那样带透明的 VP9 动图，用系统的「VP9 视频扩展」解码，透明的地方显示棋盘格；翻文件夹、打开对话框都认 .webm。
-- SVG 放大超过 1:1 不再发虚：停下后按屏幕的像素重画看得见的那块。
-- 涂抹画笔顺着拖的方向走（以前总是横的）；框选还是横的。
-- 比例菜单的输入框能打字了（以前一点就关、打的字变成快捷键）；无边框窗口在缩放不同的两块屏之间来回后不再变小。
-- 竖拍照片（EXIF 转 90°）、16 位图解码更快、更省内存；翻大图文件夹、编辑大图时少占内存。
-
-以前各版本的更新见 [更新日志](docs/CHANGELOG.md)。
+> Windows 上的看图、编辑和打码是主要使用范围；可从 [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) 或 [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest) 安装。各版本的更新见 [更新日志](docs/CHANGELOG.md)，还没做完、还没实测的事见 [TODO](docs/TODO.md)。
 
 ## 界面预览
 
@@ -96,16 +91,6 @@ cargo build --locked --release
 
 发布与本地打包流程见 [RELEASING](docs/RELEASING.md)。
 
-## English
-
-LiteView is an offline Rust image viewer with folder navigation, wheel zoom, animated-image playback
-and a small Paint-style editor with mosaic / blur / smudge redaction. On Windows it can also print,
-open transparent WebM stickers and show an image in a borderless window. Choose English in Settings → General.
-Install from the [Microsoft Store](https://apps.microsoft.com/detail/9PCG7D394JFC) or [GitHub Releases](https://github.com/Lianzy-Baimiao/LiteView/releases/latest).
-Windows is the primary tested platform; Linux and macOS packaging is included but still needs native validation.
-See [installation](docs/INSTALL.md), the [changelog](docs/CHANGELOG.md) (Chinese) and [remaining work](docs/TODO.md).
-
 ## License
 
-[MIT](LICENSE). Third-party dependencies and icons retain their own licenses;
-see [third-party notices](THIRD-PARTY-NOTICES.md) and the generated LICENSES.html in release packages.
+[MIT](LICENSE)。第三方依赖和图标保留各自的许可，见 [第三方声明](THIRD-PARTY-NOTICES.md) 和发布包里生成的 LICENSES.html。
