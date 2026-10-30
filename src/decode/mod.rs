@@ -12,6 +12,9 @@ mod limits_tests;
 pub mod sniff;
 pub mod timing;
 #[cfg(windows)]
+mod vp9;
+pub mod webm;
+#[cfg(windows)]
 mod wic;
 
 use std::path::Path;
@@ -95,6 +98,8 @@ pub struct AnimSource {
 pub enum AnimFormat {
     Raster(ImageFormat),
     Jxl,
+    #[cfg(windows)]
+    Webm,
 }
 
 impl AnimSource {
@@ -103,6 +108,8 @@ impl AnimSource {
         match self.format {
             AnimFormat::Raster(format) => anim::each_frame(&self.data, format, &self.options, f),
             AnimFormat::Jxl => extra::jxl_each_frame(&self.data, &self.options, f),
+            #[cfg(windows)]
+            AnimFormat::Webm => vp9::each_frame(&webm::parse(&self.data)?, f),
         }
     }
 }
@@ -274,6 +281,11 @@ fn decode_kind(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error
             fallback(raster::decode(data, f, opts), || system(data, kind, opts))
         }
         Kind::Svg => extra::svg(data, opts),
+        // WebM 视频（动的表情包）：Windows 用系统的 VP9 解码器；别的系统暂不支持
+        #[cfg(windows)]
+        Kind::Webm => vp9::decode(data, opts),
+        #[cfg(not(windows))]
+        Kind::Webm => Err(Error::Unsupported),
         Kind::Jxl => extra::jxl(data, opts),
         Kind::Psd => fallback(extra::psd(data, opts), || system(data, kind, opts)),
         // RAW：先用内嵌的 JPEG 预览（快、各平台都能看），没有时交给系统解码

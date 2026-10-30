@@ -65,6 +65,7 @@ features = [
     "Win32_Graphics_Gdi",
     "Win32_Graphics_Imaging",
     "Win32_Graphics_Printing",
+    "Win32_Media_MediaFoundation",
     "Win32_Storage_FileSystem",
     "Win32_Storage_Packaging_Appx",
     "Win32_Storage_Xps",

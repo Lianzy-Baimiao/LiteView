@@ -12,10 +12,23 @@ pub const EXTS: &[&str] = &[
     "psd",
 ];
 
+/// 只有 Windows 能解的（WebM 表情包用系统的 VP9 解码器）
+pub const WINDOWS_EXTS: &[&str] = &["webm"];
+
+/// 这个系统上能打开的扩展名：EXTS、RAW，Windows 上再加 WINDOWS_EXTS
+pub fn all_exts() -> Vec<&'static str> {
+    let mut v: Vec<&str> = EXTS.to_vec();
+    v.extend_from_slice(crate::decode::sniff::RAW_EXTS);
+    if cfg!(windows) {
+        v.extend_from_slice(WINDOWS_EXTS);
+    }
+    v
+}
+
 pub fn is_image(p: &Path) -> bool {
     p.extension().and_then(|e| e.to_str()).is_some_and(|e| {
         let e = e.to_ascii_lowercase();
-        EXTS.contains(&e.as_str()) || crate::decode::sniff::RAW_EXTS.contains(&e.as_str())
+        EXTS.contains(&e.as_str()) || crate::decode::sniff::RAW_EXTS.contains(&e.as_str()) || (cfg!(windows) && WINDOWS_EXTS.contains(&e.as_str()))
     })
 }
 

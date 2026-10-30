@@ -11,6 +11,8 @@ pub enum Kind {
     Avif,
     Raw,
     Psd,
+    /// WebM 视频（VP8 / VP9，动的表情包）：Windows 上用系统的视频扩展解码
+    Webm,
     Unknown,
 }
 
@@ -40,6 +42,9 @@ pub fn sniff(data: &[u8], ext: &str) -> Kind {
     }
     if data.starts_with(b"8BPS") {
         return Kind::Psd;
+    }
+    if super::webm::is_webm(data) {
+        return Kind::Webm;
     }
     if data.starts_with(b"FUJIFILMCCD-RAW") || data.starts_with(b"IIRO") || data.starts_with(b"IIRS") || data.starts_with(b"IIU\0") {
         return Kind::Raw;

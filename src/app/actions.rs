@@ -55,8 +55,7 @@ impl App {
     }
 
     pub(crate) fn open_dialog(&mut self, ctx: &egui::Context) {
-        let mut exts: Vec<&str> = crate::viewer::folder::EXTS.to_vec();
-        exts.extend_from_slice(crate::decode::sniff::RAW_EXTS);
+        let exts = crate::viewer::folder::all_exts();
         let mut d = rfd::FileDialog::new().add_filter(tr().image_files, &exts).add_filter(tr().all_files, &["*"]);
         if let Some(dir) = self.cur.as_ref().and_then(|c| (!c.clipboard).then(|| c.path.parent().map(|p| p.to_path_buf())).flatten()) {
             d = d.set_directory(dir);

@@ -120,6 +120,7 @@ strings! {
     err_corrupt: "文件已损坏或不完整", "The file is damaged or incomplete";
     err_codec: "缺少系统解码扩展", "A system codec is missing";
     err_codec_heic: "需要从微软商店安装「HEIF 图像扩展」和「HEVC 视频扩展」", "Install “HEIF Image Extensions” and “HEVC Video Extensions” from the Microsoft Store";
+    err_codec_vp9: "需要从微软商店安装「VP9 视频扩展」", "Install “VP9 Video Extensions” from the Microsoft Store";
     err_denied: "没有访问权限", "Access denied";
     err_not_found: "文件已被删除或移动", "The file was deleted or moved";
     err_too_large: "图片过大", "The image is too large";

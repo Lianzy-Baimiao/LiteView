@@ -106,6 +106,27 @@ fn main() {
             println!("smear-strokes.png");
             return;
         }
+        // WebM 表情包：整个解码（帧数、用时、透明度分布），存下第一、中间、最后一帧
+        "webm" => {
+            let d = liteview::decode::decode_bytes(&data, "webm", &Default::default());
+            let d = match d {
+                Ok(d) => d,
+                Err(e) => {
+                    println!("webm: {e:?} after {:.0} ms", t.elapsed().as_secs_f64() * 1000.0);
+                    return;
+                }
+            };
+            let ms = t.elapsed().as_secs_f64() * 1000.0;
+            let n = d.content.frame_count();
+            let frames: Vec<_> = [0, n / 2, n - 1].iter().map(|&i| (i, d.content.image_at(i).expect("frame"))).collect();
+            let a = &frames[0].1;
+            let (clear, solid) = (a.pixels().filter(|p| p[3] == 0).count(), a.pixels().filter(|p| p[3] == 255).count());
+            println!("webm {}x{} {} frames in {ms:.0} ms ({:?}), first frame alpha 0: {clear}, 255: {solid}, other: {}", d.info.width, d.info.height, n, d.info.format, a.len() / 4 - clear - solid);
+            for (i, img) in frames {
+                img.save(format!("webm-{i:03}.png")).expect("save");
+            }
+            return;
+        }
         // 做测试图：同一张图存成 16 位 RGB（按扩展名选 PNG / TIFF）
         m if m.starts_with("save16=") => {
             let out = &m["save16=".len()..];

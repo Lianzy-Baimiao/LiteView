@@ -13,9 +13,10 @@ use crate::viewer::loader::Target;
 use crate::viewer::texture::paint_checker;
 use crate::viewer::view::{View, WHEEL_STEP, snap};
 
-/// 微软商店：HEIF 图像扩展、AV1 视频扩展
+/// 微软商店：HEIF 图像扩展、AV1 视频扩展、VP9 视频扩展（WebM 表情包）
 const STORE_HEIF: &str = "ms-windows-store://pdp/?ProductId=9PMMSR1CGPWG";
 const STORE_AV1: &str = "ms-windows-store://pdp/?ProductId=9MVZQVXJBQ9V";
+const STORE_VP9: &str = "ms-windows-store://pdp/?ProductId=9N4D0MSMP0PT";
 
 impl App {
     /// 预读的缩略图按新打开时的显示方式缩小（画布 = 查看时的整个窗口），切过去时就是要显示的样子。
@@ -288,6 +289,7 @@ impl App {
             Error::Unsupported => t.err_unsupported,
             Error::Corrupt(_) => t.err_corrupt,
             Error::MissingCodec(crate::decode::Kind::Heif) => t.err_codec_heic,
+            Error::MissingCodec(crate::decode::Kind::Webm) => t.err_codec_vp9,
             Error::MissingCodec(_) => t.err_codec,
             Error::Denied => t.err_denied,
             Error::NotFound => t.err_not_found,
@@ -312,6 +314,7 @@ impl App {
             let store = match e {
                 Error::MissingCodec(crate::decode::Kind::Heif) if cfg!(windows) => Some(STORE_HEIF),
                 Error::MissingCodec(crate::decode::Kind::Avif) if cfg!(windows) => Some(STORE_AV1),
+                Error::MissingCodec(crate::decode::Kind::Webm) if cfg!(windows) => Some(STORE_VP9),
                 _ => None,
             };
             let width = if store.is_some() { 3.0 } else { 2.0 } * 104.0;

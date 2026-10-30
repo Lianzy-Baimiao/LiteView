@@ -34,3 +34,13 @@ im.paste((220, 0, 0), (0, 0, 60, 60)); im.paste((0, 0, 220), (240, 0, 300, 60))
 exif = Image.Exif(); exif[0x0112] = 6
 im.save("rotated.heic", quality=90, exif=exif.tobytes())  # with pillow_heif.register_heif_opener()
 ```
+
+`alpha.webm` (2026-10-30, ffmpeg n6.0 / libvpx-vp9 from LosslessCut): 64×48, 6 frames at 10 fps, a 20×20 red square
+moving 5 px right per frame over a fully transparent background (VP9 with an alpha channel, like Telegram stickers).
+The Windows test skips when the VP9 Video Extensions are missing (CI). ffmpeg decodes it to the same pixels (red 248 ~ 255).
+
+```sh
+ffmpeg -f lavfi -i "color=c=black@0.0:s=64x48:r=10:d=0.6,format=rgba" -f lavfi -i "color=c=red:s=20x20:r=10:d=0.6,format=rgba" \
+  -filter_complex "[0][1]overlay=x='4+t*50':y=12:format=auto,format=yuva420p" \
+  -c:v libvpx-vp9 -pix_fmt yuva420p -auto-alt-ref 0 -b:v 0 -crf 30 alpha.webm
+```
