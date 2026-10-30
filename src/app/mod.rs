@@ -128,6 +128,8 @@ pub struct App {
     pub(crate) canvas: egui::Rect,
     /// 上一次画画布时的缩放比例（物理像素 / 逻辑像素）
     pub(crate) canvas_ppp: f32,
+    /// 换到缩放不同的屏时按它算缩放：(缩放折成逻辑点, 那时的缩放)
+    pub(crate) dpi_zoom: Option<(f32, f32)>,
     pub(crate) fullscreen: bool,
     pub(crate) allow_close: bool,
     pub(crate) paste_seq: u32,
@@ -441,6 +443,7 @@ impl App {
             fling: egui::Vec2::ZERO,
             canvas: egui::Rect::NOTHING,
             canvas_ppp: 0.0,
+            dpi_zoom: None,
             fullscreen: false,
             allow_close: false,
             paste_seq: 0,

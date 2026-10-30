@@ -200,6 +200,16 @@ impl App {
         true
     }
 
+    /// 换到缩放不同的屏后想要的缩放 z（物理像素 / 图片像素）：最多 100%，图片不超过这块屏工作区的九成
+    #[cfg(windows)]
+    pub(crate) fn dpi_zoom_for(&self, z: f32, size: egui::Vec2, ppp: f32) -> f32 {
+        let fit = self.hwnd.and_then(crate::platform::windows::work_area).map_or(1.0, |w| {
+            let area = egui::vec2((w.2 - w.0) as f32, (w.3 - w.1) as f32) * HUG_SCREEN / ppp;
+            crate::viewer::view::View::fit_zoom(crate::settings::FitMode::Fit, area, ppp, size).max(1e-3)
+        });
+        z.min(fit).min(1.0)
+    }
+
     /// 这一帧要的窗口位置和大小（物理像素），由窗口循环在画完之后一次改好
     #[cfg(windows)]
     pub(crate) fn take_window_rect(&mut self) -> Option<(i32, i32, i32, i32)> {

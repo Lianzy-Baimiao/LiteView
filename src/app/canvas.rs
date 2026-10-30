@@ -80,9 +80,23 @@ impl App {
     pub(crate) fn update_view(&mut self, ctx: &egui::Context, rect: Rect, size: Vec2, fit_mode: FitMode) -> Rect {
         let ppp = ctx.pixels_per_point();
         // 拖到缩放比例不同的显示器上：窗口按逻辑大小保持不变、物理像素变了，zoom（按物理像素算）也要重新适应
+        let dpi_changed = self.canvas_ppp != ppp && self.canvas_ppp > 0.0;
         let resized = self.canvas.size() != rect.size() || self.canvas_ppp != ppp;
+        let old_ppp = self.canvas_ppp;
         self.canvas = rect;
         self.canvas_ppp = ppp;
+        // 无边框（窗口就是图片）换到缩放不同的屏：按逻辑大小不变换算缩放（最多 100%、不超过那块屏的九成），
+        // 不按系统给的窗口重新适应。不然 1:1 的图到 150% 的屏上还是 100%、窗口变小，回到 125% 的屏时
+        // 按变小的窗口适应成 83%，来回一次窗口小一圈
+        #[cfg(windows)]
+        if dpi_changed && !self.pending_reset && self.frameless() {
+            let logical = self.dpi_zoom.filter(|d| (d.1 - self.view.zoom).abs() < 1e-5).map_or(self.view.zoom / old_ppp, |d| d.0);
+            self.view.zoom = self.dpi_zoom_for(logical * ppp, size, ppp);
+            self.dpi_zoom = Some((logical, self.view.zoom));
+            log::debug!("换屏：缩放 {old_ppp} → {ppp}，图片缩放 {:.4}（逻辑 {logical:.4}），画布 {:?}，fitted {}", self.view.zoom, rect.size(), self.view.fitted);
+            return self.finish_view(ctx, rect, size);
+        }
+        let _ = (dpi_changed, old_ppp);
         if self.pending_reset || (resized && self.view.fitted) {
             let mode = if self.pending_reset { fit_mode } else { FitMode::Fit };
             // 无边框时新图按工作区的九成适应，窗口再跟着它变（只按现在的窗口适应的话，窗口会越换越小）
@@ -90,6 +104,16 @@ impl App {
             self.view.reset(mode, area, ppp, size);
             self.pending_reset = false;
         }
+        // 记下现在的缩放折成逻辑点是多少（换屏时按它算；用户改了缩放就跟着改）
+        if self.dpi_zoom.is_none_or(|d| (d.1 - self.view.zoom).abs() >= 1e-5) {
+            self.dpi_zoom = Some((self.view.zoom / ppp, self.view.zoom));
+        }
+        self.finish_view(ctx, rect, size)
+    }
+
+    /// 缩放动画、惯性、限制平移；返回图片在屏幕上的矩形
+    fn finish_view(&mut self, ctx: &egui::Context, rect: Rect, size: Vec2) -> Rect {
+        let ppp = ctx.pixels_per_point();
         if self.view.tick(rect) {
             ctx.request_repaint();
         }
@@ -183,9 +207,13 @@ impl App {
         if self.window_op {
             return;
         }
-        if resp.drag_started_by(egui::PointerButton::Primary) && self.drag_moves_window(ctx, self.shown.map(|s| self.view.shown_size(s.width, s.height))) {
-            self.start_window_drag(ctx);
-            return;
+        if resp.drag_started_by(egui::PointerButton::Primary) {
+            let moves = self.drag_moves_window(ctx, self.shown.map(|s| self.view.shown_size(s.width, s.height)));
+            log::debug!("开始拖：{}，缩放 {:.4}，画布 {:?}，fitted {}", if moves { "移动窗口" } else { "平移" }, self.view.zoom, self.canvas.size(), self.view.fitted);
+            if moves {
+                self.start_window_drag(ctx);
+                return;
+            }
         }
         let ppp = ctx.pixels_per_point();
         let rect = self.canvas;
