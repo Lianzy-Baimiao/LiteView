@@ -39,11 +39,11 @@
 
 仓库的[无边框方案与历史实测](https://github.com/Lianzy-Baimiao/LiteView/blob/68323a485031526a3334e2ac7c4bf4a23871c353/docs/BORDERLESS-PLAN.md)已经记载拖窗通路的使用经验；它支持复用判断，但不能替代此次普通窗口扩展的实测。
 
-## 实施与验证（2026-11-02，未发布）
+## 实施与验证（2026-11-02，v1.8.0）
 
 - 已扩展 `app/frameless.rs` 的拖动判断：Windows 普通查看窗口整图可见时拖窗，超出画布时平移，Shift 可强制拖窗。普通窗口最大化、全屏、编辑、菜单或对话框打开时不从画布启动拖窗；无边框最大化时仍保留拖出还原。普通空窗口不启用。
 - 复用 `StartDrag` 和已有位移补偿；启动拖窗时清除残余图片惯性。同一次拖动不因 Shift 状态变化而改变用途。画布可拖窗时显示抓手指针。
-- 设置的快捷键表加入中英文操作说明；窗口状态限制放在悬停提示中，避免长句在表格内被截断。更新日志已记入“未发布”。
+- 设置的快捷键表加入中英文操作说明；窗口状态限制放在悬停提示中，避免长句在表格内被截断。更新日志已记入 v1.8.0。
 - `cargo test --locked --release --lib`：205 通过、0 失败、1 忽略（原有 PDF 子进程辅助测试）。新增五项测试用真实 egui 输入事件检查窗口命令和图片偏移，覆盖大小图、100% 边界、DPI、旋转、Shift、拖动中途切换修饰键、最大化/全屏、菜单/设置、空画布和双击。最后的说明文案与悬停提示调整不改变拖动逻辑。
 - `cargo clippy --locked --release --all-targets -- -D warnings`：通过。
 - `cargo build --locked --release`：最终构建通过，试用文件为 `dist/issue-4-20261102/LiteView.exe`。最终构建的中英文新增快捷键行均已在实际窗口检查，操作说明完整显示。
@@ -51,3 +51,10 @@
 - 本地输入素材、窗口位置记录和运行日志位于 `dist/issue-4-20261102/`（忽略目录），主要记录为 `native-drag-observations.json`、`native-drag.log`。SVG 在当前解码器中先栅格化到 2048 像素边长，日志缩放按该显示尺寸计算；小图验证使用实际 300×200 PNG。
 
 本次没有重做跨不同 DPI/负坐标副屏、系统贴边分屏或真实鼠标按住 Shift 的验收；Shift 与 DPI 的分流已由 egui 输入测试覆盖，跨屏仍复用现有系统拖动通路。
+
+## 发布与 Issue 跟进（2026-11-02）
+
+- 实现与版本资料已提交为 [`3e88332`](https://github.com/Lianzy-Baimiao/LiteView/commit/3e88332bd6d6eb64136f4394de34fb05ea37ac2a)，推送 main 和 v1.8.0 标签。[普通 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/41459994188) 三平台通过；[Release 运行](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/41459994311) 的 Windows x64、Linux x64、macOS arm64 / x64 全部通过 Clippy、测试、构建与打包，Windows 安装包及 MSIX 生命周期回归通过。
+- [v1.8.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.8.0) 于北京时间 22:45 正式发布为 Latest。公开附件为五个安装包和 `SHA256SUMS.txt`；全部附件的 GitHub SHA-256 与校验和核对通过，下载的 Windows 绿色版和安装版也通过校验。MSIX 保留为商店提交 artifact，没有作为公开下载附件。
+- 北京时间 22:46 已[回复 Issue #4](https://github.com/Lianzy-Baimiao/LiteView/issues/4#issuecomment-6580060502)，说明可见尺寸规则、Shift 与窗口状态边界，并附正式下载链接；Issue 已以 `completed` 关闭。
+- 商店 1.8.0.0 候选包和中英文文案已备好，包内 EXE 与正式 Windows 绿色版一致。浏览器控制工具中止导致尚未上传或提交认证；具体证据及恢复步骤见 [商店记录](STORE-LISTING.md)。
