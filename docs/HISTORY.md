@@ -2,6 +2,11 @@
 
 从 `TODO.md` 移出来的已完成事项，按时间从新到旧。里面的数字和结论都是当时的版本与环境（例如 M0 时 Windows 还用 wgpu，v1.2.0 起改用 Direct3D 11），不代表现状。用户能看到的变化见 [更新日志](CHANGELOG.md) 与各版本的 GitHub Release 说明。
 
+## 2026-11-02 普通窗口拖图（v1.8.0）
+
+- [x] 采纳 [GitHub #4](https://github.com/Lianzy-Baimiao/LiteView/issues/4) 的拖窗建议，按图片是否完整放得下分流，而不是按缩放栏的 100%：Windows 普通窗口整图可见时左键拖窗，超出画布时平移，Shift 强制拖窗。普通窗口最大化、全屏、编辑或菜单/对话框打开时不从画布启动拖窗；无边框最大化保留拖出还原。复用原生 `StartDrag` 与拖动阈值补偿，开始拖窗时清除图片惯性，并补充抓手指针和中英文快捷键说明。
+- [x] 输入测试覆盖显示尺寸、DPI、旋转、Shift、双击与窗口状态；Windows 桌面实测普通窗口连续拖动、超出画布的图片平移、201% 小图拖窗、编辑选区、最大化、全屏和无边框。完整证据及未重复实测的边界见 [实施记录](ISSUE-4-WINDOW-DRAG-RESEARCH.md)。
+
 ## 2026-10-31 作者决定的事项
 
 - [x] GitHub 独立版的签名：SignPath Foundation 免费给开源项目签名，本项目条件都满足，但签名者显示为 SignPath Foundation，要作者本人申请。商店版本来就由微软签名。 用户 2026-10-31 决定：GitHub 独立版不签名（第一次运行时 Windows 照样提示「已保护你的电脑」）；商店版由微软签名。各家签名方案的调查留在 `WINDOWS-SIGNING-AND-STORE.md` 备查。

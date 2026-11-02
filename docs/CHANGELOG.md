@@ -2,6 +2,10 @@
 
 各版本用户能看到的变化，新的在前。完整的发布说明（下载、校验、已知限制）见各版本的 [GitHub Release](https://github.com/Lianzy-Baimiao/LiteView/releases)。发新版时加到这里最上面；README 只放这个文件的链接。
 
+## [v1.8.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.8.0)（2026-11-02）
+
+- Windows 普通窗口中，图片完整显示时可直接左键拖图片移动窗口；图片超出窗口时仍拖动平移，Shift + 拖动可强制移动窗口。普通窗口最大化、全屏和编辑时不启用画布拖窗。判断按图片是否放得下，不以 100% 缩放为界（[#4](https://github.com/Lianzy-Baimiao/LiteView/issues/4)）。
+
 ## [v1.7.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.7.1)（2026-10-31）
 
 - 文本框好拉了：左右两条边（连同四个角）往外 12 像素都能拉宽，拉左边时右边不动；上下边按住是拖动；指针跟着变。以前只有右边中间一个 7 像素的小点能拉。

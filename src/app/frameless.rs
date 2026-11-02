@@ -1,5 +1,5 @@
 //! 无边框模式（Windows，`docs/BORDERLESS-PLAN.md`）：去掉系统标题栏，鼠标到顶部时淡入一条细标题栏；
-//! 图片整张在窗口里时拖图片移动窗口（Shift + 拖总是移动），拖窗口边缘改大小。移动、改大小都交给系统
+//! 图片整张在窗口里时拖图片移动窗口（普通未最大化窗口也支持，Shift + 拖强制移动），拖窗口边缘改大小。移动、改大小都交给系统
 //! （`StartDrag` / `BeginResize`），贴边分屏、拖到别的屏和有标题栏时一样。编辑时临时恢复系统标题栏。
 
 use egui::{Align2, Area, Color32, CursorIcon, FontId, Id, Order, Pos2, Rect, ResizeDirection, Sense, Stroke, StrokeKind, ViewportCommand, pos2, vec2};
@@ -67,11 +67,6 @@ pub(crate) fn edge_at(r: Rect, q: Pos2) -> Option<ResizeDirection> {
     })
 }
 
-/// 拖图片时移动窗口还是平移图片：无边框时，图片整张在窗口里（没有可平移的方向）或按住 Shift 就移动窗口
-pub(crate) fn drag_moves_window(borderless: bool, pannable: bool, shift: bool) -> bool {
-    borderless && (shift || !pannable)
-}
-
 fn cursor(d: ResizeDirection) -> CursorIcon {
     match d {
         ResizeDirection::North => CursorIcon::ResizeNorth,
@@ -117,6 +112,7 @@ impl App {
         if let (Some(d), Some(r), false) = (moved, outer, maximized) {
             ctx.send_viewport_cmd(ViewportCommand::OuterPosition(r.min + d));
         }
+        self.fling = egui::Vec2::ZERO;
         self.window_op = true;
         ctx.send_viewport_cmd(ViewportCommand::StartDrag);
     }
@@ -225,11 +221,20 @@ impl App {
 
     /// 拖图片时移动窗口（在按下后开始拖的那一帧决定，拖到一半不换）
     pub(crate) fn drag_moves_window(&self, ctx: &egui::Context, size: Option<egui::Vec2>) -> bool {
-        let pannable = size.is_some_and(|s| {
-            let s = s * self.view.zoom / ctx.pixels_per_point();
-            s.x > self.canvas.width() + 0.5 || s.y > self.canvas.height() + 0.5
-        });
-        drag_moves_window(self.frameless(), pannable, ctx.input(|i| i.modifiers.shift))
+        if !SUPPORTED || self.fullscreen || self.editor.is_some() || self.modal_open() || self.menu_open {
+            return false;
+        }
+        let (maximized, shift) = ctx.input(|i| (i.viewport().maximized.unwrap_or(false), i.modifiers.shift));
+        let borderless = self.frameless();
+        // 普通窗口最大化后不从画布拖出还原；无边框保留原有行为。
+        if maximized && !borderless {
+            return false;
+        }
+        // 普通窗口只在有图片时启用；无边框空窗口仍能拖动。
+        let Some(size) = size else { return borderless };
+        let shown = size * self.view.zoom / ctx.pixels_per_point();
+        let pannable = shown.x > self.canvas.width() + 0.5 || shown.y > self.canvas.height() + 0.5;
+        shift || !pannable
     }
 
     /// 无边框、没有最大化 / 全屏时：鼠标在边缘上显示改大小的箭头，按下就交给系统改大小
@@ -396,16 +401,6 @@ mod tests {
         assert_eq!(hug_rect((3500, 100, 3800, 300), (600, 400), (0.5, 0.5), work), (3240, 0, 3840, 400));
         // 第二块屏（工作区不从 0 开始）、大小不变：原样
         assert_eq!(hug_rect((3900, 50, 4300, 350), (400, 300), (0.3, 0.7), (3840, 0, 6400, 1560)), (3900, 50, 4300, 350));
-    }
-
-    #[test]
-    fn dragging_the_image_moves_the_window_only_when_borderless_and_nothing_to_pan() {
-        assert!(drag_moves_window(true, false, false));
-        assert!(!drag_moves_window(true, true, false));
-        // Shift + 拖总是移动窗口；有标题栏时一直是平移
-        assert!(drag_moves_window(true, true, true));
-        assert!(!drag_moves_window(false, false, false));
-        assert!(!drag_moves_window(false, true, true));
     }
 
     #[cfg(windows)]

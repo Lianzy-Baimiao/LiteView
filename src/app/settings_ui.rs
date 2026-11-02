@@ -48,12 +48,14 @@ fn number(ui: &mut Ui, value: &mut u32, range: std::ops::RangeInclusive<f32>) {
     ui.label(RichText::new(value.to_string()).size(13.0));
 }
 
-/// 快捷键表的各行（打印只有 Windows 有，放在「打开 / 设置」前面）
+/// 快捷键表的各行（Windows 的拖窗和打印说明分别插在全屏、打开 / 设置前面）
 fn keys_lines(t: &crate::i18n::Strings) -> Vec<&'static str> {
     let lines: Vec<&'static str> = t.keys_table.lines().collect();
     #[cfg(windows)]
     let lines = {
         let mut lines = lines;
+        let at = lines.iter().position(|l| l.contains("F11")).unwrap_or(lines.len());
+        lines.insert(at, t.keys_drag_window_row);
         let at = lines.iter().position(|l| l.contains("Ctrl+O")).unwrap_or(lines.len());
         lines.insert(at, t.keys_print_row);
         lines
@@ -230,7 +232,10 @@ impl App {
                     for (i, line) in keys_lines(t).iter().enumerate() {
                         for cell in line.split('|') {
                             let text = RichText::new(cell).size(13.0);
-                            ui.label(if i == 0 { text.color(p.text_weak) } else { text.color(p.text) });
+                            let response = ui.label(if i == 0 { text.color(p.text_weak) } else { text.color(p.text) });
+                            if *line == t.keys_drag_window_row {
+                                response.on_hover_text(t.keys_drag_window_tip);
+                            }
                         }
                         ui.end_row();
                     }

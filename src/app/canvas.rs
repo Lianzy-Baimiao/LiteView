@@ -203,12 +203,12 @@ impl App {
     }
 
     fn pointer(&mut self, ctx: &egui::Context, resp: &egui::Response) {
-        // 这次按下已经交给系统移动 / 改大小窗口（无边框模式）：松开之前不平移、不算点击
+        // 这次按下已经交给系统移动 / 改大小窗口：松开之前不平移、不算点击
         if self.window_op {
             return;
         }
+        let moves = self.drag_moves_window(ctx, self.shown.map(|s| self.view.shown_size(s.width, s.height)));
         if resp.drag_started_by(egui::PointerButton::Primary) {
-            let moves = self.drag_moves_window(ctx, self.shown.map(|s| self.view.shown_size(s.width, s.height)));
             log::debug!("开始拖：{}，缩放 {:.4}，画布 {:?}，fitted {}", if moves { "移动窗口" } else { "平移" }, self.view.zoom, self.canvas.size(), self.view.fitted);
             if moves {
                 self.start_window_drag(ctx);
@@ -289,7 +289,7 @@ impl App {
             self.navigate(d);
         }
         let s_pts = size * self.view.zoom / ppp;
-        if resp.hovered() && (s_pts.x > rect.width() + 0.5 || s_pts.y > rect.height() + 0.5) {
+        if resp.hovered() && (moves || s_pts.x > rect.width() + 0.5 || s_pts.y > rect.height() + 0.5) {
             ctx.set_cursor_icon(if resp.dragged() { CursorIcon::Grabbing } else { CursorIcon::Grab });
         }
     }
@@ -408,5 +408,146 @@ mod tests {
         // 手动缩放过的（例如 100%）：zoom 按物理像素算，换显示器后照旧
         assert_eq!(frame(&mut app, &ctx, 1.5, Some(1.0)), 1.0);
         assert_eq!(frame(&mut app, &ctx, 1.0, None), 1.0);
+    }
+}
+
+#[cfg(all(test, windows))]
+mod drag_tests {
+    use super::*;
+    use egui::{Event, Modifiers, PointerButton, RawInput, ViewportCommand, ViewportId, pos2};
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    /// 用真实 egui 按下、移动事件驱动画布入口，检查发出的窗口命令及图片偏移。
+    struct Canvas {
+        app: App,
+        ctx: egui::Context,
+        input: RawInput,
+        modifiers: Modifiers,
+    }
+
+    impl Canvas {
+        fn new(width: u32, height: u32, zoom: f32) -> Self {
+            let ctx = egui::Context::default();
+            let settings = Settings { ask_default_app: false, drag_inertia: false, ..Default::default() };
+            let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+            app.shown = Some(crate::app::Shown { width, height, has_alpha: false });
+            app.view.zoom = zoom;
+            let mut input = RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 800.0))), time: Some(0.0), ..Default::default() };
+            input.viewports.entry(ViewportId::ROOT).or_default().outer_rect = Some(Rect::from_min_size(pos2(100.0, 100.0), vec2(1220.0, 840.0)));
+            Self { app, ctx, input, modifiers: Modifiers::NONE }
+        }
+
+        fn frame(&mut self, events: Vec<Event>) -> Vec<ViewportCommand> {
+            *self.input.time.as_mut().unwrap() += 0.02;
+            let mut input = self.input.clone();
+            input.events = vec![Event::ModifiersChanged(self.modifiers)];
+            input.events.extend(events);
+            let mut out = self.ctx.run_ui(input, |ui| {
+                self.app.canvas = ui.max_rect();
+                let resp = ui.interact(ui.max_rect(), ui.id().with("canvas"), Sense::click_and_drag());
+                self.app.pointer(ui.ctx(), &resp);
+            });
+            out.viewport_output.remove(&ViewportId::ROOT).unwrap().commands
+        }
+
+        fn button(&mut self, pressed: bool) -> Vec<ViewportCommand> {
+            self.frame(vec![Event::PointerButton { pos: pos2(300.0, 300.0), button: PointerButton::Primary, pressed, modifiers: self.modifiers }])
+        }
+
+        fn drag(&mut self) -> Vec<ViewportCommand> {
+            assert!(!self.frame(vec![Event::PointerMoved(pos2(300.0, 300.0))]).contains(&ViewportCommand::StartDrag));
+            assert!(!self.button(true).contains(&ViewportCommand::StartDrag));
+            self.frame(vec![Event::PointerMoved(pos2(380.0, 360.0))])
+        }
+    }
+
+    #[test]
+    fn dragging_uses_visible_size_including_dpi_and_rotation_not_zoom_percentage() {
+        for (w, h, zoom, ppp, rotation, moves) in [
+            (6000, 4000, 0.5, 1.0, 0, false), // 不到 100% 仍要平移
+            (300, 200, 2.0, 1.0, 0, true),   // 超过 100% 仍完整可见
+            (1200, 800, 1.0, 1.0, 0, true), // 刚好放下
+            (1201, 800, 1.0, 1.0, 0, false),
+            (1800, 1200, 1.0, 1.5, 0, true), // 150% DPI 下刚好放下
+            (1800, 1200, 1.0, 1.0, 0, false),
+            (600, 1100, 1.0, 1.0, 0, false), // 长图只有竖向超出也须平移
+            (600, 1100, 1.0, 1.0, 1, true),  // 旋转后完整可见
+        ] {
+            let mut c = Canvas::new(w, h, zoom);
+            c.input.viewports.get_mut(&ViewportId::ROOT).unwrap().native_pixels_per_point = Some(ppp);
+            c.app.view.xf.rotation = rotation;
+            let cmds = c.drag();
+            assert_eq!(cmds.contains(&ViewportCommand::StartDrag), moves, "{w}×{h}, zoom {zoom}, DPI {ppp}, rotation {rotation}");
+            assert_eq!(c.app.window_op, moves);
+            assert_eq!(c.app.view.offset, if moves { Vec2::ZERO } else { vec2(80.0, 60.0) });
+        }
+    }
+
+    #[test]
+    fn shift_drag_moves_the_window_once_without_panning_or_inertia() {
+        let mut c = Canvas::new(6000, 4000, 1.0);
+        c.modifiers = Modifiers::SHIFT;
+        c.app.fling = vec2(200.0, 100.0);
+        let cmds = c.drag();
+        assert!(cmds.contains(&ViewportCommand::StartDrag));
+        assert!(cmds.contains(&ViewportCommand::OuterPosition(pos2(180.0, 160.0))));
+        assert_eq!(c.app.view.offset, Vec2::ZERO);
+        assert_eq!(c.app.fling, Vec2::ZERO);
+        // 松开 Shift 继续拖也不会重新启动系统拖窗或改成平移。
+        c.modifiers = Modifiers::NONE;
+        assert!(!c.frame(vec![Event::PointerMoved(pos2(450.0, 400.0))]).contains(&ViewportCommand::StartDrag));
+        assert_eq!(c.app.view.offset, Vec2::ZERO);
+    }
+
+    #[test]
+    fn starting_a_pan_then_pressing_shift_does_not_switch_to_window_drag() {
+        let mut c = Canvas::new(6000, 4000, 0.5);
+        assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+        c.modifiers = Modifiers::SHIFT;
+        assert!(!c.frame(vec![Event::PointerMoved(pos2(450.0, 400.0))]).contains(&ViewportCommand::StartDrag));
+        assert_eq!(c.app.view.offset, vec2(150.0, 100.0));
+    }
+
+    #[test]
+    fn maximized_normal_windows_fullscreen_and_dialogs_do_not_start_window_drag() {
+        for borderless in [false, true] {
+            let mut c = Canvas::new(300, 200, 1.0);
+            c.app.settings.window.borderless = borderless;
+            c.modifiers = Modifiers::SHIFT;
+            c.input.viewports.get_mut(&ViewportId::ROOT).unwrap().maximized = Some(true);
+            let cmds = c.drag();
+            assert_eq!(cmds.contains(&ViewportCommand::StartDrag), borderless);
+            assert!(!cmds.iter().any(|c| matches!(c, ViewportCommand::OuterPosition(_))));
+
+            let mut c = Canvas::new(300, 200, 1.0);
+            c.app.settings.window.borderless = borderless;
+            c.app.fullscreen = true;
+            c.modifiers = Modifiers::SHIFT;
+            assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+        }
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.settings_page = Some(crate::app::settings_ui::Page::General);
+        assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.menu_open = true;
+        assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.shown = None;
+        assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+    }
+
+    #[test]
+    fn double_click_still_changes_zoom_without_dragging_the_window() {
+        let mut c = Canvas::new(300, 200, 2.0);
+        c.app.settings.double_click = DoubleClick::ToggleFit;
+        c.app.settings.smooth_zoom = false;
+        c.frame(vec![Event::PointerMoved(pos2(300.0, 300.0))]);
+        for _ in 0..2 {
+            assert!(!c.button(true).contains(&ViewportCommand::StartDrag));
+            assert!(!c.button(false).contains(&ViewportCommand::StartDrag));
+        }
+        assert_eq!(c.app.view.zoom, 1.0);
+        assert!(!c.app.window_op);
     }
 }
