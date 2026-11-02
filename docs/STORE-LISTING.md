@@ -2,14 +2,15 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
-## 1.8.0.0 更新（2026-11-02，候选包已备好，尚未提交认证）
+## 1.8.0.0 更新（2026-11-02，已提交认证）
 
 - 包：`LiteView-store-1.8.0.0-x64.msix`，SHA-256 `8ff7366351cd59ac073021fab126f8079cd9d4e47946387041848d156b0cea50`；来自 [Release 运行 41459994311](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/41459994311)（标签 v1.8.0）的 `Store-submission-x64` artifact。一次性 Windows runner 的安装包和 MSIX 安装、真实包身份启动、升级、卸载回归均通过；下载后的安装与升级回执均为 `1.8.0`。
 - 本地核对身份为 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.8.0.0 / x64；候选没有测试签名。包内 EXE SHA-256 `ba25d568900ba31d85328f6d3bbf05f2348e1c983116e24967bdfa27c7bd17a3`，与 [GitHub v1.8.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.8.0) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `cd9a5dbd6a651bd8044f7b6098fef81349a4812b74ce324f8d9b12be604ccaee` 已与公开 `SHA256SUMS.txt` 核对。未签名 MSIX 只用于商店提交，没有作为 GitHub 公开下载附件。
-- 提交状态：用户已授权微软商店发布，但浏览器控制工具因无法可靠识别 Windows 浏览器当前 URL 而停止。本轮没有上传、保存或提交 Partner Center；未重新读取 LiteView 后台，不据此前记录推断 1.7.1.0 的当前审核或上架状态，也不记录不存在的 1.8.0.0 Submission ID。
-- 已备好 `dist/store-1.8.0-submission/`（忽略目录）：MSIX 与元数据、中英文“此版本的新增功能”、生命周期回执、校验脚本和恢复步骤；最终校验结果为 `verified-artifacts.json`、`verified-release.json`。恢复浏览器访问后应先核对 [LiteView 后台](https://partner.microsoft.com/zh-CN/dashboard/products/9PCG7D394JFC/overview)的当前提交，再继续上传和送审；用户的发布授权仍有效。
+- 提交：用户已授权微软商店发布；原生 Edge 控制因无法可靠识别当前 URL 而中止，随后按用户要求改用 Codex 内置浏览器，成功进入已登录的 [LiteView 后台](https://partner.microsoft.com/zh-CN/dashboard/products/9PCG7D394JFC/overview)。开始时 Submission 11（1.7.1.0）已上架，没有进行中的提交。新建 Submission 12 **1152921505702297856**：上传本包并保存，后台显示 `Validated`；1.7.1.0 随保存从提交中移除，设备仍只勾选 Windows 10/11 Desktop，保留 runFullTrust 受限能力警告。
+- 文案与送审：中英文“此版本的新增功能”更新为 1.8.0 拖窗功能（161 / 511 字符，重新加载后逐字核对一致）；说明、功能、关键词、截图未改。提交选项沿用“通过认证后立即发布”，runFullTrust 用途说明沿用原文。点击“提交进行认证”后总览显示**“正在认证更新”**、Submission 12 正在认证，流程为提交完成、预处理进行中，并明确显示“产品在通过认证后立即开始发布”。本记录不表示 1.8.0.0 已通过认证或已上架；商店当前仍为 Submission 11。满意度调查已关闭，未代填。
+- 证据保存于 `dist/store-1.8.0-submission/`（忽略目录）：`submitted.jpg`、`submitted-state.txt`、`submission-receipt.json`；包校验结果为 `verified-artifacts.json`、`verified-release.json`。本次提交完成，不应重复上传、取消认证或重建 Submission 12。
 
-## 1.7.1.0 更新（2026-10-31，已提交认证）
+## 1.7.1.0 更新（2026-10-31 提交认证，2026-11-02 核实已上架）
 
 - 包：`LiteView-store-1.7.1.0-x64.msix`，SHA-256 `26afb817963c75a10ecbc5fb209a1756004795ea4e910fa47c33e350ad8ff465`；来自 Release 运行 41111315274（标签 v1.7.1）的 `Store-submission-x64` artifact（一次性 runner 的 MSIX 安装、启动、升级、卸载回归通过）。身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.7.1.0 / x64，未签名（由商店签名）。包内 EXE 与 GitHub v1.7.1 绿色版里的相同（`6cea621…9df7`）。清单与 1.7.0.0 相同（没有 DisplayName）。
 - 提交：2026-10-31 用户在自己电脑上试过修好的版本后说「可以了，没问题，发版本吧」。临时 Edge 窗口自动登录 Partner Center。开始时 Submission 10（1.7.0.0）已上架、没有进行中的提交。新建 Submission 11 **1152921505702280699**：上传本包（Validated，保留 runFullTrust 受限能力警告），1.7.0.0 随保存从提交中移除，设备仍只勾选 Windows 10/11 Desktop；中英文“此版本的新增功能”改为 1.7.1 的三行，再用一行带过之前的更新（244 / 687 字符，重新加载后逐字一致；说明、功能、关键词、截图未改）；提交选项沿用“通过认证后立即发布”，runFullTrust 用途说明沿用原文（458 字符）；点击“提交进行认证”后总览显示“正在认证更新”。商店在认证通过前仍为 Submission 10（1.7.0.0）。本版没有对应的 GitHub issue 要回复。截图在忽略目录 `dist/store-1.7.1-submission/`。

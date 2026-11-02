@@ -57,4 +57,4 @@
 - 实现与版本资料已提交为 [`3e88332`](https://github.com/Lianzy-Baimiao/LiteView/commit/3e88332bd6d6eb64136f4394de34fb05ea37ac2a)，推送 main 和 v1.8.0 标签。[普通 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/41459994188) 三平台通过；[Release 运行](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/41459994311) 的 Windows x64、Linux x64、macOS arm64 / x64 全部通过 Clippy、测试、构建与打包，Windows 安装包及 MSIX 生命周期回归通过。
 - [v1.8.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.8.0) 于北京时间 22:45 正式发布为 Latest。公开附件为五个安装包和 `SHA256SUMS.txt`；全部附件的 GitHub SHA-256 与校验和核对通过，下载的 Windows 绿色版和安装版也通过校验。MSIX 保留为商店提交 artifact，没有作为公开下载附件。
 - 北京时间 22:46 已[回复 Issue #4](https://github.com/Lianzy-Baimiao/LiteView/issues/4#issuecomment-6580060502)，说明可见尺寸规则、Shift 与窗口状态边界，并附正式下载链接；Issue 已以 `completed` 关闭。
-- 商店 1.8.0.0 候选包和中英文文案已备好，包内 EXE 与正式 Windows 绿色版一致。浏览器控制工具中止导致尚未上传或提交认证；具体证据及恢复步骤见 [商店记录](STORE-LISTING.md)。
+- 商店 1.8.0.0 包内 EXE 与正式 Windows 绿色版一致。原生 Edge 控制中止后，按用户要求改用 Codex 内置浏览器完成上传、保存中英文文案并送审；Submission 12（`1152921505702297856`）显示“正在认证更新”，通过认证后自动发布。具体证据见 [商店记录](STORE-LISTING.md)。
