@@ -63,6 +63,8 @@ pub enum DoubleClick {
     #[default]
     ToggleFit,
     Fullscreen,
+    /// 关闭窗口（看完就关）
+    Close,
 }
 
 /// 省电模式：连续画面（拖动、缩放、动图）最多画多快；静止时本来就不画
@@ -319,13 +321,31 @@ impl Settings {
         let p = file();
         for candidate in [p.clone(), p.with_extension("json.bak")] {
             if let Ok(text) = std::fs::read_to_string(&candidate) {
-                match serde_json::from_str(&text) {
-                    Ok(s) => return s,
+                match Self::parse(&text) {
+                    Ok((s, dropped)) => {
+                        if !dropped.is_empty() {
+                            log::warn!("设置文件 {} 里这几项认不出，用默认值：{}", candidate.display(), dropped.join("、"));
+                        }
+                        return s;
+                    }
                     Err(e) => log::warn!("设置文件 {} 损坏：{e}", candidate.display()),
                 }
             }
         }
         Self::default()
+    }
+
+    /// 读设置文件。某一项认不出（新版本加的选项、手改错的值）时只有这一项用默认值，其余照用；
+    /// 以前整个文件作废、全部回到默认（.bak 是同样的内容，也救不回来）。返回认不出的那几项（如 `window.size`）
+    pub fn parse(text: &str) -> Result<(Self, Vec<String>), serde_json::Error> {
+        let user: serde_json::Value = serde_json::from_str(text)?;
+        if let Ok(s) = serde_json::from_value::<Self>(user.clone()) {
+            return Ok((s, Vec::new()));
+        }
+        let mut root = serde_json::to_value(Self::default())?;
+        let mut dropped = Vec::new();
+        merge_valid(&mut root, String::new(), &user, &mut dropped);
+        Ok((serde_json::from_value(root)?, dropped))
     }
 
     pub fn save(&self) {
@@ -347,10 +367,37 @@ fn file() -> PathBuf {
     config_dir().join("settings.json")
 }
 
+/// 把用户的各项逐个放进默认设置（JSON 指针 `at` 处），放进去整个设置还能读才留下；对象往里一层层放（`window` 里一项错了，
+/// 别的窗口设置照留）。默认设置里没有的项不管（读的时候本来就忽略）
+fn merge_valid(root: &mut serde_json::Value, at: String, user: &serde_json::Value, dropped: &mut Vec<String>) {
+    let Some(fields) = user.as_object() else { return };
+    for (key, value) in fields {
+        let path = format!("{at}/{}", key.replace('~', "~0").replace('/', "~1"));
+        let Some(slot) = root.pointer(&path) else { continue };
+        if slot.is_object() && value.is_object() {
+            merge_valid(root, path, value, dropped);
+            continue;
+        }
+        let mut trial = root.clone();
+        if let Some(t) = trial.pointer_mut(&path) {
+            *t = value.clone();
+        }
+        if serde_json::from_value::<Settings>(trial.clone()).is_ok() {
+            *root = trial;
+        } else {
+            dropped.push(path.trim_start_matches('/').replace('/', "."));
+        }
+    }
+}
+
 /// 配置目录（环境变量 `LITEVIEW_CONFIG_DIR` 可覆盖，测试用）
 pub fn config_dir() -> PathBuf {
     if let Some(d) = std::env::var_os("LITEVIEW_CONFIG_DIR") {
         return PathBuf::from(d);
+    }
+    // 单元测试里关设置、退出都会存设置：写到临时目录，不碰用户真正的设置文件
+    if cfg!(test) {
+        return std::env::temp_dir().join(format!("liteview-test-config-{}", std::process::id()));
     }
     #[cfg(windows)]
     if crate::platform::package::is_packaged() {
@@ -394,5 +441,28 @@ mod tests {
         assert_eq!(s.jpeg_quality, 90);
         let back: Settings = serde_json::from_str(&serde_json::to_string(&s).unwrap()).unwrap();
         assert_eq!(back, s);
+    }
+
+    #[test]
+    fn one_unrecognised_value_only_resets_that_value() {
+        // 新版本写的值（旧版本不认识）、写错的类型、越界的数：各自回到默认，别的照用
+        let text = r#"{
+            "language": "En", "double_click": "SomethingNewer", "jpeg_quality": 700, "wrap_around": false,
+            "window": {"pos": [10.0, 20.0], "size": "big", "maximized": true, "borderless": true},
+            "print": {"printer": "PDF", "orientation": "Diagonal"}, "future_option": 1
+        }"#;
+        let (s, mut dropped) = Settings::parse(text).unwrap();
+        let d = Settings::default();
+        assert_eq!(s.language, Language::En);
+        assert!(!s.wrap_around);
+        assert_eq!(s.double_click, d.double_click);
+        assert_eq!(s.jpeg_quality, d.jpeg_quality);
+        assert_eq!(s.window, WindowState { pos: Some([10.0, 20.0]), size: None, maximized: true, borderless: true, always_on_top: false, toolbar_outside: false });
+        assert_eq!((s.print.printer.as_str(), s.print.orientation), ("PDF", d.print.orientation));
+        dropped.sort();
+        assert_eq!(dropped, ["double_click", "jpeg_quality", "print.orientation", "window.size"]);
+        // 好的文件不走逐项那条路；坏的 JSON 还是报错（再去读 .bak）
+        assert_eq!(Settings::parse(r#"{"wrap_around": false}"#).unwrap().1, Vec::<String>::new());
+        assert!(Settings::parse("{ not json").is_err());
     }
 }

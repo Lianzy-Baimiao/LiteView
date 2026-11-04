@@ -63,7 +63,7 @@ impl App {
         let dims = (ed.doc.width(), ed.doc.height());
         if dims != ed.dims {
             ed.dims = dims;
-            self.shown = Some(crate::app::Shown { width: dims.0, height: dims.1, has_alpha: true });
+            self.shown = Some(crate::app::Shown { width: dims.0, height: dims.1, has_alpha: true, translucent: false });
             if self.view.fitted {
                 self.pending_reset = true;
             }
@@ -116,6 +116,7 @@ impl App {
             let from = self.view.target_zoom();
             let to = snap(from, from * factor, &[1.0, fit]);
             self.view.zoom_to(to, anchor, self.settings.smooth_zoom, self.canvas);
+            self.show_zoom();
             ctx.request_repaint();
         }
     }

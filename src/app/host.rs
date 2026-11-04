@@ -57,6 +57,21 @@ struct Running {
     dock: Option<Dock>,
     /// 小窗口建不起来：不再试
     dock_failed: bool,
+    /// 上一帧透出桌面（DWM 的圆角、细边框、阴影已经关了）
+    see_through: bool,
+    /// 单独的设置窗口（开着设置时）
+    settings_win: Option<SettingsWin>,
+    /// 窗口为菜单、对话框临时变大 / 变回去：上一帧不拉伸、按比例放好了，等这一轮消息处理完再改窗口（画刷的改动先生效）
+    held: Held,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Held {
+    None,
+    /// 画面已经按比例放好，还没改窗口
+    Pending((i32, i32, i32, i32)),
+    /// 窗口改了：按新大小画出一帧后回到拉伸铺满
+    Applied,
 }
 
 /// 浮动工具栏的小窗口（无边框、窗口比工具栏还窄时放在图片下面）：没有标题栏，不进任务栏，点它不抢焦点，
@@ -147,6 +162,118 @@ impl Dock {
     }
 }
 
+/// 单独的设置窗口：有标题栏、能拖开、改大小，跟着图片窗口（owner：不进任务栏，在图片窗口上面，一起最小化）。
+/// 自己的 Direct3D 交换链和 egui（字体是同一份映射的文件），打开设置时建，关掉就放掉（约 20 MB 内存、20 MB 显存）
+struct SettingsWin {
+    window: Window,
+    painter: Painter,
+    state: egui_winit::State,
+    ctx: egui::Context,
+    hwnd: isize,
+    dirty: bool,
+    next: Option<Instant>,
+    pending: egui::TexturesDelta,
+    shown: bool,
+    title: String,
+    /// 上次跟着图片窗口换主题时的深浅、强调色
+    look: Option<(bool, Option<[u8; 3]>)>,
+}
+
+/// 设置窗口的大小（点）
+const SETTINGS_SIZE: egui::Vec2 = egui::vec2(720.0, 500.0);
+const SETTINGS_MIN: egui::Vec2 = egui::vec2(520.0, 360.0);
+
+impl SettingsWin {
+    fn new(event_loop: &ActiveEventLoop, owner: &Window, driver: Driver, proxy: &EventLoopProxy<UserEvent>) -> Result<Self, String> {
+        use winit::platform::windows::WindowAttributesExtWindows;
+        let owner_hwnd = hwnd(owner).ok_or("no HWND")?;
+        // 放在图片窗口中间，整个在它那块屏的工作区里
+        let scale = owner.scale_factor() as f32;
+        let (w, h) = ((SETTINGS_SIZE.x * scale).round() as i32, (SETTINGS_SIZE.y * scale).round() as i32);
+        let o = owner.outer_position().unwrap_or_default();
+        let os = owner.outer_size();
+        let (mut x, mut y) = (o.x + os.width as i32 / 2 - w / 2, o.y + os.height as i32 / 2 - h / 2);
+        if let Some(work) = crate::platform::windows::work_area(owner_hwnd.0 as isize) {
+            x = x.clamp(work.0, (work.2 - w).max(work.0));
+            y = y.clamp(work.1, (work.3 - h).max(work.1));
+        }
+        let title = settings_title();
+        let attrs = Window::default_attributes()
+            .with_title(title.clone())
+            .with_visible(false)
+            .with_position(winit::dpi::PhysicalPosition::new(x, y))
+            .with_inner_size(winit::dpi::LogicalSize::new(SETTINGS_SIZE.x, SETTINGS_SIZE.y))
+            .with_min_inner_size(winit::dpi::LogicalSize::new(SETTINGS_MIN.x, SETTINGS_MIN.y))
+            .with_owner_window(owner_hwnd.0 as isize);
+        let window = event_loop.create_window(attrs).map_err(|e| e.to_string())?;
+        let h = hwnd(&window).ok_or("no HWND")?;
+        let size = window.inner_size();
+        let painter = Painter::new(h, driver, [size.width, size.height]).map_err(|e| e.to_string())?;
+        let ctx = egui::Context::default();
+        ctx.options_mut(|o| o.zoom_with_keyboard = false);
+        crate::ui::fonts::install(&ctx);
+        crate::ui::theme::install(&ctx);
+        let mut state = egui_winit::State::new(ctx.clone(), ViewportId::ROOT, event_loop, Some(window.scale_factor() as f32), event_loop.system_theme(), Some(painter.max_texture_side));
+        state.init_accesskit(event_loop, &window, proxy.clone());
+        Ok(Self { window, painter, state, ctx, hwnd: h.0 as isize, dirty: true, next: None, pending: Default::default(), shown: false, title, look: None })
+    }
+
+    /// 画一帧；返回 true = 要关掉（按了 Esc）
+    fn paint(&mut self, app: &mut App) -> Result<bool, String> {
+        // 跟着图片窗口的深浅色和强调色
+        let main = app.ctx.clone();
+        let look = (main.theme() == egui::Theme::Dark, app.settings.accent);
+        if self.look != Some(look) {
+            if self.look.is_some_and(|l| l.1 != look.1) {
+                crate::ui::theme::install(&self.ctx);
+            }
+            self.ctx.set_theme(main.theme());
+            super::style_titlebar(Some(self.hwnd), crate::ui::theme::palette(&main));
+            self.look = Some(look);
+        }
+        let title = settings_title();
+        if title != self.title {
+            self.window.set_title(&title);
+            self.title = title;
+        }
+        super::window_icon(Some(self.hwnd), self.window.scale_factor() as f32);
+        let raw = self.state.take_egui_input(&self.window);
+        let ctx = self.ctx.clone();
+        let mut close = false;
+        let out = self.ctx.run_ui(raw, |_| close = app.settings_window_ui(&ctx));
+        self.state.handle_platform_output(&self.window, out.platform_output);
+        self.pending.append(out.textures_delta);
+        self.next = out.viewport_output.get(&ViewportId::ROOT).and_then(|v| Instant::now().checked_add(v.repaint_delay));
+        let size = self.window.inner_size();
+        if size.width > 0 && size.height > 0 {
+            self.painter.resize([size.width, size.height]).map_err(|e| e.0)?;
+            let prims = self.ctx.tessellate(out.shapes, out.pixels_per_point);
+            let delta = std::mem::take(&mut self.pending);
+            let clear = self.ctx.global_style().visuals.window_fill.to_normalized_gamma_f32();
+            let shot = app.take_settings_shot();
+            let image = self.painter.paint(clear, out.pixels_per_point, &prims, &delta, shot.is_some()).map_err(|e| e.0)?;
+            if let (Some(path), Some(img)) = (shot, image) {
+                crate::devtools::save_shot(&path, &img);
+            }
+            if !self.shown {
+                // 画好第一帧才显示：用户刚在图片窗口里按的，系统让它到最前面
+                self.shown = true;
+                self.window.set_visible(true);
+                crate::platform::windows::bring_to_front(self.hwnd);
+                log::debug!("设置窗口：{:?}，排版 {:?} 点", crate::platform::windows::window_rect(self.hwnd), self.ctx.content_rect().size());
+            }
+        }
+        self.dirty = false;
+        Ok(close)
+    }
+}
+
+/// 「LiteView 设置」（不以 LiteView 结尾：检查脚本按这个找图片窗口）
+fn settings_title() -> String {
+    let t = crate::i18n::tr();
+    format!("{} {}", t.app_name, t.settings)
+}
+
 struct Host<'a, F: FnOnce(&egui::Context) -> App> {
     builder: ViewportBuilder,
     centered: bool,
@@ -182,6 +309,24 @@ fn hwnd(window: &Window) -> Option<windows::Win32::Foundation::HWND> {
     }
 }
 
+/// 与 `egui_winit::create_window` 相同；no_gdi_layer = 窗口不要 GDI 那层（WS_EX_NOREDIRECTIONBITMAP，能透明的窗口用）
+fn create_window(ctx: &egui::Context, event_loop: &ActiveEventLoop, builder: &ViewportBuilder, no_gdi_layer: bool) -> Result<Window, winit::error::OsError> {
+    use winit::platform::windows::WindowAttributesExtWindows;
+    let attrs = egui_winit::create_winit_window_attributes(ctx, builder.clone()).with_no_redirection_bitmap(no_gdi_layer);
+    let window = event_loop.create_window(egui_winit::apply_monitor_to_window_attributes(attrs, builder, event_loop))?;
+    egui_winit::apply_viewport_builder_to_window(ctx, &window, builder);
+    Ok(window)
+}
+
+/// 能透明的窗口：无边框时的阴影按 egui-winit 处理 Decorations 的规则（无边框、不全屏时有），透出桌面时不要
+/// （图片不是方的，方阴影不对）。没变时 winit 什么都不做
+fn sync_shadow(r: &Running) {
+    if r.painter.composited() {
+        use winit::platform::windows::WindowExtWindows;
+        r.window.set_undecorated_shadow(!r.window.is_decorated() && r.window.fullscreen().is_none() && !r.see_through);
+    }
+}
+
 /// 所有显示器里最大的（逻辑点）：初始窗口不超过它（与 eframe 相同）
 fn largest_monitor_points(event_loop: &ActiveEventLoop) -> egui::Vec2 {
     let max = event_loop.available_monitors().fold(egui::Vec2::ZERO, |m, mon| {
@@ -210,7 +355,11 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
                 builder = builder.with_position([(m.width - inner.x) / 2.0, (m.height - inner.y) / 2.0]);
             }
         }
-        let window = Arc::new(egui_winit::create_window(&ctx, event_loop, &builder).map_err(|e| format!("create window: {e}"))?);
+        // 无边框启动：画法挂到系统合成（Windows.UI.Composition）上，看有透明像素的图时能透出桌面。窗口建成没有 GDI 那层的
+        // （有的话显示过一次系统标题栏，也就是进过编辑，那层就不透明了），只能在建窗口时决定；普通窗口照旧
+        let borderless = builder.decorations == Some(false);
+        let composited = borderless && crate::platform::d3d11::composition_available();
+        let window = Arc::new(create_window(&ctx, event_loop, &builder, composited).map_err(|e| format!("create window: {e}"))?);
         let hwnd = hwnd(&window).ok_or("no HWND")?;
         crate::platform::windows::use_system_dpi_rect(hwnd.0 as isize);
         crate::platform::windows::keep_resize_aspect(hwnd.0 as isize);
@@ -221,7 +370,8 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             self.guard.begin(name);
             let driver = if name == "warp" { Driver::Warp } else { Driver::Hardware };
             let size = window.inner_size();
-            let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| Painter::new(hwnd, driver, [size.width, size.height])));
+            let make: fn(_, _, _) -> _ = if composited { Painter::new_composited } else { Painter::new };
+            let made = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| make(hwnd, driver, [size.width, size.height])));
             let err = match made {
                 Ok(Ok(p)) => {
                     log::info!("显卡接口：{}（{}）", crate::gpu::display_name(name), p.adapter);
@@ -254,7 +404,16 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         let mut state = egui_winit::State::new(ctx.clone(), ViewportId::ROOT, event_loop, Some(window.scale_factor() as f32), event_loop.system_theme(), Some(painter.max_texture_side));
         state.init_accesskit(event_loop, &window, self.proxy.clone());
         let create = self.create.take().ok_or("app already created")?;
-        let app = create(&ctx);
+        let mut app = create(&ctx);
+        use super::frameless::SeeThrough;
+        app.see_through_avail = match (borderless, painter.composited()) {
+            (true, true) => SeeThrough::Yes,
+            (true, false) => SeeThrough::No,
+            (false, _) => SeeThrough::Restart,
+        };
+        if borderless && !painter.composited() {
+            log::warn!("无边框窗口透不出桌面（系统合成用不了）");
+        }
         self.running = Some(Running {
             window,
             painter,
@@ -270,6 +429,9 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             driver,
             dock: None,
             dock_failed: false,
+            see_through: false,
+            settings_win: None,
+            held: Held::None,
         });
         self.next_repaint = Some(Instant::now());
         Ok(())
@@ -314,8 +476,22 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
                 _ => true,
             });
             let delta = std::mem::take(&mut r.pending);
-            let clear = r.app.background();
+            // 透出桌面时清成全透明（画布没画背景）；DWM 的圆角、细边框跟着换
+            let see_through = r.app.see_through && r.painter.composited();
+            if see_through != r.see_through {
+                r.see_through = see_through;
+                if let Some(h) = hwnd {
+                    crate::platform::windows::set_see_through(h, see_through);
+                }
+            }
+            sync_shadow(r);
+            let clear = if see_through { [0.0; 4] } else { r.app.background() };
             let image = r.painter.paint(clear, out.pixels_per_point, &prims, &delta, !shots.is_empty()).map_err(|e| e.0)?;
+            // 窗口变好大小后按新大小画出了一帧：回到拉伸铺满（缓冲区和窗口一样大时两种一样）
+            if r.held == Held::Applied {
+                r.painter.hold_content(None);
+                r.held = Held::None;
+            }
             if let (Some(image), Some(user_data)) = (image, shots.pop()) {
                 r.screenshot = Some(egui::Event::Screenshot { viewport_id: ViewportId::ROOT, user_data, image: Arc::new(image) });
                 r.ctx.request_repaint();
@@ -344,9 +520,19 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         if let Some(v) = out.viewport_output.get(&ViewportId::ROOT) {
             egui_winit::process_viewport_commands(&r.ctx, &mut r.info, v.commands.clone(), &r.window, &mut r.actions);
         }
-        // 无边框时窗口包着图片：画完这一帧再一次改好位置和大小（Resized 会马上按新大小再画）
-        if let (Some(rect), Some(h)) = (r.app.take_window_rect(), hwnd) {
-            crate::platform::windows::set_window_rect(h, rect);
+        // 这一帧刚换的标题栏也算上（egui-winit 处理 Decorations 时会重设阴影）
+        sync_shadow(r);
+        // 无边框时窗口包着图片：画完这一帧再一次改好位置和大小（Resized 会马上按新大小再画）。
+        // 为菜单、对话框临时变大 / 变回去：先让上一帧不拉伸、留在原来的地方，等画刷的改动生效（about_to_wait）再改窗口，
+        // 不然新大小的帧画出来之前，DWM 会把上一帧拉伸铺满整个窗口闪一下
+        if let (Some((rect, ratio)), Some(h)) = (r.app.take_window_rect(), hwnd) {
+            match ratio {
+                Some(ratio) if r.painter.composited() => {
+                    r.painter.hold_content(Some(ratio));
+                    r.held = Held::Pending(rect);
+                }
+                _ => crate::platform::windows::set_window_rect(h, rect),
+            }
         }
         Ok(())
     }
@@ -431,6 +617,53 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         }
     }
 
+    /// 单独的设置窗口：开着设置时建（建不起来就让界面画在图片窗口里）、画；关掉设置时放掉
+    fn settings_tick(&mut self, event_loop: &ActiveEventLoop) {
+        let Some(r) = &mut self.running else { return };
+        let wanted = r.app.settings_page.is_some() && !r.app.settings_window_failed;
+        if !wanted {
+            if r.settings_win.take().is_some() {
+                // 关掉后回到图片窗口
+                if let Some(main) = hwnd(&r.window) {
+                    crate::platform::windows::bring_to_front(main.0 as isize);
+                }
+            }
+            return;
+        }
+        if r.settings_win.is_none() {
+            match SettingsWin::new(event_loop, &r.window, r.driver, &self.proxy) {
+                Ok(w) => r.settings_win = Some(w),
+                Err(e) => {
+                    log::warn!("设置窗口建不起来，画在图片窗口里：{e}");
+                    r.app.settings_window_failed = true;
+                    r.window.request_redraw();
+                    return;
+                }
+            }
+        }
+        let Some(w) = &mut r.settings_win else { return };
+        if std::mem::take(&mut r.app.settings_focus) && w.shown {
+            crate::platform::windows::bring_to_front(w.hwnd);
+        }
+        // 开发脚本要设置窗口的截图：画一帧时截
+        if r.app.settings_shot_pending() {
+            w.dirty = true;
+        }
+        if w.dirty || w.next.is_some_and(|t| Instant::now() >= t) {
+            match w.paint(&mut r.app) {
+                Ok(true) => {
+                    r.app.close_settings();
+                    r.window.request_redraw();
+                }
+                Ok(false) => {}
+                Err(e) => log::warn!("设置窗口画不出来：{e}"),
+            }
+        }
+        if let Some(t) = r.settings_win.as_ref().and_then(|w| w.next) {
+            self.next_repaint = Some(self.next_repaint.map_or(t, |n| n.min(t)));
+        }
+    }
+
     fn paint_or_exit(&mut self, event_loop: &ActiveEventLoop) {
         if let Err(e) = self.paint() {
             log::error!("画图失败：{e}");
@@ -454,6 +687,29 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        // 设置窗口：交给它自己的 egui；关闭按钮 = 关掉设置；改大小时同步重画（拖动改大小时系统的循环里不走 about_to_wait）
+        if let Some(r) = self.running.as_mut()
+            && let Some(w) = r.settings_win.as_mut().filter(|w| w.window.id() == id)
+        {
+            match event {
+                WindowEvent::CloseRequested => {
+                    r.app.close_settings();
+                    r.window.request_redraw();
+                }
+                WindowEvent::Resized(s) if s.width > 0 && s.height > 0 => {
+                    let _ = w.state.on_window_event(&w.window, &event);
+                    if let Err(e) = w.paint(&mut r.app) {
+                        log::warn!("设置窗口画不出来：{e}");
+                    }
+                }
+                _ => {
+                    if w.state.on_window_event(&w.window, &event).repaint || matches!(event, WindowEvent::RedrawRequested) {
+                        w.dirty = true;
+                    }
+                }
+            }
+            return;
+        }
         // 浮动工具栏的小窗口：交给它自己的 egui，画留到 about_to_wait
         if let Some(d) = self.running.as_mut().and_then(|r| r.dock.as_mut()).filter(|d| d.window.id() == id) {
             if !matches!(event, WindowEvent::CloseRequested) && (d.state.on_window_event(&d.window, &event).repaint || matches!(event, WindowEvent::RedrawRequested)) {
@@ -523,6 +779,16 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
                     self.next_repaint = Some(self.next_repaint.map_or(when, |t| t.min(when)));
                 }
             }
+            // 读屏软件读设置窗口
+            UserEvent::AccessKit(e) if r.settings_win.as_ref().is_some_and(|w| w.window.id() == e.window_id) => {
+                let Some(w) = &mut r.settings_win else { return };
+                match e.window_event {
+                    accesskit_winit::WindowEvent::InitialTreeRequested => w.ctx.enable_accesskit(),
+                    accesskit_winit::WindowEvent::ActionRequested(req) => w.state.on_accesskit_action_request(req),
+                    accesskit_winit::WindowEvent::AccessibilityDeactivated => w.ctx.disable_accesskit(),
+                }
+                w.dirty = true;
+            }
             UserEvent::AccessKit(e) => match e.window_event {
                 accesskit_winit::WindowEvent::InitialTreeRequested => {
                     r.ctx.enable_accesskit();
@@ -538,7 +804,17 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        // 画刷的改动随这一轮消息提交了：现在改窗口大小（之后的 Resized 按新大小画）
+        if let Some(r) = &mut self.running
+            && let Held::Pending(rect) = r.held
+        {
+            r.held = Held::Applied;
+            if let Some(h) = hwnd(&r.window) {
+                crate::platform::windows::set_window_rect(h.0 as isize, rect);
+            }
+        }
         self.dock_tick(event_loop);
+        self.settings_tick(event_loop);
         if let Some(t) = self.next_repaint
             && Instant::now() >= t
         {

@@ -46,6 +46,7 @@ pub fn decode(data: &[u8], format: ImageFormat, opts: &Options) -> Result<Decode
             bits: color.bits_per_pixel() / u16::from(channels.max(1)),
             channels,
             has_alpha: color.has_alpha(),
+            translucent: color.has_alpha(),
             file_size: 0,
             jpeg_quality: (format == ImageFormat::Jpeg).then(|| super::jpeg_quality::estimate(data)).flatten(),
             exif: exif.map(Arc::new),
@@ -569,6 +570,26 @@ mod tests {
         let Content::Still { image, .. } = d.content else { panic!("still") };
         assert_eq!(*image, DynamicImage::ImageRgb8(src).into_rgba8());
         assert_eq!((d.info.channels, d.info.has_alpha), (3, false));
+    }
+
+    /// 透明通道 ≠ 透明像素：全不透明的 RGBA PNG 不算 translucent（无边框时照旧有阴影），有一个半透明像素就算
+    #[test]
+    fn translucent_means_a_pixel_is_not_fully_opaque() {
+        let encode = |img: &RgbaImage| {
+            let mut png = Vec::new();
+            img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
+            super::super::decode_bytes(&png, "png", &Options::default()).unwrap()
+        };
+        // 大于并行分块（256 KiB），透明像素放在最后一块的最后一个
+        let mut img = RgbaImage::from_pixel(400, 300, image::Rgba([10, 20, 30, 255]));
+        let opaque = encode(&img);
+        assert!(opaque.info.has_alpha && !opaque.info.translucent);
+        img.put_pixel(399, 299, image::Rgba([10, 20, 30, 254]));
+        let one = encode(&img);
+        assert!(one.info.has_alpha && one.info.translucent);
+        let clear = encode(&RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 0, 0])));
+        assert!(clear.info.translucent);
+        assert!(!super::super::has_translucent_pixels(&RgbaImage::from_pixel(3, 1, image::Rgba([0, 0, 0, 255]))));
     }
 
     #[test]

@@ -72,6 +72,7 @@ pub fn decode(data: &[u8], kind: Kind, opts: &Options) -> Result<Decoded, Error>
                 bits: 8,
                 channels: if has_alpha { 4 } else { 3 },
                 has_alpha,
+                translucent: has_alpha,
                 file_size: 0,
                 jpeg_quality: None,
                 exif: None,

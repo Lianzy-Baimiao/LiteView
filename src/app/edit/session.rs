@@ -53,7 +53,7 @@ impl App {
             canvas_alpha: d.info.has_alpha,
         };
         self.view.xf = Default::default();
-        self.shown = Some(Shown { width: doc.width(), height: doc.height(), has_alpha: true });
+        self.shown = Some(Shown { width: doc.width(), height: doc.height(), has_alpha: true, translucent: false });
         // 看图用的纹理先放掉，退出时再建
         self.tex = Tex::None;
         self.play = None;

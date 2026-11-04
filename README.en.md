@@ -68,7 +68,7 @@ Pause a GIF, step backward and forward one frame at a time, or export the curren
 | Copy image / save | Ctrl+C / Ctrl+S |
 | Print (Windows) | Ctrl+P |
 | Play or pause animation / previous or next frame | Space / , / . |
-| Image info / close the window | I / Esc |
+| Image info / close the window | I / Esc or Ctrl+W (double-click can close it too, see Settings) |
 
 All shortcuts are listed in Settings → Shortcuts.
 

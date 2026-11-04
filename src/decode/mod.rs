@@ -55,7 +55,11 @@ pub struct Info {
     /// 每通道位数
     pub bits: u16,
     pub channels: u8,
+    /// 格式里有透明通道（不一定有透明的像素）
     pub has_alpha: bool,
+    /// 真有不透明度不到 100% 的像素（动图看第一帧）：无边框时窗口透出桌面看的是它。解码器先按 has_alpha 填，
+    /// `decode_bytes` 再看像素改准
+    pub translucent: bool,
     pub file_size: u64,
     /// 与标准 IJG 量化表精确匹配的原 JPEG 品质；其它格式或自定义表为 None。
     pub jpeg_quality: Option<u8>,
@@ -161,6 +165,14 @@ impl Decoded {
         }
     }
 
+    /// 静态图本身，或动图解好的第一帧（没有时 None）
+    pub fn first_frame(&self) -> Option<&RgbaImage> {
+        match &self.content {
+            Content::Still { image, .. } => Some(&**image),
+            Content::Animation { frames, .. } => frames.first().map(|f| &*f.image),
+        }
+    }
+
     /// 静态图本身，或动图的第一帧
     pub fn first_image(&self) -> &Arc<RgbaImage> {
         match &self.content {
@@ -211,6 +223,12 @@ impl Options {
     }
 }
 
+/// 有没有不透明度不到 100% 的像素（遇到一个就停，几个线程一起看）
+pub fn has_translucent_pixels(img: &RgbaImage) -> bool {
+    use rayon::prelude::*;
+    img.as_raw().par_chunks(256 << 10).any(|c| c.as_chunks::<4>().0.iter().any(|p| p[3] != 255))
+}
+
 /// 已经是像素的图（剪贴板）
 pub fn from_rgba(img: RgbaImage, format: &'static str) -> Decoded {
     let has_alpha = img.pixels().any(|p| p.0[3] != 255);
@@ -223,6 +241,7 @@ pub fn from_rgba(img: RgbaImage, format: &'static str) -> Decoded {
             bits: 8,
             channels: if has_alpha { 4 } else { 3 },
             has_alpha,
+            translucent: has_alpha,
             file_size: 0,
             jpeg_quality: None,
             exif: None,
@@ -255,6 +274,7 @@ pub fn decode_bytes(data: &[u8], ext: &str, opts: &Options) -> Result<Decoded, E
     let mut d = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| decode_kind(data, kind, opts)))
         .unwrap_or_else(|_| Err(Error::Corrupt("decoder panicked".into())))?;
     d.info.file_size = data.len() as u64;
+    d.info.translucent = d.info.has_alpha && d.first_frame().is_some_and(has_translucent_pixels);
     if opts.pyramid
         && let Content::Still { image, levels } = &mut d.content
     {

@@ -216,6 +216,19 @@ pub fn style_dock(hwnd: isize) {
     }
 }
 
+/// 透出桌面时（`d3d11::Painter::new_composited` 的窗口清成透明）不要 Win11 的圆角和细边框，窗口看起来就是图片的形状；
+/// 关掉时换回系统默认。Win10 没有这两项，忽略
+pub fn set_see_through(hwnd: isize, on: bool) {
+    use windows::Win32::Graphics::Dwm::{DWMWA_BORDER_COLOR, DWMWA_COLOR_DEFAULT, DWMWA_COLOR_NONE, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DEFAULT, DWMWCP_DONOTROUND};
+    let h = HWND(hwnd as *mut core::ffi::c_void);
+    let corner = if on { DWMWCP_DONOTROUND } else { DWMWCP_DEFAULT };
+    let border = if on { DWMWA_COLOR_NONE } else { DWMWA_COLOR_DEFAULT };
+    unsafe {
+        let _ = DwmSetWindowAttribute(h, DWMWA_WINDOW_CORNER_PREFERENCE, (&raw const corner).cast(), 4);
+        let _ = DwmSetWindowAttribute(h, DWMWA_BORDER_COLOR, (&raw const border).cast(), 4);
+    }
+}
+
 /// 显示在 r（物理像素，左上右下），不激活
 pub fn show_at(hwnd: isize, r: (i32, i32, i32, i32)) {
     use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_SHOWWINDOW, SetWindowPos};
@@ -245,6 +258,20 @@ pub fn cursor_pos() -> Option<(i32, i32)> {
     let mut p = windows::Win32::Foundation::POINT::default();
     unsafe { GetCursorPos(&mut p) }.ok()?;
     Some((p.x, p.y))
+}
+
+/// 客户区在屏幕上的位置，物理像素 (左, 上, 右, 下)（无边框窗口有阴影时比外框上边少 1 像素）
+pub fn client_rect(hwnd: isize) -> Option<(i32, i32, i32, i32)> {
+    use windows::Win32::Graphics::Gdi::ClientToScreen;
+    use windows::Win32::UI::WindowsAndMessaging::GetClientRect;
+    let h = HWND(hwnd as *mut core::ffi::c_void);
+    let mut r = windows::Win32::Foundation::RECT::default();
+    let mut p = windows::Win32::Foundation::POINT::default();
+    unsafe {
+        GetClientRect(h, &mut r).ok()?;
+        ClientToScreen(h, &mut p).ok().ok()?;
+    }
+    Some((p.x, p.y, p.x + r.right, p.y + r.bottom))
 }
 
 /// 一次同时改位置和大小（分两次改时中间那一下会看得见）

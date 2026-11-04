@@ -76,7 +76,7 @@ impl App {
             self.edit_transform(ed, Xform::Cw);
         }
         if k(cmd, Key::Num0) {
-            self.zoom_fit();
+            self.zoom_fit_shown();
         }
         if k(cmd, Key::Num1) {
             self.zoom_actual();

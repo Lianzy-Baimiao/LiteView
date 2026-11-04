@@ -69,6 +69,8 @@ pub(crate) struct Shown {
     pub width: u32,
     pub height: u32,
     pub has_alpha: bool,
+    /// 真有透明的像素（`decode::Info::translucent`）：无边框时窗口透出桌面
+    pub translucent: bool,
 }
 
 /// 弹出确认框后继续做的事
@@ -151,9 +153,31 @@ pub struct App {
     titlebar_shown: bool,
     /// 这次按下已经交给系统移动 / 改大小窗口：松开之前画布不再处理拖动、点击
     window_op: bool,
+    /// 这一帧图片透明的地方透出桌面（无边框看有透明像素的图）：画布不画背景，窗口循环清成透明色
+    pub(crate) see_through: bool,
+    /// 窗口能不能透出桌面（窗口循环建画法时填）
+    pub(crate) see_through_avail: frameless::SeeThrough,
+    /// 「重新打开后才透出桌面」提示过了
+    see_through_hint: bool,
     /// 无边框时窗口包着图片：这一帧要的窗口位置和大小（物理像素），窗口循环画完后去改
     #[cfg_attr(not(windows), allow(dead_code))]
-    window_rect: Option<(i32, i32, i32, i32)>,
+    window_rect: Option<frameless::WindowMove>,
+    /// 无边框的小窗口为了菜单、对话框、图片信息临时变大着（只有 Windows）
+    pub(crate) grown: Option<frameless::Grown>,
+    /// 这一帧图片那块在窗口里的位置（点）：窗口变大着时画布只占这块，其余透明
+    pub(crate) grown_box: Option<egui::Rect>,
+    /// 右键按下了、窗口要先变大：下一帧再打开菜单
+    pub(crate) menu_pending: bool,
+    /// 右键按在哪（离图片左上角多远，点）；菜单最近一次量出来的大小（点）
+    pub(crate) menu_at: Option<egui::Vec2>,
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) menu_size: egui::Vec2,
+    /// 缩放比例提示：最后一次缩放的时间
+    pub(crate) zoom_osd: Option<Instant>,
+    /// 单独的设置窗口要到最前面（再按 Ctrl+, 时）；建不起来时退回画在图片窗口里
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) settings_focus: bool,
+    pub(crate) settings_window_failed: bool,
     /// 窗口包着图片时「适应窗口」按的大小（工作区的九成，点）
     hug_area: Option<egui::Vec2>,
     /// 上一帧包着的是哪张图（换图时窗口按中心缩放，不按鼠标）
@@ -248,15 +272,18 @@ pub fn run() -> RunResult {
         }
         return Ok(());
     }
-    // 另一个实例正在启动时先等它（画出第一帧后才接收转发；卡住就判失败、换接口）
-    let mut guard = crate::startup::Guard::load();
-    // 单实例：交给已经开着的窗口
-    if settings.single_instance
-        && let Some(p) = &args.path
-        && crate::single::send(&crate::single::request(p, args.edit, args.mosaic))
-    {
-        return Ok(());
+    // 单实例：交给已经开着的窗口。先占「在运行」的标记：已经有别的实例（开着或正在启动，比如资源管理器里多选回车）时，
+    // 等它开好管道再交给它，不自己再开一个窗口
+    if settings.single_instance {
+        let another = crate::single::claim_running();
+        if let Some(p) = &args.path
+            && crate::single::send(&crate::single::request(p, args.edit, args.mosaic), if another { crate::single::WAIT } else { std::time::Duration::ZERO })
+        {
+            return Ok(());
+        }
     }
+    // 另一个实例正在启动、没有接收转发（卡住了）时先等它，卡住就判失败、换接口
+    let mut guard = crate::startup::Guard::load();
     // 先开始解码第一张图，与创建窗口、初始化显卡同时进行
     let mut loader = Loader::new(2, decode_options(&settings), settings.cache_mb as usize * 1048576);
     if let Some(p) = &args.path {
@@ -459,6 +486,17 @@ impl App {
             on_top: window.always_on_top,
             titlebar_shown: false,
             window_op: false,
+            see_through: false,
+            see_through_avail: Default::default(),
+            see_through_hint: false,
+            grown: None,
+            grown_box: None,
+            menu_pending: false,
+            menu_at: None,
+            menu_size: egui::vec2(280.0, 560.0),
+            zoom_osd: None,
+            settings_focus: false,
+            settings_window_failed: false,
             window_rect: None,
             hug_area: None,
             hug_image: None,
@@ -669,7 +707,7 @@ fn refresh_hz(hwnd: Option<isize>) -> Option<f32> {
 
 /// Windows 标题栏 / 任务栏图标按显示器缩放画准确尺寸（其它系统用启动时设的 64 px 图标）
 #[allow(unused_variables)]
-fn window_icon(hwnd: Option<isize>, scale: f32) {
+pub(crate) fn window_icon(hwnd: Option<isize>, scale: f32) {
     #[cfg(windows)]
     if let Some(h) = hwnd {
         crate::platform::windows::ensure_window_icon(h, scale, |px| crate::ui::icons::rasterize_color(include_str!("../../assets/app.svg"), px));
@@ -677,7 +715,7 @@ fn window_icon(hwnd: Option<isize>, scale: f32) {
 }
 
 #[allow(unused_variables)]
-fn style_titlebar(hwnd: Option<isize>, p: &theme::Palette) {
+pub(crate) fn style_titlebar(hwnd: Option<isize>, p: &theme::Palette) {
     #[cfg(windows)]
     if let Some(h) = hwnd {
         let c = p.canvas.to_array();
@@ -715,14 +753,28 @@ impl App {
         self.script.inject(ctx, raw);
     }
 
+    /// 开发脚本要的设置窗口截图（窗口循环取走、截下来存）
+    #[cfg(windows)]
+    pub(crate) fn take_settings_shot(&mut self) -> Option<String> {
+        self.script.settings_shot.take()
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn settings_shot_pending(&self) -> bool {
+        self.script.settings_shot.is_some()
+    }
+
     /// 一帧界面。hwnd：Windows 的窗口句柄（标题栏颜色、图标、刷新率用）
     pub(crate) fn frame(&mut self, ui: &mut egui::Ui, hwnd: Option<isize>) {
         let ctx = ui.ctx().clone();
         #[cfg(windows)]
         {
             self.hwnd = hwnd;
+            self.sync_grown_box(&ctx);
         }
         self.track_startup(&ctx);
+        // 编辑时不透出桌面（画布那里才会改成 true）
+        self.see_through = false;
         if self.editor.is_none() {
             self.update_target(ui);
         }
@@ -748,6 +800,7 @@ impl App {
             self.flip_tick(&ctx);
             self.hug(&ctx);
         }
+        self.zoom_osd_ui(&ctx);
         self.toast_ui(&ctx);
         self.notice_ui(&ctx);
         self.dialogs(&ctx);
@@ -774,6 +827,9 @@ impl App {
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.window_op = false;
         }
+        // 这一帧的菜单、对话框都定下来了：小窗口放不下时变大，用完变回去
+        #[cfg(windows)]
+        self.update_grow(&ctx);
         self.script.after_frame(&ctx, self.first_paint_logged, load_state);
         self.pacer.pace(self.settings.frame_cap, || refresh_hz(hwnd));
     }

@@ -394,7 +394,7 @@ pub fn decode(data: &[u8], opts: &Options) -> Result<Decoded, Error> {
         true
     })?;
     let first = &frames[0].image;
-    let info = Info { format: "WebM", width: first.width(), height: first.height(), bits: 8, channels: 4, has_alpha: w.alpha, file_size: 0, jpeg_quality: None, exif: None, icc: None };
+    let info = Info { format: "WebM", width: first.width(), height: first.height(), bits: 8, channels: 4, has_alpha: w.alpha, translucent: w.alpha, file_size: 0, jpeg_quality: None, exif: None, icc: None };
     let content = if frames.len() == 1 && !truncated {
         Content::Still { image: frames.pop().expect("one frame").image, levels: Vec::new() }
     } else if truncated {

@@ -23,8 +23,9 @@ const DOCK_ROOM: f32 = 16.0;
 
 impl App {
     pub(crate) fn chrome(&mut self, ctx: &egui::Context) {
-        // 开着对话框、右键菜单时都不出来：重新出现的浮层会排到它们上面，盖住按钮、抢走点击
-        let blocked = self.modal_open() || self.menu_open;
+        // 开着对话框、右键菜单时都不出来：重新出现的浮层会排到它们上面，盖住按钮、抢走点击。
+        // 窗口为它们变大着时也不出来（窗口底边离图片很远）
+        let blocked = self.modal_open() || self.menu_open || self.menu_pending || self.grown.is_some();
         let inside = !blocked && ctx.input(|i| i.pointer.has_pointer());
         // 无边框、窗口比工具栏还窄时，工具栏和播放条放到图片下面的小窗口里（`dock_ui`，窗口循环去画），不在窗口里截断
         // 按这个窗口宽度下会画的那种工具栏（窄时没有「适应窗口」「原始大小」，动图另有播放条）比，放得下就留在窗口里
@@ -134,7 +135,7 @@ impl App {
     /// 窗口循环问：要不要显示浮动工具栏的小窗口
     #[cfg(windows)]
     pub(crate) fn dock_wanted(&self) -> bool {
-        self.docked && self.bar_shown && !self.window_op && !self.fullscreen
+        self.docked && self.bar_shown && !self.window_op && !self.fullscreen && self.grown.is_none()
     }
 
     /// 窗口循环告诉界面鼠标在不在小窗口上
@@ -202,7 +203,7 @@ impl App {
         // 窗口窄时不放「适应窗口」「原始大小」按钮（Ctrl+0 / Ctrl+1、双击还在）
         if self.canvas.width() >= 640.0 {
             if widgets::icon_button(ui, Icon::Fit, t.fit, "Ctrl+0", has).clicked() {
-                self.zoom_fit();
+                self.zoom_fit_shown();
             }
             if widgets::icon_button(ui, Icon::Actual, t.actual, "Ctrl+1", has).clicked() {
                 self.zoom_actual();
@@ -304,7 +305,7 @@ impl App {
     }
 
     fn edge_arrows(&mut self, ctx: &egui::Context) {
-        if self.folder.len() < 2 || self.modal_open() || self.menu_open {
+        if self.folder.len() < 2 || self.modal_open() || self.menu_open || self.menu_pending {
             return;
         }
         let pos = ctx.input(|i| i.pointer.hover_pos());
@@ -331,6 +332,48 @@ impl App {
         }
     }
 
+    /// 用户缩放了（滚轮、双击、快捷键、工具栏）：在图片下面显示一下比例
+    pub(crate) fn show_zoom(&mut self) {
+        self.zoom_osd = Some(std::time::Instant::now());
+    }
+
+    /// 缩放比例：图片下边居中，小字、半透明的底，一下就出来，停一会儿后淡出；浮动工具栏显示着时不出（上面有比例）。
+    /// 停着时不画，淡出 50 ms 画一次（省电：缩放停下后只多画几帧）
+    pub(crate) fn zoom_osd_ui(&mut self, ctx: &egui::Context) {
+        let Some(last) = self.zoom_osd else { return };
+        let since = last.elapsed().as_secs_f32();
+        if since > ZOOM_HOLD + ZOOM_FADE || self.modal_open() || self.cur.is_none() || self.bar_shown && self.editor.is_none() {
+            self.zoom_osd = None;
+            return;
+        }
+        let o = ((ZOOM_HOLD + ZOOM_FADE - since) / ZOOM_FADE).min(1.0);
+        // egui 会从延时里减去预计的一帧时间（提前醒）：加回去，淡出时才真是 50 ms 画一次，不是每帧都画
+        let early = ctx.input(|i| i.predicted_dt);
+        ctx.request_repaint_after(Duration::from_secs_f32(if since < ZOOM_HOLD { ZOOM_HOLD - since } else { ZOOM_STEP } + early));
+        let r = if self.editor.is_some() { self.canvas } else { self.free_rect(ctx) };
+        let text = zoom_text(self.view.target_zoom());
+        // 编辑时在状态栏上面
+        let lift = if self.editor.is_some() { 12.0 } else { 18.0 };
+        Area::new(Id::new("zoom-osd"))
+            .order(Order::Tooltip)
+            // 一下就出来：不用 Area 自己的淡入（那要多画十来帧）
+            .fade_in(false)
+            .pivot(Align2::CENTER_BOTTOM)
+            .fixed_pos(pos2(r.center().x, r.bottom() - lift))
+            .interactable(false)
+            .show(ctx, |ui| {
+                ui.set_opacity(o);
+                ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                egui::Frame::new()
+                    .fill(egui::Color32::from_black_alpha(130))
+                    .corner_radius(CornerRadius::same(10))
+                    .inner_margin(egui::Margin::symmetric(9, 3))
+                    .show(ui, |ui| {
+                        ui.label(egui::RichText::new(text).size(12.0).color(egui::Color32::from_white_alpha(235)));
+                    });
+            });
+    }
+
     pub(crate) fn toast_ui(&mut self, ctx: &egui::Context) {
         let Some((text, at)) = &self.toast else { return };
         let age = at.elapsed().as_secs_f32();
@@ -350,7 +393,10 @@ impl App {
         } else {
             -16.0 - BAR_H - 12.0
         };
-        let dx = self.free_rect(ctx).center().x - ctx.content_rect().center().x;
+        let free = self.free_rect(ctx);
+        let dx = free.center().x - ctx.content_rect().center().x;
+        // 窗口为菜单、图片信息变大着：放在图片那块下边，不放在变大的窗口底下
+        let y = if self.editor.is_none() { y - (ctx.content_rect().bottom() - free.bottom()).max(0.0) } else { y };
         let id = Id::new("toast");
         Area::new(id).order(Order::Tooltip).anchor(Align2::CENTER_BOTTOM, vec2(dx, y)).interactable(false).sizing_pass(text_changed(ctx, id, &text)).show(ctx, |ui| {
             ui.set_opacity(o);
@@ -388,6 +434,17 @@ impl App {
                 });
         });
     }
+}
+
+/// 缩放比例提示停多久、淡出多久、淡出时多久画一次（秒）
+const ZOOM_HOLD: f32 = 0.7;
+const ZOOM_FADE: f32 = 0.3;
+const ZOOM_STEP: f32 = 0.05;
+
+/// 「100%」；小于 10% 时留一位小数（0.5% 不显示成 0%）
+pub(crate) fn zoom_text(zoom: f32) -> String {
+    let pct = zoom * 100.0;
+    if pct < 9.95 { format!("{pct:.1}%") } else { format!("{pct:.0}%") }
 }
 
 /// 提示的文字变了：要重新量大小。Area 记着上一次的大小，不重新量的话长提示按上一条短提示的宽度换行，排成一竖条
@@ -447,7 +504,9 @@ mod tests {
         let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
         app.cur = Some(crate::app::Current { path: "a.png".into(), loaded: None, preview: None, since: std::time::Instant::now(), clipboard: false });
         assert!(hover_bottom(&mut app, &ctx));
+        // 设置画在图片窗口里时（Windows 上平时在单独的窗口里，不挡）
         app.settings_page = Some(Default::default());
+        app.settings_window_failed = true;
         assert!(!hover_bottom(&mut app, &ctx));
         app.settings_page = None;
         assert!(hover_bottom(&mut app, &ctx));

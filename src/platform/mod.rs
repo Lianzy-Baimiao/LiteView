@@ -30,17 +30,47 @@ pub fn memory_mb() -> f64 {
     {
         windows::memory_mb().0
     }
+    // 以前读 /proc/self/statm 再按 4 KB 一页算：16 KB / 64 KB 页的 ARM 内核上差好几倍
     #[cfg(target_os = "linux")]
     {
-        std::fs::read_to_string("/proc/self/statm")
-            .ok()
-            .and_then(|s| s.split_whitespace().nth(1)?.parse::<f64>().ok())
-            .map_or(0.0, |pages| pages * 4096.0 / 1048576.0)
+        std::fs::read_to_string("/proc/self/status").ok().and_then(|s| linux_private_mb(&s)).unwrap_or(0.0)
     }
-    #[cfg(not(any(windows, target_os = "linux")))]
+    #[cfg(target_os = "macos")]
+    {
+        macos_resident_mb().unwrap_or(0.0)
+    }
+    #[cfg(not(any(windows, target_os = "linux", target_os = "macos")))]
     {
         0.0
     }
+}
+
+/// /proc/self/status 里进程自己的内存（RssAnon，与 Windows 的专用工作集最接近；老内核没有时用 VmRSS），单位 kB
+#[cfg(any(target_os = "linux", test))]
+fn linux_private_mb(status: &str) -> Option<f64> {
+    let field = |key: &str| status.lines().find_map(|l| l.strip_prefix(key)?.trim().strip_suffix("kB")?.trim().parse::<f64>().ok());
+    field("RssAnon:").or_else(|| field("VmRSS:")).map(|kb| kb / 1024.0)
+}
+
+/// 常驻内存（mach_task_basic_info.resident_size，与活动监视器的「实际内存」一样含共享页）
+#[cfg(target_os = "macos")]
+fn macos_resident_mb() -> Option<f64> {
+    // libSystem 里的；与 libc crate 的声明一致
+    unsafe extern "C" {
+        static mach_task_self_: u32;
+        fn task_info(task: u32, flavor: u32, info: *mut i32, count: *mut u32) -> i32;
+    }
+    const MACH_TASK_BASIC_INFO: u32 = 20;
+    // mach_task_basic_info：virtual_size、resident_size、resident_size_max（u64），两个 time_value_t、policy、suspend_count；
+    // 按 4 字节对齐，一共 12 个 natural_t
+    let mut info = [0u32; 12];
+    let mut count = info.len() as u32;
+    let r = unsafe { task_info(mach_task_self_, MACH_TASK_BASIC_INFO, info.as_mut_ptr().cast(), &mut count) };
+    if r != 0 || count < 4 {
+        return None;
+    }
+    let resident = u64::from(info[2]) | (u64::from(info[3]) << 32);
+    Some(resident as f64 / 1048576.0)
 }
 
 /// 在文件管理器里显示并选中文件
@@ -128,5 +158,16 @@ pub fn set_wallpaper(path: &Path) -> Result<(), String> {
     {
         let _ = path;
         Err("unsupported".into())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn linux_memory_comes_from_status_in_kilobytes() {
+        let status = "Name:\tliteview\nVmRSS:\t  204800 kB\nRssAnon:\t   51200 kB\nRssFile:\t  153600 kB\n";
+        assert_eq!(super::linux_private_mb(status), Some(50.0));
+        assert_eq!(super::linux_private_mb("VmRSS:\t 1024 kB\n"), Some(1.0), "old kernels without RssAnon");
+        assert_eq!(super::linux_private_mb("Name:\tx\n"), None);
     }
 }

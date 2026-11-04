@@ -127,8 +127,23 @@ impl App {
         self.tex = Tex::Still(StillTextures::preview("image", &p));
     }
 
+    /// 正在看的图的信息（原图，或只解了缩略图时缩略图带的那份）
+    pub(crate) fn current_info(&self) -> Option<&crate::decode::Info> {
+        let c = self.cur.as_ref()?;
+        match &c.loaded {
+            Some(Ok(d)) => Some(&d.info),
+            _ => c.preview.as_ref().map(|p| &p.info),
+        }
+    }
+
+    /// 转了、而且能存回原文件（按文件内容认出的格式；动图等存不回去，见 `save::can_save_rotation`）
     pub(crate) fn needs_rotation_prompt(&self) -> bool {
-        !self.view.xf.is_identity() && self.cur.as_ref().is_some_and(|c| !c.clipboard && crate::save::can_save_rotation(&c.path))
+        self.rotation_unsaved() && self.current_info().is_some_and(|i| crate::save::can_save_rotation(i.format))
+    }
+
+    /// 转了还没存的文件里的图（不管能不能存回去）
+    pub(crate) fn rotation_unsaved(&self) -> bool {
+        !self.view.xf.is_identity() && self.cur.as_ref().is_some_and(|c| !c.clipboard)
     }
 
     /// 上一张 / 下一张；到头、循环、只有一张时在窗口中间提示
@@ -275,7 +290,7 @@ impl App {
         let Some(cur) = &mut self.cur else { return };
         log::debug!("先显示缩略图 {}", cur.path.display());
         cur.preview = Some(p.clone());
-        self.begin_show(Shown { width: p.info.width, height: p.info.height, has_alpha: p.info.has_alpha });
+        self.begin_show(Shown { width: p.info.width, height: p.info.height, has_alpha: p.info.has_alpha, translucent: p.info.translucent });
         self.tex = Tex::Still(StillTextures::preview("image", &p));
     }
 
@@ -306,7 +321,7 @@ impl App {
         self.sharp_svg.reset();
         match l {
             Ok(d) => {
-                self.begin_show(Shown { width: d.info.width, height: d.info.height, has_alpha: d.info.has_alpha });
+                self.begin_show(Shown { width: d.info.width, height: d.info.height, has_alpha: d.info.has_alpha, translucent: d.info.translucent });
                 match &d.content {
                     Content::Still { image, levels } => {
                         self.tex = Tex::Still(StillTextures::new("image", image.clone(), levels));
@@ -377,7 +392,33 @@ impl App {
 
     /// 开着对话框（确认框、设置、重命名、打印）：查看模式的快捷键和浮动工具栏都不出来
     pub(crate) fn modal_open(&self) -> bool {
-        self.dialog.is_some() || self.settings_page.is_some() || self.rename.is_some() || self.printing()
+        self.dialog.is_some() || self.settings_modal() || self.rename.is_some() || self.printing()
+    }
+
+    /// 设置画在图片窗口里（盖住图片、挡住快捷键）：其它系统都这样；Windows 上开在单独的窗口里，建不起来时才这样
+    pub(crate) fn settings_modal(&self) -> bool {
+        self.settings_page.is_some() && (!cfg!(windows) || self.settings_window_failed)
+    }
+
+    /// 打开设置（Ctrl+,、右键菜单）；已经开着时换到 page（None = 不换页），单独的设置窗口拿到最前面
+    pub(crate) fn open_settings(&mut self, page: Option<super::settings_ui::Page>) {
+        match (&mut self.settings_page, page) {
+            (Some(cur), Some(p)) => *cur = p,
+            (Some(_), None) => {}
+            (none, p) => *none = Some(p.unwrap_or_default()),
+        }
+        self.settings_focus = true;
+    }
+
+    /// 图片窗口里的对话框：窗口为它变大着时放在图片那块的中间、只压暗图片（窗口其余地方透明，压暗会是一大块灰）
+    pub(crate) fn modal(&self, id: egui::Id, ctx: &egui::Context) -> egui::Modal {
+        let m = egui::Modal::new(id);
+        match self.grown_box {
+            Some(b) => m
+                .backdrop_color(egui::Color32::TRANSPARENT)
+                .area(egui::Modal::default_area(id).anchor(egui::Align2::CENTER_CENTER, b.center() - ctx.content_rect().center())),
+            None => m,
+        }
     }
 }
 
@@ -394,7 +435,7 @@ mod tests {
 
     #[test]
     fn lock_zoom_keeps_the_zoom_for_any_size_and_the_position_only_for_the_same_size() {
-        let shown = |width, height| Shown { width, height, has_alpha: false };
+        let shown = |width, height| Shown { width, height, has_alpha: false, translucent: false };
         let mut a = app(true);
         a.canvas = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(800.0, 600.0));
         a.begin_show(shown(4000, 3000));

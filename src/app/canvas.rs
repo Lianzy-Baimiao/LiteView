@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use egui::{Align2, Color32, CursorIcon, FontId, Rect, Sense, Vec2, vec2};
 
+use super::frameless::SeeThrough;
 use super::{App, Tex};
 use crate::decode::Error;
 use crate::i18n::tr;
@@ -30,25 +31,51 @@ impl App {
     pub(crate) fn canvas_ui(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         let p = theme::palette(&ctx);
-        let rect = ui.max_rect();
+        // 窗口为了菜单、对话框、图片信息变大着：画布只占图片那块（在屏幕上没动），其余透明
+        let full = ui.max_rect();
+        let rect = self.grown_box.unwrap_or(full);
         let bg = match self.settings.background {
             Background::Black => Color32::BLACK,
             Background::White => Color32::WHITE,
             _ => p.canvas,
         };
-        ui.painter().rect_filled(rect, 0.0, bg);
-        if self.settings.background == Background::Checker {
-            paint_checker(&ctx, ui.painter(), rect, p.checker);
+        // 无边框看有透明像素的图：不画背景和棋盘格，透明的地方透出桌面（窗口循环清成透明色）
+        let wanted = self.see_through_wanted(&ctx);
+        let can = self.see_through_avail == SeeThrough::Yes;
+        // 变大着的窗口图片那块以外都透明（不能透明的窗口照旧整个铺背景）
+        let outside_clear = self.grown.is_some() && can;
+        self.see_through = can && (wanted || self.grown.is_some());
+        let image_clear = wanted && can;
+        // 等别的提示（Ctrl+B 的「无边框」说明）显示完再提示
+        if wanted && self.see_through_avail == SeeThrough::Restart && !self.see_through_hint && self.toast.is_none() {
+            self.see_through_hint = true;
+            self.show_toast(tr().see_through_restart);
+        }
+        if !image_clear {
+            let fill = if outside_clear { rect } else { full };
+            ui.painter().rect_filled(fill, 0.0, bg);
+            if self.settings.background == Background::Checker {
+                paint_checker(&ctx, ui.painter(), fill, p.checker);
+            }
+        }
+        // 变大着时点图片那块外面（透明的地方）：关掉图片信息（菜单、对话框各自会关）
+        if self.grown_box.is_some() && ui.interact(full, ui.id().with("outside"), Sense::click()).clicked() {
+            self.info_open = false;
         }
         if let Some(s) = self.shown {
             let size = self.view.shown_size(s.width, s.height);
             let img_rect = self.update_view(&ctx, rect, size, self.settings.fit_mode);
-            if s.has_alpha && self.settings.background != Background::Checker {
-                paint_checker(&ctx, ui.painter(), img_rect, p.checker);
+            let painter = ui.painter_at(rect);
+            if s.has_alpha && self.settings.background != Background::Checker && !image_clear {
+                paint_checker(&ctx, &painter, img_rect, p.checker);
             }
-            self.paint_image(&ctx, ui.painter(), img_rect);
+            self.paint_image(&ctx, &painter, img_rect);
         } else {
             self.canvas = rect;
+        }
+        // 开着对话框：只压暗图片那块（egui 的对话框压暗整个窗口，变大着时那是一大块灰）
+        if self.grown_box.is_some() && self.modal_open() {
+            ui.painter().rect_filled(rect, 0.0, Color32::from_black_alpha(100));
         }
         let resp = ui.interact(rect, ui.id().with("canvas"), Sense::click_and_drag());
         self.pointer(&ctx, &resp);
@@ -230,6 +257,8 @@ impl App {
         if resp.double_clicked() {
             match self.settings.double_click {
                 DoubleClick::Fullscreen => self.toggle_fullscreen(ctx),
+                // 和 Esc、Ctrl+W 一样走关闭窗口（旋转了没保存时先问）
+                DoubleClick::Close => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
                 DoubleClick::ToggleFit => {
                     let fit = View::fit_zoom(FitMode::Fit, rect.size(), ppp, size);
                     if (self.view.zoom - 1.0).abs() < 1e-3 && fit < 1.0 {
@@ -237,6 +266,7 @@ impl App {
                     } else if let Some(pos) = resp.interact_pointer_pos() {
                         self.view.zoom_to(1.0, pos, self.settings.smooth_zoom, rect);
                     }
+                    self.show_zoom();
                 }
             }
         }
@@ -269,6 +299,7 @@ impl App {
                 let from = self.view.target_zoom();
                 let to = snap(from, from * factor, &[1.0, fit]);
                 self.view.zoom_to(to, anchor, self.settings.smooth_zoom, rect);
+                self.show_zoom();
                 ctx.request_repaint();
             }
             self.wheel_acc += nav;
@@ -431,7 +462,7 @@ mod drag_tests {
             let ctx = egui::Context::default();
             let settings = Settings { ask_default_app: false, drag_inertia: false, ..Default::default() };
             let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
-            app.shown = Some(crate::app::Shown { width, height, has_alpha: false });
+            app.shown = Some(crate::app::Shown { width, height, has_alpha: false, translucent: false });
             app.view.zoom = zoom;
             let mut input = RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1200.0, 800.0))), time: Some(0.0), ..Default::default() };
             input.viewports.entry(ViewportId::ROOT).or_default().outer_rect = Some(Rect::from_min_size(pos2(100.0, 100.0), vec2(1220.0, 840.0)));
@@ -526,15 +557,48 @@ mod drag_tests {
             c.modifiers = Modifiers::SHIFT;
             assert!(!c.drag().contains(&ViewportCommand::StartDrag));
         }
+        // 设置画在图片窗口里时（其它系统；Windows 上单独的设置窗口建不起来时）
         let mut c = Canvas::new(300, 200, 1.0);
         c.app.settings_page = Some(crate::app::settings_ui::Page::General);
+        c.app.settings_window_failed = true;
         assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+        // Windows：设置在单独的窗口里，图片窗口照常能拖
+        #[cfg(windows)]
+        {
+            let mut c = Canvas::new(300, 200, 1.0);
+            c.app.settings_page = Some(crate::app::settings_ui::Page::General);
+            assert!(c.drag().contains(&ViewportCommand::StartDrag));
+        }
         let mut c = Canvas::new(300, 200, 1.0);
         c.app.menu_open = true;
         assert!(!c.drag().contains(&ViewportCommand::StartDrag));
         let mut c = Canvas::new(300, 200, 1.0);
         c.app.shown = None;
         assert!(!c.drag().contains(&ViewportCommand::StartDrag));
+    }
+
+    #[test]
+    fn right_click_opens_the_menu_where_it_was_clicked() {
+        let mut c = Canvas::new(300, 200, 1.0);
+        let at = pos2(260.0, 180.0);
+        let frame = |c: &mut Canvas, events: Vec<Event>| {
+            *c.input.time.as_mut().unwrap() += 0.02;
+            let mut input = c.input.clone();
+            input.events = events;
+            let _ = c.ctx.run_ui(input, |ui| c.app.canvas_ui(ui));
+        };
+        frame(&mut c, vec![Event::PointerMoved(at)]);
+        frame(&mut c, vec![Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed: true, modifiers: Modifiers::NONE }]);
+        frame(&mut c, vec![Event::PointerButton { pos: at, button: PointerButton::Secondary, pressed: false, modifiers: Modifiers::NONE }]);
+        frame(&mut c, vec![]);
+        assert!(c.app.menu_open, "menu open");
+        assert!(!c.app.menu_pending);
+        assert!(c.ctx.any_popup_open());
+        // 左键点一下关掉
+        frame(&mut c, vec![Event::PointerButton { pos: pos2(40.0, 40.0), button: PointerButton::Primary, pressed: true, modifiers: Modifiers::NONE }]);
+        frame(&mut c, vec![Event::PointerButton { pos: pos2(40.0, 40.0), button: PointerButton::Primary, pressed: false, modifiers: Modifiers::NONE }]);
+        frame(&mut c, vec![]);
+        assert!(!c.app.menu_open);
     }
 
     #[test]
@@ -549,5 +613,72 @@ mod drag_tests {
         }
         assert_eq!(c.app.view.zoom, 1.0);
         assert!(!c.app.window_op);
+    }
+
+    /// 画布那一帧：透出桌面了没有、有没有提示「重新打开」
+    fn see_through_after_frame(c: &mut Canvas) -> bool {
+        let input = c.input.clone();
+        let _ = c.ctx.run_ui(input, |ui| c.app.canvas_ui(ui));
+        c.app.see_through
+    }
+
+    #[test]
+    fn borderless_shows_the_desktop_only_for_images_with_transparent_pixels() {
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.settings.window.borderless = true;
+        c.app.see_through_avail = SeeThrough::Yes;
+        c.app.shown = Some(crate::app::Shown { width: 300, height: 200, has_alpha: true, translucent: true });
+        assert!(see_through_after_frame(&mut c));
+        // 有透明通道、没有透明像素；普通窗口；最大化；开着设置
+        c.app.shown = Some(crate::app::Shown { width: 300, height: 200, has_alpha: true, translucent: false });
+        assert!(!see_through_after_frame(&mut c));
+        c.app.shown = Some(crate::app::Shown { width: 300, height: 200, has_alpha: true, translucent: true });
+        c.app.settings.window.borderless = false;
+        assert!(!see_through_after_frame(&mut c));
+        c.app.settings.window.borderless = true;
+        c.input.viewports.get_mut(&ViewportId::ROOT).unwrap().maximized = Some(true);
+        assert!(!see_through_after_frame(&mut c));
+        c.input.viewports.get_mut(&ViewportId::ROOT).unwrap().maximized = Some(false);
+        c.app.settings_page = Some(crate::app::settings_ui::Page::General);
+        c.app.settings_window_failed = true;
+        assert!(!see_through_after_frame(&mut c));
+        c.app.settings_page = None;
+        c.app.settings_window_failed = false;
+        assert!(see_through_after_frame(&mut c));
+        // 启动时不是无边框：不透，提示一次重新打开
+        c.app.see_through_avail = SeeThrough::Restart;
+        assert!(!see_through_after_frame(&mut c));
+        assert!(c.app.toast.take().is_some_and(|t| t.0 == crate::i18n::tr().see_through_restart));
+        assert!(!see_through_after_frame(&mut c));
+        assert!(c.app.toast.is_none());
+        // 系统合成用不了：不透，也不提示
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.settings.window.borderless = true;
+        c.app.shown = Some(crate::app::Shown { width: 300, height: 200, has_alpha: true, translucent: true });
+        assert!(!see_through_after_frame(&mut c));
+        assert!(c.app.toast.is_none());
+    }
+
+    #[test]
+    fn double_click_can_close_the_window() {
+        for (setting, closes) in [(DoubleClick::Close, true), (DoubleClick::ToggleFit, false), (DoubleClick::Fullscreen, false)] {
+            let mut c = Canvas::new(300, 200, 1.0);
+            c.app.settings.double_click = setting;
+            c.frame(vec![Event::PointerMoved(pos2(300.0, 300.0))]);
+            let mut cmds = Vec::new();
+            for _ in 0..2 {
+                cmds.extend(c.button(true));
+                cmds.extend(c.button(false));
+            }
+            assert_eq!(cmds.contains(&ViewportCommand::Close), closes, "{setting:?}");
+            assert!(!cmds.contains(&ViewportCommand::StartDrag), "{setting:?}");
+        }
+        // 单击不关
+        let mut c = Canvas::new(300, 200, 1.0);
+        c.app.settings.double_click = DoubleClick::Close;
+        c.frame(vec![Event::PointerMoved(pos2(300.0, 300.0))]);
+        let mut cmds = c.button(true);
+        cmds.extend(c.button(false));
+        assert!(!cmds.contains(&ViewportCommand::Close));
     }
 }

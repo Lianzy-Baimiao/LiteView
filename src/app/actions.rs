@@ -173,6 +173,7 @@ impl App {
         let fmt = Format::from_path(&dest).unwrap_or(Format::Png);
         let q = if fmt == Format::WebP { self.settings.webp_quality } else { self.settings.jpeg_quality };
         let webp_lossless = self.settings.webp_lossless;
+        let meta = save_as_meta(&decoded.info, self.settings.keep_metadata);
         self.spawn(move || {
             let img = match decoded.content.image_at(index) {
                 Ok(img) => save::apply_transform(&img, xf),
@@ -181,7 +182,7 @@ impl App {
                     return Some(Notice::Toast(tr().err_corrupt.to_owned()));
                 }
             };
-            Some(match save::write_with_mode(&dest, &img, fmt, q, &save::Meta::default(), webp_lossless) {
+            Some(match save::write_with_mode(&dest, &img, fmt, q, &meta, webp_lossless) {
                 Ok(()) => Notice::Saved(dest),
                 Err(e) => Notice::Toast(fill(tr().failed, &[&e])),
             })
@@ -216,21 +217,25 @@ impl App {
 
     pub(crate) fn save_rotation(&mut self) {
         let Some(c) = self.cur.as_ref().filter(|c| !c.clipboard) else { return };
-        let (path, xf, q) = (c.path.clone(), self.view.xf, self.settings.jpeg_quality);
+        let (path, xf, opts) = (c.path.clone(), self.view.xf, super::decode_options(&self.settings));
         self.spawn(move || {
-            Some(match save::save_rotation(&path, xf, q) {
+            Some(match save::save_rotation(&path, xf, &opts) {
                 Ok(()) => Notice::Saved(path),
                 Err(e) => Notice::Toast(fill(tr().failed, &[&e])),
             })
         });
     }
 
-    /// 关闭窗口前保存：在界面线程上做完再退出
-    pub(crate) fn save_rotation_blocking(&mut self) {
-        if let Some(c) = self.cur.as_ref().filter(|c| !c.clipboard)
-            && let Err(e) = save::save_rotation(&c.path, self.view.xf, self.settings.jpeg_quality)
-        {
-            log::warn!("保存旋转失败：{e}");
+    /// 关闭窗口前保存：在界面线程上做完再退出。没存成时返回 false（不关窗口，提示原因，免得以为存了）
+    pub(crate) fn save_rotation_blocking(&mut self) -> bool {
+        let Some(c) = self.cur.as_ref().filter(|c| !c.clipboard) else { return true };
+        match save::save_rotation(&c.path, self.view.xf, &super::decode_options(&self.settings)) {
+            Ok(()) => true,
+            Err(e) => {
+                log::warn!("保存旋转失败：{e}");
+                self.show_toast(fill(tr().failed, &[&e]));
+                false
+            }
         }
     }
 
@@ -248,10 +253,18 @@ impl App {
         let to = if zoom_in { from * WHEEL_STEP * WHEEL_STEP } else { from / WHEEL_STEP / WHEEL_STEP };
         let to = snap(from, to, &[1.0, self.fit_zoom()]);
         self.view.zoom_to(to, self.canvas.center(), self.settings.smooth_zoom, self.canvas);
+        self.show_zoom();
     }
 
     pub(crate) fn zoom_set(&mut self, z: f32) {
         self.view.zoom_to(z, self.canvas.center(), self.settings.smooth_zoom, self.canvas);
+        self.show_zoom();
+    }
+
+    /// 用户按「适应窗口」（Ctrl+0、工具栏）：适应，并显示一下比例。转图片时跟着适应用 `zoom_fit`，不显示
+    pub(crate) fn zoom_fit_shown(&mut self) {
+        self.zoom_fit();
+        self.show_zoom();
     }
 
     pub(crate) fn zoom_fit(&mut self) {
@@ -273,5 +286,43 @@ impl App {
         if self.view.fitted {
             self.zoom_fit();
         }
+    }
+}
+
+/// 看图时「另存为」写进文件的元数据，与编辑后保存一样：颜色配置文件跟着像素走，一直留着（否则颜色会变）；
+/// EXIF 按「保存时保留 EXIF」，清理后写（缩略图、厂商数据去掉，方向改成 1：像素已经按显示的方向转好）
+fn save_as_meta(info: &crate::decode::Info, keep_exif: bool) -> save::Meta {
+    let exif = if keep_exif { info.exif.as_deref().and_then(|e| save::clean_exif(e)) } else { None };
+    save::Meta { exif, icc: info.icc.as_deref().cloned() }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn save_as_keeps_the_colour_profile_and_follows_the_exif_setting() {
+        use exif::{Field, In, Tag, Value};
+        let fields = [
+            Field { tag: Tag::Make, ifd_num: In::PRIMARY, value: Value::Ascii(vec![b"TestCam".to_vec()]) },
+            Field { tag: Tag::Orientation, ifd_num: In::PRIMARY, value: Value::Short(vec![6]) },
+        ];
+        let mut w = exif::experimental::Writer::new();
+        for f in &fields {
+            w.push_field(f);
+        }
+        let mut raw = std::io::Cursor::new(Vec::new());
+        w.write(&mut raw, false).unwrap();
+        let img = image::RgbaImage::from_pixel(4, 2, image::Rgba([20, 40, 60, 255]));
+        let png = save::encode_with(&img, Format::Png, 90, &save::Meta { exif: Some(raw.into_inner()), icc: Some(b"wide gamut".to_vec()) }).unwrap();
+        let info = crate::decode::decode_bytes(&png, "png", &Default::default()).unwrap().info;
+        let kept = save_as_meta(&info, true);
+        assert_eq!(kept.icc.as_deref(), Some(&b"wide gamut"[..]));
+        let exif = exif::Reader::new().read_raw(kept.exif.expect("EXIF kept")).unwrap();
+        assert_eq!(exif.get_field(Tag::Orientation, In::PRIMARY).and_then(|f| f.value.get_uint(0)), Some(1), "pixels are already turned");
+        assert!(exif.get_field(Tag::Make, In::PRIMARY).is_some());
+        let dropped = save_as_meta(&info, false);
+        assert!(dropped.exif.is_none());
+        assert_eq!(dropped.icc.as_deref(), Some(&b"wide gamut"[..]), "the profile describes the pixels, so it stays");
     }
 }

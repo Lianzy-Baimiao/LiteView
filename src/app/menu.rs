@@ -13,12 +13,35 @@ enum Choice {
 }
 
 impl App {
-    /// 画布的右键菜单；返回菜单是否开着。窗口放得下就完整显示，放不下才用滚轮滚动（egui 的菜单画不到窗口外面）
+    /// 画布的右键菜单；返回菜单是否开着（或等着窗口变大后打开）。窗口放得下就完整显示，放不下才用滚轮滚动
+    /// （egui 的菜单画不到窗口外面）。无边框的小窗口放不下时窗口先透明地变大（`update_grow`），下一帧再在右键的地方打开
     pub(crate) fn context_menu(&mut self, resp: &egui::Response) -> bool {
-        let max_h = (resp.ctx.content_rect().height() - 16.0).max(80.0);
+        let ctx = resp.ctx.clone();
+        let max_h = (ctx.content_rect().height() - 16.0).max(80.0);
+        if resp.secondary_clicked()
+            && let Some(q) = resp.interact_pointer_pos()
+        {
+            self.menu_at = Some(q - self.canvas.min);
+            self.menu_pending = true;
+        }
+        let mut open = None;
+        if self.menu_pending
+            && let Some(at) = self.menu_at
+        {
+            if self.overlay_ready(&ctx, super::frameless::Need::Menu(at)) {
+                self.menu_pending = false;
+                open = Some(egui::containers::SetOpenCommand::Bool(true));
+            } else {
+                ctx.request_repaint();
+                return true;
+            }
+        } else if resp.clicked() {
+            open = Some(egui::containers::SetOpenCommand::Bool(false));
+        }
         // 每次打开都从第一项开始
-        let fresh = resp.secondary_clicked();
-        let shown = resp.context_menu(|ui| {
+        let fresh = open == Some(egui::containers::SetOpenCommand::Bool(true));
+        let anchor = self.canvas.min + self.menu_at.unwrap_or_default();
+        let shown = egui::Popup::menu(resp).open_memory(open).at_position(anchor).show(|ui| {
             // 滚动条单独占一列（默认的浮动滚动条压在文字和快捷键上），菜单跟着变宽
             ui.spacing_mut().scroll = egui::style::ScrollStyle::solid();
             // 菜单第一次打开时 egui 按 400 高排版、之后一直用这个高度；按窗口能放下的高度排，内容矮时再缩回去
@@ -26,9 +49,16 @@ impl App {
             if fresh {
                 area = area.vertical_scroll_offset(0.0);
             }
-            area.show(ui, |ui| self.menu_items(ui));
+            area.show(ui, |ui| self.menu_items(ui)).content_size
         });
-        shown.is_some()
+        match shown {
+            Some(r) => {
+                // 记下菜单不滚动时要多高，下次按它算窗口要不要变大
+                self.menu_size = egui::vec2(r.response.rect.width(), r.inner.y + (r.response.rect.height() - r.inner.y.min(max_h)).max(0.0));
+                true
+            }
+            None => false,
+        }
     }
 
     /// 常用的放在第一层；同类的收进子菜单（鼠标指上去才出来），窗口矮时也少滚动
@@ -144,20 +174,28 @@ impl App {
         }
         if item(ui, t.settings, format!("{c},"), true) {
             ui.close();
-            self.settings_page = Some(Default::default());
+            self.open_settings(None);
         }
     }
 
     pub(crate) fn dialogs(&mut self, ctx: &egui::Context) {
-        let is_jpeg = self.cur.as_ref().is_some_and(|c| {
-            c.path.extension().and_then(|e| e.to_str()).is_some_and(|e| matches!(e.to_ascii_lowercase().as_str(), "jpg" | "jpeg" | "jpe" | "jfif"))
-        });
+        // 只改方向标记的格式（按文件内容认出的格式，不看扩展名）
+        let tag_only = self.current_info().is_some_and(|i| matches!(i.format, "JPEG" | "TIFF"));
+        if self.dialog.is_none() {
+            return;
+        }
+        // 小窗口要先变大：这一帧先不画（不然先露出被裁掉的一角）
+        if !self.overlay_ready(ctx, super::frameless::Need::Centered(super::frameless::DIALOG_ROOM)) {
+            ctx.request_repaint();
+            return;
+        }
+        let shell = self.modal(egui::Id::new("dialog"), ctx);
         let Some(d) = &mut self.dialog else { return };
         let t = tr();
         let p = theme::palette(ctx);
         let mut choice = None;
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(20)).corner_radius(egui::CornerRadius::same(8));
-        let modal = egui::Modal::new(egui::Id::new("dialog")).frame(frame).show(ctx, |ui| {
+        let modal = shell.frame(frame).show(ctx, |ui| {
             ui.set_width(380.0);
             let (title, body, primary, secondary, danger, cancel) = match d {
                 Dialog::Delete { forever: true, .. } => (t.delete_title, t.delete_body_forever, t.delete_forever_btn, None, true, t.cancel),
@@ -172,8 +210,8 @@ impl App {
             ui.label(RichText::new(title).size(16.0).color(p.text));
             ui.add_space(6.0);
             ui.label(RichText::new(body).color(p.text_weak));
-            if matches!(d, Dialog::SaveRotation { .. }) && is_jpeg {
-                ui.label(RichText::new(t.rotate_save_jpeg).color(p.text_weak).size(12.0));
+            if matches!(d, Dialog::SaveRotation { .. }) && tag_only {
+                ui.label(RichText::new(t.rotate_save_tag).color(p.text_weak).size(12.0));
             }
             if let Dialog::Delete { forever: false, dont_ask, .. } | Dialog::Overwrite { dont_ask, .. } = d {
                 ui.add_space(10.0);
@@ -236,17 +274,19 @@ impl App {
             }
             (Dialog::SaveRotation { after }, Choice::Primary) => {
                 if matches!(after, super::After::Close) {
-                    self.save_rotation_blocking();
+                    if self.save_rotation_blocking() {
+                        self.resume(after, ctx);
+                    }
                 } else {
                     self.save_rotation();
+                    self.resume(after, ctx);
                 }
-                self.resume(after, ctx);
             }
             (Dialog::SaveRotation { after }, Choice::Secondary) => self.resume(after, ctx),
             #[cfg(windows)]
             (Dialog::AskDefault, Choice::Primary) => {
                 self.settings.ask_default_app = false;
-                self.settings_page = Some(super::settings_ui::Page::Assoc);
+                self.open_settings(Some(super::settings_ui::Page::Assoc));
                 self.settings.save();
             }
             #[cfg(windows)]

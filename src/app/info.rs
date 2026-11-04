@@ -88,9 +88,10 @@ fn parse_exif(raw: &[u8]) -> (Vec<(&'static str, String)>, Option<String>) {
 const INFO_W: f32 = 300.0;
 
 impl App {
-    /// 面板这一帧占了左边多宽（滑入 / 滑出时按进度）；不显示时为 0
+    /// 面板这一帧占了左边多宽（滑入 / 滑出时按进度）；不显示时为 0。窗口为它变大着时面板在图片外面，不占
     pub(crate) fn info_width(&self, ctx: &egui::Context) -> f32 {
         let shown = self.editor.is_none()
+            && self.grown_box.is_none()
             && self.cur.as_ref().is_some_and(|c| c.loaded.as_ref().is_some_and(|l| l.is_ok()) || c.preview.is_some());
         if !shown {
             return 0.0;
@@ -101,6 +102,11 @@ impl App {
     pub(crate) fn info_panel(&mut self, ctx: &egui::Context) {
         let a = ctx.animate_bool_with_time(Id::new("info-open"), self.info_open, 0.15);
         if a <= 0.0 {
+            return;
+        }
+        // 小窗口要先变大：这一帧先不画
+        if !self.overlay_ready(ctx, super::frameless::Need::Info) {
+            ctx.request_repaint();
             return;
         }
         let Some(cur) = &self.cur else { return };
@@ -116,12 +122,25 @@ impl App {
         }
         let p = theme::palette(ctx);
         let w = INFO_W;
-        let r = self.canvas;
+        let full = ctx.content_rect();
         let mut close = false;
-        Area::new(Id::new("info")).order(Order::Foreground).anchor(Align2::LEFT_TOP, vec2(-w * (1.0 - a), 0.0)).show(ctx, |ui| {
+        // 平时从窗口左边滑出、盖在图片上；窗口为它变大着时贴着图片左边（图片那块靠着屏幕左边、放不下时盖住图片一点），淡入
+        let area = match self.grown_box {
+            Some(b) => {
+                let x = (b.left() - w).max(full.left());
+                Area::new(Id::new("info")).order(Order::Foreground).fixed_pos(egui::pos2(x - 12.0 * (1.0 - a), full.top()))
+            }
+            None => Area::new(Id::new("info")).order(Order::Foreground).anchor(Align2::LEFT_TOP, vec2(-w * (1.0 - a), 0.0)),
+        };
+        let fade = self.grown_box.is_some();
+        area.show(ctx, |ui| {
+            if fade {
+                ui.set_opacity(a);
+            }
             egui::Frame::new().fill(p.surface).stroke(Stroke::new(1.0, p.divider)).inner_margin(egui::Margin::same(16)).show(ui, |ui| {
                 ui.set_width(w - 32.0);
-                ui.set_min_height(r.height() - 32.0);
+                ui.set_min_height(full.height() - 32.0);
+                ui.set_max_height(full.height() - 32.0);
                 let t = tr();
                 ui.horizontal(|ui| {
                     ui.label(RichText::new(t.info).size(16.0));
@@ -131,27 +150,30 @@ impl App {
                 });
                 ui.add_space(8.0);
                 let Some(c) = &self.info else { return };
-                let row = |ui: &mut egui::Ui, k: &str, v: &str| {
-                    ui.label(RichText::new(k).color(p.text_weak).size(12.0));
-                    ui.add(egui::Label::new(RichText::new(v).color(p.text)).wrap());
-                    ui.add_space(6.0);
-                };
-                for (k, v) in &c.rows {
-                    row(ui, k, v);
-                }
-                if !c.exif.is_empty() || c.gps.is_some() {
-                    ui.separator();
-                    ui.add_space(6.0);
-                }
-                for (k, v) in &c.exif {
-                    row(ui, k, v);
-                }
-                if let Some(g) = &c.gps {
-                    widgets::checkbox(ui, &mut self.show_gps, t.i_gps_show);
-                    if self.show_gps {
-                        row(ui, t.i_gps, g);
+                // 窗口矮、EXIF 多时可以滚动（以前画到窗口下面就看不见了）
+                egui::ScrollArea::vertical().auto_shrink([false, true]).show(ui, |ui| {
+                    let row = |ui: &mut egui::Ui, k: &str, v: &str| {
+                        ui.label(RichText::new(k).color(p.text_weak).size(12.0));
+                        ui.add(egui::Label::new(RichText::new(v).color(p.text)).wrap());
+                        ui.add_space(6.0);
+                    };
+                    for (k, v) in &c.rows {
+                        row(ui, k, v);
                     }
-                }
+                    if !c.exif.is_empty() || c.gps.is_some() {
+                        ui.separator();
+                        ui.add_space(6.0);
+                    }
+                    for (k, v) in &c.exif {
+                        row(ui, k, v);
+                    }
+                    if let Some(g) = &c.gps {
+                        widgets::checkbox(ui, &mut self.show_gps, t.i_gps_show);
+                        if self.show_gps {
+                            row(ui, t.i_gps, g);
+                        }
+                    }
+                });
             });
         });
         if close {
@@ -166,11 +188,19 @@ impl App {
     }
 
     pub(crate) fn rename_ui(&mut self, ctx: &egui::Context) {
+        if self.rename.is_none() {
+            return;
+        }
+        if !self.overlay_ready(ctx, super::frameless::Need::Centered(super::frameless::DIALOG_ROOM)) {
+            ctx.request_repaint();
+            return;
+        }
+        let shell = self.modal(Id::new("rename"), ctx);
         let Some(r) = &mut self.rename else { return };
         let t = tr();
         let mut done = None;
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(20)).corner_radius(egui::CornerRadius::same(8));
-        let modal = egui::Modal::new(Id::new("rename")).frame(frame).show(ctx, |ui| {
+        let modal = shell.frame(frame).show(ctx, |ui| {
             ui.set_width(380.0);
             ui.label(RichText::new(t.rename).size(16.0));
             ui.add_space(10.0);
@@ -208,19 +238,14 @@ impl App {
     }
 
     fn do_rename(&mut self, from: &Path, name: &str) {
-        let bad = name.is_empty() || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']);
-        if bad || Some(name) == from.file_name().and_then(|n| n.to_str()) {
-            return;
-        }
-        let to = from.with_file_name(name);
-        if to.exists() {
-            self.show_toast(fill(tr().failed, &[&tr().name_exists]));
-            return;
-        }
-        if let Err(e) = std::fs::rename(from, &to) {
-            self.show_toast(fill(tr().failed, &[&e]));
-            return;
-        }
+        let to = match rename_file(from, name) {
+            Ok(Some(to)) => to,
+            Ok(None) => return,
+            Err(e) => {
+                self.show_toast(fill(tr().failed, &[&e]));
+                return;
+            }
+        };
         self.loader.forget(from);
         if let Some(f) = self.folder.files.iter_mut().find(|p| p.as_path() == from) {
             *f = to.clone();
@@ -236,8 +261,46 @@ impl App {
     }
 }
 
+/// 改名（同一个文件夹里）。Ok(None)：名字不能用或没变，什么都不做；Err：说明为什么没改成。
+/// 只改大小写（A.png → a.png）在 Windows、macOS 上也能改：新名字「已存在」的其实就是这个文件自己
+fn rename_file(from: &Path, name: &str) -> Result<Option<std::path::PathBuf>, String> {
+    let bad = name.is_empty() || name.contains(['/', '\\', ':', '*', '?', '"', '<', '>', '|']);
+    if bad || Some(name) == from.file_name().and_then(|n| n.to_str()) {
+        return Ok(None);
+    }
+    let to = from.with_file_name(name);
+    // std::fs::rename 会盖掉已有的文件：别的文件占着这个名字时不改
+    let itself = || matches!((std::fs::canonicalize(from), std::fs::canonicalize(&to)), (Ok(a), Ok(b)) if a == b);
+    if to.exists() && !itself() {
+        return Err(tr().name_exists.to_owned());
+    }
+    std::fs::rename(from, &to).map_err(|e| e.to_string())?;
+    Ok(Some(to))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn renaming_only_changes_letter_case_or_refuses_to_overwrite() {
+        let dir = std::env::temp_dir().join(format!("liteview-rename-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let a = dir.join("Photo.PNG");
+        std::fs::write(&a, b"a").unwrap();
+        std::fs::write(dir.join("other.png"), b"b").unwrap();
+        // 别的文件占着这个名字：不改，也不盖掉它
+        assert!(super::rename_file(&a, "other.png").is_err());
+        assert_eq!(std::fs::read(dir.join("other.png")).unwrap(), b"b");
+        // 只改大小写：以前在 Windows 上提示「已有同名文件」
+        let to = super::rename_file(&a, "photo.png").unwrap().unwrap();
+        let names: Vec<String> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).collect();
+        assert!(names.contains(&"photo.png".to_owned()), "{names:?}");
+        assert!(!names.contains(&"Photo.PNG".to_owned()), "{names:?}");
+        assert_eq!(std::fs::read(&to).unwrap(), b"a");
+        assert_eq!(super::rename_file(&to, "photo.png").unwrap(), None, "same name: nothing to do");
+        assert_eq!(super::rename_file(&to, "bad:name.png").unwrap(), None);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
     #[test]
     fn exif_fields() {
         // TIFF 头 + IFD0 一项：Make = "Canon"

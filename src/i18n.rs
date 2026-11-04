@@ -137,7 +137,9 @@ strings! {
     dont_ask: "不再询问", "Don't ask again";
     rotate_save_title: "保存旋转？", "Save rotation?";
     rotate_save_body: "旋转后的图片还没有保存。", "The rotated image hasn't been saved.";
-    rotate_save_jpeg: "JPEG 只改方向标记，画质无损。", "For JPEG only the orientation tag changes — no quality loss.";
+    rotate_save_tag: "JPEG、TIFF 只改方向标记，画质无损。", "For JPEG and TIFF only the orientation tag changes, so there is no quality loss.";
+    rotate_cannot_save: "这种图不能把旋转存回原文件（动图、多帧等），可以用「另存为」", "Rotation can't be saved back into this kind of file (animations and the like). Use Save As instead.";
+    rotate_tag_unwritable: "这个文件的方向标记改不了（文件结构特殊），可以用「另存为」", "This file's orientation tag can't be changed (unusual file layout). Use Save As instead.";
     save: "保存", "Save";
     dont_save: "不保存", "Don't save";
     failed: "失败：{}", "Failed: {}";
@@ -180,6 +182,7 @@ strings! {
     s_double: "双击", "Double-click";
     s_double_fit: "适应窗口 / 100%", "Fit / 100%";
     s_double_full: "全屏", "Full screen";
+    s_double_close: "关闭窗口", "Close window";
     s_preload: "预读前后几张", "Preload neighbors";
     s_cache: "缓存上限（MB）", "Cache limit (MB)";
     s_nearest: "放大超过多少改用最近邻（%）", "Show pixels above zoom (%)";
@@ -208,7 +211,7 @@ strings! {
     s_homepage: "项目主页", "Project page";
     s_coming: "下一个版本提供", "Coming in the next version";
     s_keys: "快捷键", "Shortcuts";
-    keys_table: "操作|查看|编辑\n上一张 / 下一张|← → / PgUp PgDn / 鼠标侧键；按住连续翻|—\n第一张 / 最后一张|Home / End|—\n缩放|滚轮 / Ctrl+= / Ctrl+- / + -|同左\n适应窗口 / 100%|Ctrl+0 / Ctrl+1，双击切换|Ctrl+0 / Ctrl+1\n平移|左键拖动|空格 + 左键拖动 / 中键拖动\n全屏|F11|F11\n无边框（Windows）|Ctrl+B|—\n动图 播放 / 暂停|空格|—\n上一帧 / 下一帧|, / .|—\n旋转|Ctrl+R / Ctrl+Shift+R|同左（改像素）\n编辑 / 打码|E / M|—\n复制 / 剪切 / 粘贴|Ctrl+C / — / Ctrl+V|Ctrl+C / Ctrl+X / Ctrl+V\n复制文件路径|Ctrl+Shift+C|—\n全选 / 删除选区|—|Ctrl+A / Del\n裁剪到选区 / 调整大小|—|Ctrl+Shift+X / Ctrl+W\n撤销 / 重做|—|Ctrl+Z / Ctrl+Y\n保存 / 另存为|Ctrl+S / Ctrl+Shift+S|Ctrl+S / Ctrl+Shift+S\n删除文件|Del / Shift+Del|—\n重命名 / 图片信息|F2 / I|—\n打开 / 设置|Ctrl+O / Ctrl+,|—\n工具|—|选择 S、裁剪 C、铅笔 P、刷子 B、橡皮擦 E、颜料桶 G、取色器 I、文字 T、形状 U、打码 M\n圆圈 / 笔的大小|—|[ / ]\n交换主色 / 辅色|—|X\n完成编辑|—|Ctrl+Enter\nEsc|关闭窗口（全屏时先退出全屏）|依次取消；都没有时退出编辑", "Action|Viewing|Editing\nPrevious / next|← → / PgUp PgDn / mouse side buttons; hold to keep going|—\nFirst / last|Home / End|—\nZoom|Wheel / Ctrl+= / Ctrl+- / + -|Same\nFit / 100%|Ctrl+0 / Ctrl+1, double-click|Ctrl+0 / Ctrl+1\nPan|Drag|Space + drag / middle-drag\nFull screen|F11|F11\nBorderless (Windows)|Ctrl+B|—\nPlay / pause animation|Space|—\nPrevious / next frame|, / .|—\nRotate|Ctrl+R / Ctrl+Shift+R|Same (changes pixels)\nEdit / redact|E / M|—\nCopy / cut / paste|Ctrl+C / — / Ctrl+V|Ctrl+C / Ctrl+X / Ctrl+V\nCopy file path|Ctrl+Shift+C|—\nSelect all / delete selection|—|Ctrl+A / Del\nCrop to selection / resize|—|Ctrl+Shift+X / Ctrl+W\nUndo / redo|—|Ctrl+Z / Ctrl+Y\nSave / save as|Ctrl+S / Ctrl+Shift+S|Ctrl+S / Ctrl+Shift+S\nDelete file|Del / Shift+Del|—\nRename / image info|F2 / I|—\nOpen / settings|Ctrl+O / Ctrl+,|—\nTools|—|Select S, Crop C, Pencil P, Brush B, Eraser E, Fill G, Picker I, Text T, Shapes U, Redact M\nCircle / brush size|—|[ / ]\nSwap colors|—|X\nFinish editing|—|Ctrl+Enter\nEsc|Close the window (leave full screen first)|Cancel step by step, then leave editing";
+    keys_table: "操作|查看|编辑\n上一张 / 下一张|← → / PgUp PgDn / 鼠标侧键；按住连续翻|—\n第一张 / 最后一张|Home / End|—\n缩放|滚轮 / Ctrl+= / Ctrl+- / + -|同左\n适应窗口 / 100%|Ctrl+0 / Ctrl+1，双击切换|Ctrl+0 / Ctrl+1\n平移|左键拖动|空格 + 左键拖动 / 中键拖动\n全屏|F11|F11\n无边框（Windows）|Ctrl+B|—\n动图 播放 / 暂停|空格|—\n上一帧 / 下一帧|, / .|—\n旋转|Ctrl+R / Ctrl+Shift+R|同左（改像素）\n编辑 / 打码|E / M|—\n复制 / 剪切 / 粘贴|Ctrl+C / — / Ctrl+V|Ctrl+C / Ctrl+X / Ctrl+V\n复制文件路径|Ctrl+Shift+C|—\n全选 / 删除选区|—|Ctrl+A / Del\n裁剪到选区 / 调整大小|—|Ctrl+Shift+X / Ctrl+W\n撤销 / 重做|—|Ctrl+Z / Ctrl+Y\n保存 / 另存为|Ctrl+S / Ctrl+Shift+S|Ctrl+S / Ctrl+Shift+S\n删除文件|Del / Shift+Del|—\n重命名 / 图片信息|F2 / I|—\n打开 / 设置|Ctrl+O / Ctrl+,|—\n工具|—|选择 S、裁剪 C、铅笔 P、刷子 B、橡皮擦 E、颜料桶 G、取色器 I、文字 T、形状 U、打码 M\n圆圈 / 笔的大小|—|[ / ]\n交换主色 / 辅色|—|X\n完成编辑|—|Ctrl+Enter\n关闭窗口|Ctrl+W；双击关闭可在设置里选|—\nEsc|关闭窗口（全屏时先退出全屏）|依次取消；都没有时退出编辑", "Action|Viewing|Editing\nPrevious / next|← → / PgUp PgDn / mouse side buttons; hold to keep going|—\nFirst / last|Home / End|—\nZoom|Wheel / Ctrl+= / Ctrl+- / + -|Same\nFit / 100%|Ctrl+0 / Ctrl+1, double-click|Ctrl+0 / Ctrl+1\nPan|Drag|Space + drag / middle-drag\nFull screen|F11|F11\nBorderless (Windows)|Ctrl+B|—\nPlay / pause animation|Space|—\nPrevious / next frame|, / .|—\nRotate|Ctrl+R / Ctrl+Shift+R|Same (changes pixels)\nEdit / redact|E / M|—\nCopy / cut / paste|Ctrl+C / — / Ctrl+V|Ctrl+C / Ctrl+X / Ctrl+V\nCopy file path|Ctrl+Shift+C|—\nSelect all / delete selection|—|Ctrl+A / Del\nCrop to selection / resize|—|Ctrl+Shift+X / Ctrl+W\nUndo / redo|—|Ctrl+Z / Ctrl+Y\nSave / save as|Ctrl+S / Ctrl+Shift+S|Ctrl+S / Ctrl+Shift+S\nDelete file|Del / Shift+Del|—\nRename / image info|F2 / I|—\nOpen / settings|Ctrl+O / Ctrl+,|—\nTools|—|Select S, Crop C, Pencil P, Brush B, Eraser E, Fill G, Picker I, Text T, Shapes U, Redact M\nCircle / brush size|—|[ / ]\nSwap colors|—|X\nFinish editing|—|Ctrl+Enter\nClose window|Ctrl+W; double-click can close it too (Settings)|—\nEsc|Close the window (leave full screen first)|Cancel step by step, then leave editing";
     close: "关闭", "Close";
     borderless: "无边框", "Borderless";
     keys_drag_window_row: "移动窗口（Windows）|整图可见时拖动 / Shift + 拖动|—", "Move window (Windows)|Drag if image fits / Shift + drag|—";
@@ -222,7 +225,8 @@ strings! {
     minimize: "最小化", "Minimize";
     maximize: "最大化", "Maximize";
     restore_window: "还原", "Restore";
-    borderless_tip: "无边框：鼠标移到顶部出现标题栏，拖图片移动窗口；Ctrl+B 恢复", "Borderless: the title bar appears at the top, drag the image to move the window; Ctrl+B to go back";
+    see_through_restart: "重新打开 LiteView 后，无边框窗口里图片透明的地方才会透出桌面", "Reopen LiteView to let transparent parts of the image show the desktop in the borderless window";
+    borderless_tip:"无边框：鼠标移到顶部出现标题栏，拖图片移动窗口；Ctrl+B 恢复", "Borderless: the title bar appears at the top, drag the image to move the window; Ctrl+B to go back";
     name_exists: "已有同名文件", "A file with that name already exists";
     // 图片信息
     i_name: "文件名", "Name";

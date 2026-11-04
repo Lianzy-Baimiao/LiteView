@@ -75,57 +75,89 @@ fn assoc_page(ui: &mut Ui, _s: &mut Settings) -> Option<String> {
 }
 
 impl App {
+    /// 设置画在图片窗口里（其它系统；Windows 上单独的设置窗口建不起来时）
     pub(crate) fn settings_ui(&mut self, ctx: &egui::Context) {
-        let Some(page) = self.settings_page else { return };
+        if !self.settings_modal() {
+            return;
+        }
+        if !self.overlay_ready(ctx, super::frameless::Need::Centered(super::frameless::SETTINGS_ROOM)) {
+            ctx.request_repaint();
+            return;
+        }
+        let Some(mut page) = self.settings_page else { return };
         let before = self.settings.clone();
-        let mut page = page;
-        let p = theme::palette(ctx);
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(0)).corner_radius(egui::CornerRadius::same(8));
         // 窗口小时设置窗口跟着缩小（右边内容可滚动）
         let screen = ctx.content_rect().size();
         let (w, h) = ((screen.x - 24.0).clamp(480.0, 700.0), (screen.y - 24.0).clamp(300.0, 460.0));
-        let (nav, inner) = (if w < 620.0 { 120.0 } else { 150.0 }, h - 20.0);
-        let modal = egui::Modal::new(egui::Id::new("settings")).frame(frame).show(ctx, |ui| {
-            ui.set_width(w);
-            ui.set_height(h);
-            ui.horizontal_top(|ui| {
-                egui::Frame::new().fill(p.canvas).inner_margin(egui::Margin::same(10)).show(ui, |ui| ui.vertical(|ui| {
-                    ui.set_width(nav);
-                    ui.set_min_height(inner);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    let t = tr();
-                    for (pg, name) in [
-                        (Page::General, t.s_general),
-                        (Page::View, t.s_view),
-                        (Page::Anim, t.s_anim),
-                        (Page::Edit, t.s_edit),
-                        (Page::Assoc, t.s_assoc),
-                        (Page::Keys, t.s_keys),
-                        (Page::About, t.s_about),
-                    ] {
-                        let on = page == pg;
-                        let b = egui::Button::new(RichText::new(name).color(if on { p.text } else { p.text_weak }))
-                            .fill(if on { p.hover } else { egui::Color32::TRANSPARENT })
-                            .min_size(egui::vec2(nav, 32.0));
-                        if ui.add(b).clicked() {
-                            page = pg;
-                        }
-                    }
-                }));
-                egui::Frame::new().inner_margin(egui::Margin::same(20)).show(ui, |ui| ui.vertical(|ui| {
-                    ui.set_width(w - nav - 20.0 - 40.0);
-                    egui::ScrollArea::both().max_height(h - 40.0).show(ui, |ui| self.settings_page_ui(ui, page));
-                }));
-            });
-        });
+        let modal = self.modal(egui::Id::new("settings"), ctx).frame(frame).show(ctx, |ui| self.settings_body(ui, &mut page, w, h));
         self.settings_page = Some(page);
         if modal.should_close() && !ctx.any_popup_open() {
-            self.settings_page = None;
-            self.settings.save();
+            self.close_settings();
         }
         if self.settings != before {
             self.apply_settings(ctx, &before);
         }
+    }
+
+    /// 单独的设置窗口里画什么（窗口循环在它自己的 egui 里调；`win` 是这个窗口的）。返回 true = 要关掉（按了 Esc）
+    #[cfg(windows)]
+    pub(crate) fn settings_window_ui(&mut self, win: &egui::Context) -> bool {
+        let Some(mut page) = self.settings_page else { return true };
+        let before = self.settings.clone();
+        let size = win.content_rect().size();
+        egui::Area::new(egui::Id::new("settings-window")).fixed_pos(egui::Pos2::ZERO).show(win, |ui| self.settings_body(ui, &mut page, size.x, size.y));
+        self.settings_page = Some(page);
+        if self.settings != before {
+            // 主题、强调色、背景……都是给图片窗口的；设置窗口自己的主题由窗口循环跟着图片窗口换
+            let main = self.ctx.clone();
+            self.apply_settings(&main, &before);
+            main.request_repaint();
+        }
+        win.input(|i| i.key_pressed(egui::Key::Escape)) && !win.any_popup_open() && !win.egui_wants_keyboard_input()
+    }
+
+    /// 关掉设置：存一次
+    pub(crate) fn close_settings(&mut self) {
+        self.settings_page = None;
+        self.settings.save();
+    }
+
+    /// 左边分类、右边内容（可滚动），w × h 点
+    fn settings_body(&mut self, ui: &mut Ui, page: &mut Page, w: f32, h: f32) {
+        let p = theme::palette(ui.ctx());
+        let (nav, inner) = (if w < 620.0 { 120.0 } else { 150.0 }, h - 20.0);
+        ui.set_width(w);
+        ui.set_height(h);
+        ui.horizontal_top(|ui| {
+            egui::Frame::new().fill(p.canvas).inner_margin(egui::Margin::same(10)).show(ui, |ui| ui.vertical(|ui| {
+                ui.set_width(nav);
+                ui.set_min_height(inner);
+                ui.spacing_mut().item_spacing.y = 2.0;
+                let t = tr();
+                for (pg, name) in [
+                    (Page::General, t.s_general),
+                    (Page::View, t.s_view),
+                    (Page::Anim, t.s_anim),
+                    (Page::Edit, t.s_edit),
+                    (Page::Assoc, t.s_assoc),
+                    (Page::Keys, t.s_keys),
+                    (Page::About, t.s_about),
+                ] {
+                    let on = *page == pg;
+                    let b = egui::Button::new(RichText::new(name).color(if on { p.text } else { p.text_weak }))
+                        .fill(if on { p.hover } else { egui::Color32::TRANSPARENT })
+                        .min_size(egui::vec2(nav, 32.0));
+                    if ui.add(b).clicked() {
+                        *page = pg;
+                    }
+                }
+            }));
+            egui::Frame::new().inner_margin(egui::Margin::same(20)).show(ui, |ui| ui.vertical(|ui| {
+                ui.set_width(w - nav - 20.0 - 40.0);
+                egui::ScrollArea::both().max_height(h - 40.0).show(ui, |ui| self.settings_page_ui(ui, *page));
+            }));
+        });
     }
 
     fn settings_page_ui(&mut self, ui: &mut Ui, page: Page) {
@@ -170,7 +202,9 @@ impl App {
             Page::View => {
                 row(ui, t.s_fit, |ui| choose(ui, &mut s.fit_mode, &[(FitMode::Fit, t.s_fit_fit), (FitMode::Actual, t.s_fit_actual), (FitMode::FitWidth, t.s_fit_width)]));
                 row(ui, t.s_wheel, |ui| choose(ui, &mut s.wheel, &[(WheelAction::Zoom, t.s_wheel_zoom), (WheelAction::Navigate, t.s_wheel_nav)]));
-                row(ui, t.s_double, |ui| choose(ui, &mut s.double_click, &[(DoubleClick::ToggleFit, t.s_double_fit), (DoubleClick::Fullscreen, t.s_double_full)]));
+                row(ui, t.s_double, |ui| {
+                    choose(ui, &mut s.double_click, &[(DoubleClick::ToggleFit, t.s_double_fit), (DoubleClick::Fullscreen, t.s_double_full), (DoubleClick::Close, t.s_double_close)])
+                });
                 row(ui, t.s_background, |ui| {
                     choose(ui, &mut s.background, &[(Background::Theme, t.s_bg_theme), (Background::Black, t.s_bg_black), (Background::White, t.s_bg_white), (Background::Checker, t.s_bg_checker)])
                 });

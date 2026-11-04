@@ -246,13 +246,20 @@ impl App {
                 }
             }
         }
+        // 小窗口要先变大：这一帧先不画
+        if !self.overlay_ready(ctx, super::frameless::Need::Centered(super::frameless::PRINT_ROOM)) {
+            self.print = Some(d);
+            ctx.request_repaint();
+            return;
+        }
+        let shell = self.modal(egui::Id::new("print"), ctx);
         let tex = &self.tex;
         let fallback = |painter: &egui::Painter, rect: Rect, xf: Transform| match tex {
             Tex::Still(t) => t.paint_resident(painter, rect, xf),
             Tex::Anim { tex, .. } => tex.paint_resident(painter, rect, xf),
             Tex::None => {}
         };
-        match d.show(ctx, &mut self.print_devmodes, self.hwnd, &fallback) {
+        match d.show(ctx, shell, &mut self.print_devmodes, self.hwnd, &fallback) {
             Next::Stay => self.print = Some(d),
             Next::Close(toast) => {
                 if self.settings.print != d.s {
@@ -332,7 +339,7 @@ impl PrintDialog {
     }
 
     /// 画对话框、处理操作。devmodes：本次运行里「打印机属性」改过的设置（按打印机）
-    fn show(&mut self, ctx: &egui::Context, devmodes: &mut HashMap<String, DevMode>, owner: Option<isize>, fallback: Fallback) -> Next {
+    fn show(&mut self, ctx: &egui::Context, shell: egui::Modal, devmodes: &mut HashMap<String, DevMode>, owner: Option<isize>, fallback: Fallback) -> Next {
         // 输入框里正在输入：回车只是确认这个数、Esc 只是退出输入。回车时输入框在本帧画的时候才放开焦点，
         // Esc 时 egui 在帧开始就清掉焦点，所以还要看上一帧结束时的状态
         let typing = self.typing || ctx.egui_wants_keyboard_input();
@@ -405,7 +412,7 @@ impl PrintDialog {
         let fit_long = fit.map_or(100.0, |f| f.rect.width().max(f.rect.height()));
         let hardware_margins = dev.offset_px != [0, 0] || dev.printable_px != dev.paper_px;
         let ctl = Ctl { printers: &printers, papers: &papers, paper: paper.as_ref(), dpi, placement, have_caps, fit_long, hardware_margins };
-        let modal = egui::Modal::new(egui::Id::new("print")).frame(frame).show(ctx, |ui| {
+        let modal = shell.frame(frame).show(ctx, |ui| {
             ui.set_width(w - 32.0);
             ui.set_height(h - 32.0);
             ui.horizontal_top(|ui| {

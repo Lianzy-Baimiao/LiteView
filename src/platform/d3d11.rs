@@ -52,6 +52,8 @@ pub struct Painter {
     device: ID3D11Device,
     ctx: ID3D11DeviceContext,
     swap: IDXGISwapChain1,
+    /// 交换链挂在系统合成（Windows.UI.Composition）上（`new_composited`）：清屏色的透明度为 0 的地方透出后面
+    comp: Option<Composition>,
     rtv: Option<ID3D11RenderTargetView>,
     size: [u32; 2],
     vs: ID3D11VertexShader,
@@ -78,6 +80,40 @@ fn fail(what: &str) -> windows::core::Error {
 
 impl Painter {
     pub fn new(hwnd: HWND, driver: Driver, size: [u32; 2]) -> windows::core::Result<Self> {
+        Self::create(hwnd, driver, size, false)
+    }
+
+    /// 能透明的窗口：交换链挂在系统合成上，按预乘透明度和后面合成（清成不透明时与普通窗口一样）。
+    /// 窗口要建成没有 GDI 那层的（WS_EX_NOREDIRECTIONBITMAP），并且在第一次显示画面之前建：窗口有过普通（翻转模型）
+    /// 交换链之后，DWM 一直留着它最后一帧垫在下面；有 GDI 那层时，显示过一次系统标题栏（进编辑）之后那层就不透明了。
+    /// 透明的地方露出的都是它们，换什么办法都透不出去（本机实测见 tests::see_through_window_shows_what_is_behind）。
+    /// 系统合成不可用时退回翻转模型交换链，`composited()` 为 false
+    pub fn new_composited(hwnd: HWND, driver: Driver, size: [u32; 2]) -> windows::core::Result<Self> {
+        Self::create(hwnd, driver, size, true)
+    }
+
+    /// 交换链挂在系统合成上（能透明）
+    pub fn composited(&self) -> bool {
+        self.comp.is_some()
+    }
+
+    /// 窗口马上要变大小、上一帧不能拉伸时（无边框为了菜单、对话框临时变大或变回去，图片要留在屏幕上原来的地方）：
+    /// Some((rx, ry)) = 不拉伸，按这个比例对齐，新大小的帧画出来之前旧的那帧放在窗口里该在的地方；
+    /// 比例 = 旧画面在新窗口里的偏移 / (新窗口 − 旧画面) 的大小差，新的帧和窗口一样大时偏移自然是 0，两种都对。
+    /// None = 回到拉伸铺满（缓冲区和窗口一样大时两种一样，什么时候换都不会闪）。没挂在系统合成上时什么都不做
+    pub fn hold_content(&self, ratio: Option<(f32, f32)>) {
+        use windows::UI::Composition::CompositionStretch;
+        let Some(c) = &self.comp else { return };
+        let r = match ratio {
+            Some((x, y)) => c.brush.SetStretch(CompositionStretch::None).and_then(|()| c.brush.SetHorizontalAlignmentRatio(x)).and_then(|()| c.brush.SetVerticalAlignmentRatio(y)),
+            None => c.brush.SetStretch(CompositionStretch::Fill),
+        };
+        if let Err(e) = r {
+            log::warn!("改不了画刷的拉伸方式：{e}");
+        }
+    }
+
+    fn create(hwnd: HWND, driver: Driver, size: [u32; 2], composited: bool) -> windows::core::Result<Self> {
         let device_type = match driver {
             Driver::Hardware => D3D_DRIVER_TYPE_HARDWARE,
             Driver::Warp => D3D_DRIVER_TYPE_WARP,
@@ -100,25 +136,16 @@ impl Painter {
             .map(|d| String::from_utf16_lossy(&d.Description).trim_end_matches('\0').to_owned())
             .unwrap_or_default();
         let level_name = format!("{}.{}", level.0 >> 12, (level.0 >> 8) & 0xF);
-        // 翻转模型（Windows 10 起都支持）；不行时（个别远程桌面 / 旧驱动）用旧的 DISCARD 模式
-        let mut desc = DXGI_SWAP_CHAIN_DESC1 {
-            Width: size[0].max(1),
-            Height: size[1].max(1),
-            Format: DXGI_FORMAT_B8G8R8A8_UNORM,
-            SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
-            BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
-            BufferCount: 2,
-            SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
-            ..Default::default()
+        let size = [size[0].max(1), size[1].max(1)];
+        let comp = if composited {
+            Composition::new(&device, &factory, hwnd, size).map_err(|e| log::warn!("系统合成用不了（{e}），无边框时透明的地方不透出桌面")).ok()
+        } else {
+            None
         };
-        let swap = match unsafe { factory.CreateSwapChainForHwnd(&device, hwnd, &desc, None, None::<&IDXGIOutput>) } {
-            Ok(s) => s,
-            Err(e) => {
-                log::warn!("翻转模型交换链创建失败（{e}），改用 DISCARD 模式");
-                desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD;
-                desc.BufferCount = 1;
-                unsafe { factory.CreateSwapChainForHwnd(&device, hwnd, &desc, None, None::<&IDXGIOutput>)? }
-            }
+        let (swap, comp) = match comp {
+            Some((c, s)) => (s, Some(c)),
+            // 能透明的窗口没有 GDI 那层：只能退到翻转模型（不透明，看得见）；也不行就让窗口循环试下一种画法
+            None => (create_hwnd_swap(&factory, &device, hwnd, size, !composited)?, None),
         };
         // 全屏由程序自己做（无边框），不要 DXGI 的 Alt+Enter 独占全屏
         unsafe {
@@ -166,8 +193,9 @@ impl Painter {
             device,
             ctx,
             swap,
+            comp,
             rtv: None,
-            size: [desc.Width, desc.Height],
+            size,
             vs: vs.ok_or_else(|| fail("vs"))?,
             ps: ps.ok_or_else(|| fail("ps"))?,
             layout: layout.ok_or_else(|| fail("layout"))?,
@@ -492,6 +520,116 @@ fn lost(e: windows::core::Error) -> Lost {
     Lost(e.to_string())
 }
 
+fn swap_desc(size: [u32; 2]) -> DXGI_SWAP_CHAIN_DESC1 {
+    DXGI_SWAP_CHAIN_DESC1 {
+        Width: size[0].max(1),
+        Height: size[1].max(1),
+        Format: DXGI_FORMAT_B8G8R8A8_UNORM,
+        SampleDesc: DXGI_SAMPLE_DESC { Count: 1, Quality: 0 },
+        BufferUsage: DXGI_USAGE_RENDER_TARGET_OUTPUT,
+        BufferCount: 2,
+        SwapEffect: DXGI_SWAP_EFFECT_FLIP_DISCARD,
+        ..Default::default()
+    }
+}
+
+/// 窗口的交换链：翻转模型（Windows 10 起都支持），不行时（个别远程桌面 / 旧驱动）用旧的 DISCARD 模式。
+/// discard = false：不退。没有 GDI 那层的窗口（WS_EX_NOREDIRECTIONBITMAP）不能退：DISCARD 画在那层上，什么都看不见
+fn create_hwnd_swap(factory: &IDXGIFactory2, device: &ID3D11Device, hwnd: HWND, size: [u32; 2], discard: bool) -> windows::core::Result<IDXGISwapChain1> {
+    let flip = swap_desc(size);
+    let make = |desc: &DXGI_SWAP_CHAIN_DESC1| unsafe { factory.CreateSwapChainForHwnd(device, hwnd, desc, None, None::<&IDXGIOutput>) };
+    make(&flip).or_else(|e| {
+        if !discard {
+            return Err(e);
+        }
+        log::warn!("翻转模型交换链创建失败（{e}），改用 DISCARD 模式");
+        make(&DXGI_SWAP_CHAIN_DESC1 { SwapEffect: DXGI_SWAP_EFFECT_DISCARD, BufferCount: 1, ..flip })
+    })
+}
+
+/// 系统有合成用的线程队列（coremessaging.dll 的 CreateDispatcherQueueController，Win10 1709 起）。
+/// 无边框启动时据此决定窗口建成没有 GDI 那层的；真建不起来时（`Composition::new` 出错）退回翻转模型，不透明
+pub fn composition_available() -> bool {
+    Composition::queue_fn().is_some()
+}
+
+/// 交换链挂在窗口最上面的一个合成图层上（Windows.UI.Composition：DesktopWindowTarget → SpriteVisual → 交换链做的画刷，
+/// 预乘透明度）。三样东西都要留着，放掉 target 图层就从窗口上拿掉了。
+/// 图层跟着窗口大小（RelativeSizeAdjustment = 1），画刷拉伸铺满（Stretch::Fill）：窗口先变大、新的一帧还没画好时，
+/// DWM 把上一帧拉伸铺满，与普通窗口（翻转模型）一样。旧的 DirectComposition 图层只按交换链原大小显示，
+/// 滚轮放大无边框窗口时新露出的边上会透出一两帧桌面（`dist/seethrough-20261104/flicker_check.py`）。
+/// 别的办法本机都试过不行：翻转模型 HWND 交换链的透明度 DWM 不用；旧的 DISCARD 模式会被「窗口化游戏优化」
+/// （SwapEffectUpgradeEnable，Win11 默认开）升级成翻转模型；分层窗口（UpdateLayeredWindow）和 DirectComposition
+/// 在窗口有过翻转模型交换链之后，透明处露出的都是它最后一帧
+struct Composition {
+    _target: windows::UI::Composition::Desktop::DesktopWindowTarget,
+    _visual: windows::UI::Composition::SpriteVisual,
+    /// 平时拉伸铺满；窗口为了菜单、对话框临时变大 / 变回去时改成不拉伸、按比例对齐（`Painter::hold_content`）
+    brush: windows::UI::Composition::CompositionSurfaceBrush,
+    _compositor: windows::UI::Composition::Compositor,
+}
+
+/// coremessaging.dll 的 CreateDispatcherQueueController（DispatcherQueueOptions 按值传）
+type CreateQueue = unsafe extern "system" fn(windows::Win32::System::WinRT::DispatcherQueueOptions, *mut *mut core::ffi::c_void) -> windows::core::HRESULT;
+
+impl Composition {
+    /// coremessaging.dll 用到时才从系统目录加载、不写进导入表（与 mfplat.dll 一样；发布前的导入检查只放行审过的系统 DLL）
+    fn queue_fn() -> Option<CreateQueue> {
+        use windows::Win32::System::LibraryLoader::{GetProcAddress, LOAD_LIBRARY_SEARCH_SYSTEM32, LoadLibraryExW};
+        type Proc = unsafe extern "system" fn() -> isize;
+        static CREATE: std::sync::OnceLock<Option<CreateQueue>> = std::sync::OnceLock::new();
+        *CREATE.get_or_init(|| unsafe {
+            let dll = LoadLibraryExW(windows::core::w!("coremessaging.dll"), None, LOAD_LIBRARY_SEARCH_SYSTEM32).ok()?;
+            // SAFETY: 签名与 dispatcherqueue.h 里的 CreateDispatcherQueueController 一样
+            GetProcAddress(dll, s!("CreateDispatcherQueueController")).map(|f| std::mem::transmute::<Proc, CreateQueue>(f))
+        })
+    }
+
+    /// 合成器要求本线程有 DispatcherQueue（它的提交靠线程的消息循环，winit 的就行）。每个线程建一次，留到进程结束
+    fn ensure_queue() -> windows::core::Result<()> {
+        use windows::Win32::System::WinRT::{DQTAT_COM_NONE, DQTYPE_THREAD_CURRENT, DispatcherQueueOptions};
+        if windows::System::DispatcherQueue::GetForCurrentThread().is_ok() {
+            return Ok(());
+        }
+        let create = Self::queue_fn().ok_or_else(|| fail("coremessaging.dll unavailable"))?;
+        let options = DispatcherQueueOptions { dwSize: std::mem::size_of::<DispatcherQueueOptions>() as u32, threadType: DQTYPE_THREAD_CURRENT, apartmentType: DQTAT_COM_NONE };
+        let mut controller = std::ptr::null_mut();
+        unsafe { create(options, &mut controller).ok()? };
+        if controller.is_null() {
+            return Err(fail("no dispatcher queue"));
+        }
+        // 故意不放：队列要跟线程一样长（窗口关了再开也用它）；进程退出时由系统收回
+        Ok(())
+    }
+
+    fn new(device: &ID3D11Device, factory: &IDXGIFactory2, hwnd: HWND, size: [u32; 2]) -> windows::core::Result<(Self, IDXGISwapChain1)> {
+        use windows::UI::Composition::{CompositionStretch, Compositor};
+        use windows::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx};
+        use windows::Win32::System::WinRT::Composition::{ICompositorDesktopInterop, ICompositorInterop};
+        // WinRT 激活要本线程初始化过 COM（窗口线程上 winit 为拖放已经 OleInitialize 过，这里只是 S_FALSE）；
+        // 不配对 CoUninitialize：留到线程结束
+        let _ = unsafe { CoInitializeEx(None, COINIT_APARTMENTTHREADED) };
+        Self::ensure_queue()?;
+        let compositor = Compositor::new()?;
+        let desc = DXGI_SWAP_CHAIN_DESC1 { Scaling: DXGI_SCALING_STRETCH, AlphaMode: DXGI_ALPHA_MODE_PREMULTIPLIED, ..swap_desc(size) };
+        unsafe {
+            let swap = factory.CreateSwapChainForComposition(device, &desc, None)?;
+            let surface = compositor.cast::<ICompositorInterop>()?.CreateCompositionSurfaceForSwapChain(&swap)?;
+            let brush = compositor.CreateSurfaceBrushWithSurface(&surface)?;
+            brush.SetStretch(CompositionStretch::Fill)?;
+            let visual = compositor.CreateSpriteVisual()?;
+            visual.SetBrush(&brush)?;
+            // 图层大小 = 窗口客户区（物理像素），由 DWM 跟着窗口算
+            let mut whole = visual.RelativeSizeAdjustment()?;
+            (whole.X, whole.Y) = (1.0, 1.0);
+            visual.SetRelativeSizeAdjustment(whole)?;
+            let target = compositor.cast::<ICompositorDesktopInterop>()?.CreateDesktopWindowTarget(hwnd, true)?;
+            target.SetRoot(&visual)?;
+            Ok((Self { _target: target, _visual: visual, brush, _compositor: compositor }, swap))
+        }
+    }
+}
+
 /// 动态缓冲不够大就换一个（多留一半）
 fn grow(device: &ID3D11Device, slot: &mut Option<(ID3D11Buffer, usize)>, need: usize, bind: D3D11_BIND_FLAG) -> windows::core::Result<ID3D11Buffer> {
     if let Some((b, cap)) = slot
@@ -678,5 +816,117 @@ mod tests {
         // 红色 64.25 级：约四分之一抖到 65；不抖动的话这些全是 64
         assert!((300..900).contains(&up), "{up}");
         assert!(bad <= 4, "{bad} pixels differ from egui-wgpu's shader");
+    }
+
+    /// 真桌面上看得见的置顶窗口（不抢焦点、不进任务栏），没有背景画刷（与 winit 的窗口类一样）
+    fn shown_window(x: i32, y: i32, w: i32, h: i32) -> HWND {
+        use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
+        use windows::Win32::UI::WindowsAndMessaging::*;
+        unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
+            unsafe { DefWindowProcW(h, m, w, l) }
+        }
+        let class = windows::core::w!("LiteViewSeeThroughTest");
+        let wc = WNDCLASSW { lpfnWndProc: Some(proc), lpszClassName: class, ..Default::default() };
+        unsafe { RegisterClassW(&wc) };
+        let ex = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        let hwnd = unsafe { CreateWindowExW(ex, class, windows::core::PCWSTR::null(), WS_POPUP, x, y, w, h, None, None, None, None) }.unwrap();
+        unsafe {
+            let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        }
+        hwnd
+    }
+
+    fn pump() {
+        use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, MSG, PM_REMOVE, PeekMessageW, TranslateMessage};
+        let mut msg = MSG::default();
+        unsafe {
+            while PeekMessageW(&mut msg, None, 0, 0, PM_REMOVE).as_bool() {
+                let _ = TranslateMessage(&msg);
+                DispatchMessageW(&msg);
+            }
+        }
+    }
+
+    /// 屏幕上（DWM 合成之后）的颜色；CAPTUREBLT 才包括分层窗口
+    fn screen_pixel(x: i32, y: i32) -> [u8; 3] {
+        use windows::Win32::Graphics::Gdi::*;
+        unsafe {
+            let screen = GetDC(None);
+            let mem = CreateCompatibleDC(Some(screen));
+            let bmp = CreateCompatibleBitmap(screen, 1, 1);
+            let old = SelectObject(mem, bmp.into());
+            let _ = BitBlt(mem, 0, 0, 1, 1, Some(screen), x, y, SRCCOPY | CAPTUREBLT);
+            let c = GetPixel(mem, 0, 0).0;
+            SelectObject(mem, old);
+            let _ = DeleteObject(bmp.into());
+            let _ = DeleteDC(mem);
+            ReleaseDC(None, screen);
+            [(c & 0xFF) as u8, (c >> 8 & 0xFF) as u8, (c >> 16 & 0xFF) as u8]
+        }
+    }
+
+    /// 白色 1×1 纹理按顶点色画成 color 的方块（窗口中间，边长一半）
+    fn square(s: i32, color: Color32) -> (TexturesDelta, Vec<ClippedPrimitive>) {
+        let id = TextureId::Managed(0);
+        let mut delta = TexturesDelta::default();
+        delta.set.entry(id).or_default().push(ImageDelta::full(ColorImage::new([1, 1], vec![Color32::WHITE]), TextureOptions::NEAREST));
+        let mut mesh = egui::epaint::Mesh::with_texture(id);
+        let q = s as f32 / 4.0;
+        mesh.add_rect_with_uv(Rect::from_min_max(egui::pos2(q, q), egui::pos2(3.0 * q, 3.0 * q)), Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), color);
+        (delta, vec![ClippedPrimitive { clip_rect: Rect::EVERYTHING, primitive: Primitive::Mesh(mesh) }])
+    }
+
+    /// 无边框透出桌面：品红窗口上面放一个能透明的窗口（`new_composited`），中间画方块，读屏幕上合成后的颜色
+    /// （每步换一种颜色，认得出屏幕上是不是旧画面）。清屏色透明时四角是后面的品红；清成不透明时与普通窗口一样。
+    /// 要真桌面（会在屏幕上闪出两个置顶的小窗口几秒），所以平时不跑。`LITEVIEW_TEST_AT=x,y` 指定放在哪（物理像素，
+    /// 放到副屏上，别挡住正在用的主屏）：`cargo test --release --lib see_through -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn see_through_window_shows_what_is_behind() {
+        use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, SetProcessDPIAware};
+        unsafe {
+            let _ = SetProcessDPIAware();
+        }
+        let at = std::env::var("LITEVIEW_TEST_AT").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))));
+        let ((x, y), s) = (at.unwrap_or((200, 200)), 120);
+        let settle = || {
+            for _ in 0..20 {
+                pump();
+                let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        };
+        let read = || (screen_pixel(x - 10, y - 10), screen_pixel(x + 5, y + 5), screen_pixel(x + s / 2, y + s / 2));
+        let mut failures = Vec::new();
+        for driver in [Driver::Hardware, Driver::Warp] {
+            let back_hwnd = shown_window(x - 20, y - 20, s + 40, s + 40);
+            let front_hwnd = shown_window(x, y, s, s);
+            let mut back = Painter::new(back_hwnd, driver, [(s + 40) as u32; 2]).unwrap();
+            let mut front = Painter::new_composited(front_hwnd, driver, [s as u32; 2]).unwrap();
+            assert!(front.composited(), "{driver:?}: system composition unavailable");
+            crate::platform::windows::set_see_through(front_hwnd.0 as isize, true);
+            let gray = [0.5, 0.5, 0.5, 1.0];
+            for (step, clear, color) in [(1, [0.0; 4], Color32::GREEN), (2, [0.0; 4], Color32::BLUE), (3, gray, Color32::YELLOW), (4, [0.0; 4], Color32::RED)] {
+                back.paint([1.0, 0.0, 1.0, 1.0], 1.0, &[], &TexturesDelta::default(), false).unwrap();
+                let (mut delta, prims) = square(s, color);
+                front.paint(clear, 1.0, &prims, &delta, false).unwrap();
+                delta.clear();
+                settle();
+                let (outside, corner, center) = read();
+                let want_corner = if clear[3] == 0.0 { [255, 0, 255] } else { [128, 128, 128] };
+                let want = [color.r(), color.g(), color.b()];
+                println!("{driver:?} step {step}: back {outside:?} corner {corner:?} (want {want_corner:?}) center {center:?} (want {want:?})");
+                if outside != [255, 0, 255] || corner != want_corner || center != want {
+                    failures.push(format!("{driver:?} step {step}: corner {corner:?} center {center:?}"));
+                }
+            }
+            drop(front);
+            drop(back);
+            unsafe {
+                let _ = DestroyWindow(front_hwnd);
+                let _ = DestroyWindow(back_hwnd);
+            }
+        }
+        assert!(failures.is_empty(), "{failures:?}");
     }
 }

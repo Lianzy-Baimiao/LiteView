@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "1.8.0"
+version = "1.9.0"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"
@@ -56,6 +56,9 @@ features = ["Win32_Graphics_Direct3D_Fxc", "Data_Pdf", "Storage", "Storage_Strea
 version = "=0.62.2"
 features = [
     "Storage_Search",
+    "System",
+    "UI_Composition",
+    "UI_Composition_Desktop",
     "Win32_Foundation",
     "Win32_Graphics_Direct3D",
     "Win32_Graphics_Direct3D11",
@@ -81,6 +84,7 @@ features = [
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
     "Win32_System_WinRT",
+    "Win32_System_WinRT_Composition",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
     "Win32_UI_WindowsAndMessaging",
