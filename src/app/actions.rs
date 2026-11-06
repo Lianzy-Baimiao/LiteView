@@ -85,6 +85,20 @@ impl App {
             return;
         }
         let Some((decoded, index, xf)) = self.displayed_image() else { return };
+        // GIF 动图复制原文件；暂停、逐帧、旋转都只是查看状态，不应把复制结果变成一张截图。
+        if decoded.info.format == "GIF"
+            && decoded.is_animated()
+            && let Some(cur) = self.cur.as_ref().filter(|c| !c.clipboard)
+        {
+            let path = cur.path.clone();
+            self.spawn(move || {
+                Some(Notice::Toast(match crate::clipboard::set_file(path) {
+                    Ok(()) => tr().copied.to_owned(),
+                    Err(e) => fill(tr().failed, &[&e]),
+                }))
+            });
+            return;
+        }
         self.spawn(move || {
             let img = match decoded.content.image_at(index) {
                 Ok(img) => save::apply_transform(&img, xf),
@@ -299,6 +313,90 @@ fn save_as_meta(info: &crate::decode::Info, keep_exif: bool) -> save::Meta {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Uses the real copy action and system clipboard; run explicitly on a desktop.
+    #[cfg(windows)]
+    #[test]
+    #[ignore = "writes to the system clipboard"]
+    fn copying_gif_preserves_animation_on_the_clipboard() {
+        fn copy(app: &mut App) {
+            app.copy_image();
+            let notice = app.rx.recv_timeout(std::time::Duration::from_secs(5)).expect("copy finished");
+            assert!(matches!(notice, Notice::Toast(ref text) if text == tr().copied));
+        }
+
+        let mut bytes = Vec::new();
+        {
+            let mut encoder = gif::Encoder::new(&mut bytes, 2, 1, &[255, 0, 0, 0, 255, 0]).unwrap();
+            encoder.set_repeat(gif::Repeat::Infinite).unwrap();
+            for (colour, delay) in [(0, 4), (1, 12)] {
+                let frame = gif::Frame { width: 2, height: 1, delay, buffer: vec![colour; 2].into(), ..Default::default() };
+                encoder.write_frame(&frame).unwrap();
+            }
+        }
+        let path = std::env::temp_dir().join(format!("liteview-复制动图-{}.GIF", std::process::id()));
+        std::fs::write(&path, &bytes).unwrap();
+        struct Cleanup(std::path::PathBuf);
+        impl Drop for Cleanup {
+            fn drop(&mut self) {
+                let _ = arboard::Clipboard::new().and_then(|mut cb| cb.clear());
+                let _ = std::fs::remove_file(&self.0);
+            }
+        }
+        let _cleanup = Cleanup(path.clone());
+        let ctx = egui::Context::default();
+        let settings = crate::settings::Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, crate::viewer::loader::Loader::new(0, Default::default(), 1 << 20), Default::default(), &ctx);
+        let opts = crate::decode::Options { anim_cache: 8, ..Default::default() };
+        let decoded = Arc::new(crate::decode::decode_file(&path, &opts).unwrap());
+        assert_eq!(decoded.content.frame_count(), 2);
+        assert!(matches!(&decoded.content, crate::decode::Content::Animation { frames, source: Some(_), .. } if frames.len() == 1));
+        app.cur = Some(crate::app::Current { path: path.clone(), loaded: None, preview: None, since: std::time::Instant::now(), clipboard: false });
+        app.on_loaded(Ok(decoded));
+        let still = image::RgbaImage::from_pixel(3, 2, image::Rgba([20, 40, 60, 128]));
+        let mut cb = arboard::Clipboard::new().unwrap();
+        for paused in [false, true] {
+            if paused {
+                app.play.as_mut().unwrap().step(1);
+                app.view.xf.rotate(true);
+            }
+            // A previous image copy must not remain as a preferred static fallback.
+            crate::clipboard::set_image(still.clone()).unwrap();
+            copy(&mut app);
+            let pasted_frames = match crate::clipboard::get() {
+                crate::clipboard::Content::Files(files) => {
+                    assert_eq!(files.len(), 1);
+                    assert_eq!(std::fs::read(&files[0]).unwrap(), bytes, "original frames, timing and looping survive copying");
+                    crate::decode::decode_file(&files[0], &Default::default()).unwrap().content.frame_count()
+                }
+                crate::clipboard::Content::Image(_) => 1,
+                _ => panic!("no pasteable image on the clipboard"),
+            };
+            assert_eq!(pasted_frames, 2, "copying an animated GIF must not flatten it to one frame");
+            assert!(cb.get_image().is_err(), "stale PNG / DIB must not compete with the GIF");
+        }
+
+        app.paste();
+        let notice = app.rx.recv_timeout(std::time::Duration::from_secs(5)).expect("paste finished");
+        assert!(matches!(notice, Notice::OpenPath(ref p) if p.canonicalize().unwrap() == path.canonicalize().unwrap()));
+
+        // A missing source reports failure instead of silently copying one frame.
+        std::fs::remove_file(&path).unwrap();
+        crate::clipboard::set_image(still.clone()).unwrap();
+        app.copy_image();
+        let notice = app.rx.recv_timeout(std::time::Duration::from_secs(5)).expect("copy finished");
+        assert!(matches!(notice, Notice::Toast(ref text) if text != tr().copied));
+        assert_eq!(cb.get_image().unwrap().bytes.as_ref(), still.as_raw());
+
+        // Copying a transparent, rotated static image after a GIF still uses pixels.
+        cb.set().file_list(&[std::env::current_exe().unwrap()]).unwrap();
+        app.show_pasted(crate::decode::from_rgba(still.clone(), "PNG"));
+        app.view.xf.rotate(true);
+        copy(&mut app);
+        assert!(cb.get().file_list().is_err(), "no stale file after copying pixels");
+        let crate::clipboard::Content::Image(pasted) = crate::clipboard::get() else { panic!("expected static image") };
+        assert_eq!(pasted, save::apply_transform(&still, app.view.xf));
+    }
 
     #[test]
     fn save_as_keeps_the_colour_profile_and_follows_the_exif_setting() {

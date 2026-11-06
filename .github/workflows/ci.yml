@@ -64,6 +64,9 @@ jobs:
         run: cargo clippy --locked --release --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked --release --lib
+      - name: Windows animated GIF clipboard regression
+        if: runner.os == 'Windows'
+        run: cargo test --locked --release --lib app::actions::tests::copying_gif_preserves_animation_on_the_clipboard -- --ignored --exact
       # The print test returns early (and still reports ok) when the runner has no print spooler or
       # Microsoft Print to PDF; say which one happened instead of failing.
       - name: Report whether the print-to-PDF test really printed

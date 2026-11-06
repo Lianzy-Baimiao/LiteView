@@ -86,6 +86,9 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y libxkbcommon-dev libwayland-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
       - run: cargo clippy --locked --release --all-targets -- -D warnings
       - run: cargo test --locked --release --lib
+      - name: Windows animated GIF clipboard regression
+        if: runner.os == 'Windows'
+        run: cargo test --locked --release --lib app::actions::tests::copying_gif_preserves_animation_on_the_clipboard -- --ignored --exact
       - run: cargo build --locked --release
       - name: Windows executable resources
         if: runner.os == 'Windows'

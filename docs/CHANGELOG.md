@@ -2,6 +2,11 @@
 
 各版本用户能看到的变化，新的在前。完整的发布说明（下载、校验、已知限制）见各版本的 [GitHub Release](https://github.com/Lianzy-Baimiao/LiteView/releases)。发新版时加到这里最上面；README 只放这个文件的链接。
 
+## [v1.9.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.9.1)（2026-11-06）
+
+- 修复 GIF 动图右键复制或 Ctrl+C 后，粘贴到 QQ 变成静态单帧的问题。现在复制完整 GIF 原文件，保留全部帧、帧延时和循环次数；暂停、逐帧和旋转后复制也保留原动图。
+- 复制 GIF 时清除剪贴板中残留的静态图片格式，避免先复制普通图片后再复制 GIF 时粘贴成旧图片。普通图片继续保留透明度和查看时的旋转。
+
 ## [v1.9.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.9.0)（2026-11-05）
 
 - 无边框窗口（Windows）里，带透明的图（圆形图标、表情包、抠好的图）透明的地方直接透出桌面，窗口看起来就是图片的形状，没有方阴影和边框；没有透明像素的图照旧。最大化、全屏、编辑时照旧不透明。要以无边框启动才生效：按 Ctrl+B 刚换成无边框时，重新打开 LiteView 后才透出桌面。
