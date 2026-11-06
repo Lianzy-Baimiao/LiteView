@@ -8,6 +8,7 @@
 - [x] arboard 的 Windows `file_list` 不会清空旧格式，因此写入文件前清空剪贴板，避免 QQ 优先取到残留的 PNG / DIB。原文件已不存在时提示复制失败，不退化成单帧，且保留原剪贴板内容。
 - [x] 真实复制入口与系统剪贴板回归：两帧 GIF 复制前失败（读回 1 帧），修复后读回两帧且原文件字节一致；覆盖中文路径、大写扩展名、仅缓存一帧、暂停与旋转、旧静态格式清除、粘贴回 LiteView、源文件失效、透明静态图复制。该测试单独运行，已接入 Windows CI 和 Release。
 - [x] 本地 Release Rust 测试、Clippy、系统剪贴板专项检查、运行库检查与隔离桌面启动检查通过。用户在 QQ 中实测确认「没问题」，随后授权提交并发布。
+- [x] [v1.9.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.9.1) 已发布为 GitHub Latest（北京时间 2026-11-06 16:09），发布提交 `583f4fa`。[三平台 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42183555796) 和 [四平台 Release](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42183555737) 全部通过，包括 Windows GIF 剪贴板专项、安装包与 MSIX 生命周期检查。五个公开成品包均已下载，SHA-256 与 `SHA256SUMS.txt` 及 GitHub 附件摘要一致；校验记录保存在忽略目录 `dist/release-1.9.1/`。
 
 ## 2026-11-04 整体检查修掉的缺陷、单独的设置窗口、小窗口里的菜单和对话框（v1.9.0）
 
