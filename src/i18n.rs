@@ -192,6 +192,8 @@ strings! {
     s_sort_size: "大小", "Size";
     s_sort_type: "类型", "Type";
     s_sort_desc: "降序", "Descending";
+    s_sort_explorer: "跟随资源管理器", "File Explorer";
+    s_sort_explorer_hint: "从资源管理器打开时，和那个窗口里的顺序一样（排序、分组都照它）；其他方式打开时按文件名", "Opened from File Explorer: same order as that window, including sorting and groups. Otherwise by name.";
     lock_zoom: "锁定缩放：切图时保持缩放比例（同样尺寸的图连位置也保持）", "Lock zoom: keep the zoom when changing images (and the position for images of the same size)";
     s_fit_window: "窗口适应图片大小", "Resize window to fit the image";
     s_autoplay: "打开时自动播放", "Play automatically";

@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "1.9.1"
+version = "1.10.0"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"
@@ -76,6 +76,7 @@ features = [
     "Win32_System_Diagnostics_Debug",
     "Win32_System_Kernel",
     "Win32_System_LibraryLoader",
+    "Win32_System_Ole",
     "Win32_Security",
     "Win32_System_IO",
     "Win32_System_Pipes",
@@ -83,10 +84,12 @@ features = [
     "Win32_System_Registry",
     "Win32_System_SystemInformation",
     "Win32_System_Threading",
+    "Win32_System_Variant",
     "Win32_System_WinRT",
     "Win32_System_WinRT_Composition",
     "Win32_UI_Input_KeyboardAndMouse",
     "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
     "Win32_UI_WindowsAndMessaging",
 ]
 

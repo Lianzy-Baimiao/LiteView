@@ -187,6 +187,9 @@ pub struct Settings {
     pub lock_zoom: bool,
     pub sort: SortKey,
     pub sort_desc: bool,
+    /// 排序「跟随资源管理器」（只有 Windows）：从资源管理器打开时按那个窗口的先后，其它情况按文件名；这时不看 sort / sort_desc。
+    /// 单独一项而不是 SortKey 的新值：退回旧版本时 sort 仍认得，不会被重置
+    pub sort_explorer: bool,
     pub drag_inertia: bool,
     pub anim_autoplay: bool,
     pub anim_always_loop: bool,
@@ -267,6 +270,7 @@ impl Default for Settings {
             lock_zoom: false,
             sort: SortKey::Name,
             sort_desc: false,
+            sort_explorer: true,
             drag_inertia: true,
             anim_autoplay: true,
             anim_always_loop: false,
@@ -339,13 +343,29 @@ impl Settings {
     /// 以前整个文件作废、全部回到默认（.bak 是同样的内容，也救不回来）。返回认不出的那几项（如 `window.size`）
     pub fn parse(text: &str) -> Result<(Self, Vec<String>), serde_json::Error> {
         let user: serde_json::Value = serde_json::from_str(text)?;
-        if let Ok(s) = serde_json::from_value::<Self>(user.clone()) {
-            return Ok((s, Vec::new()));
+        let (mut s, dropped) = match serde_json::from_value::<Self>(user.clone()) {
+            Ok(s) => (s, Vec::new()),
+            Err(_) => {
+                let mut root = serde_json::to_value(Self::default())?;
+                let mut dropped = Vec::new();
+                merge_valid(&mut root, String::new(), &user, &mut dropped);
+                (serde_json::from_value(root)?, dropped)
+            }
+        };
+        // 1.10.0 以前的设置文件没有「跟随资源管理器」：还是默认排序（文件名、升序）的换成跟随，自己选过别的排序的照旧
+        if user.get("sort_explorer").is_none() {
+            s.sort_explorer = s.sort == SortKey::Name && !s.sort_desc;
         }
-        let mut root = serde_json::to_value(Self::default())?;
-        let mut dropped = Vec::new();
-        merge_valid(&mut root, String::new(), &user, &mut dropped);
-        Ok((serde_json::from_value(root)?, dropped))
+        Ok((s, dropped))
+    }
+
+    /// 浏览顺序。跟随资源管理器只在 Windows 上有；找不到资源管理器窗口时按文件名升序
+    pub fn order(&self) -> crate::viewer::folder::Order {
+        if cfg!(windows) && self.sort_explorer {
+            crate::viewer::folder::Order { key: SortKey::Name, desc: false, explorer: true }
+        } else {
+            crate::viewer::folder::Order { key: self.sort, desc: self.sort_desc, explorer: false }
+        }
     }
 
     pub fn save(&self) {
@@ -464,5 +484,33 @@ mod tests {
         // 好的文件不走逐项那条路；坏的 JSON 还是报错（再去读 .bak）
         assert_eq!(Settings::parse(r#"{"wrap_around": false}"#).unwrap().1, Vec::<String>::new());
         assert!(Settings::parse("{ not json").is_err());
+    }
+
+    #[test]
+    fn old_files_follow_explorer_only_if_the_sort_was_never_changed() {
+        let follows = |text: &str| Settings::parse(text).unwrap().0.sort_explorer;
+        // 1.9.x 写的文件：默认的文件名升序 → 跟随；改过排序或降序 → 照旧
+        assert!(follows(r#"{"sort": "Name", "sort_desc": false}"#));
+        assert!(follows("{}"));
+        assert!(!follows(r#"{"sort": "Modified", "sort_desc": false}"#));
+        assert!(!follows(r#"{"sort": "Name", "sort_desc": true}"#));
+        // 逐项读的那条路（别的项有错）也一样
+        assert!(!follows(r#"{"sort": "Size", "double_click": "SomethingNewer"}"#));
+        assert!(follows(r#"{"sort": "Name", "jpeg_quality": 700}"#));
+        // 新版本写的文件：用户在新版本里选了文件名，就是文件名
+        assert!(!follows(r#"{"sort": "Name", "sort_desc": false, "sort_explorer": false}"#));
+        assert!(follows(r#"{"sort": "Size", "sort_explorer": true}"#));
+        assert!(Settings::default().sort_explorer);
+    }
+
+    #[test]
+    fn order_follows_explorer_only_on_windows() {
+        let s = Settings { sort: SortKey::Size, sort_desc: true, sort_explorer: true, ..Settings::default() };
+        let o = s.order();
+        assert_eq!(o.explorer, cfg!(windows));
+        // 跟随时找不到窗口按文件名升序；其它系统照用 sort / sort_desc
+        assert_eq!((o.key, o.desc), if cfg!(windows) { (SortKey::Name, false) } else { (SortKey::Size, true) });
+        let fixed = Settings { sort_explorer: false, ..s }.order();
+        assert_eq!((fixed.key, fixed.desc, fixed.explorer), (SortKey::Size, true, false));
     }
 }

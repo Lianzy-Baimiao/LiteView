@@ -24,9 +24,16 @@ impl App {
             return;
         }
         let same_dir = self.folder.current().and_then(|c| c.parent()) == path.parent() && !self.folder.scanning();
+        let order = self.settings.order();
         match self.folder.files.iter().position(|p| p == &path) {
-            Some(i) if same_dir => self.folder.go(i),
-            _ => self.folder = Folder::open(&path, self.settings.sort, self.settings.sort_desc, Some(ctx.clone())),
+            Some(i) if same_dir => {
+                self.folder.go(i);
+                // 跟随资源管理器：每次从外面打开都重新问一次（在资源管理器里改了排序再双击，就按新的）
+                if order.explorer {
+                    self.folder.rescan(order, Some(ctx.clone()));
+                }
+            }
+            _ => self.folder = Folder::open(&path, order, Some(ctx.clone())),
         }
         self.show_current();
     }
@@ -237,7 +244,7 @@ impl App {
             self.loader.forget(p);
         }
         if changes.list {
-            self.folder.rescan(self.settings.sort, self.settings.sort_desc, Some(ctx.clone()));
+            self.folder.rescan(self.settings.order(), Some(ctx.clone()));
         }
         let reload = self.cur.as_ref().is_some_and(|c| {
             !c.clipboard

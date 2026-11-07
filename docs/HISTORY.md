@@ -2,6 +2,16 @@
 
 从 `TODO.md` 移出来的已完成事项，按时间从新到旧。里面的数字和结论都是当时的版本与环境（例如 M0 时 Windows 还用 wgpu，v1.2.0 起改用 Direct3D 11），不代表现状。用户能看到的变化见 [更新日志](CHANGELOG.md) 与各版本的 GitHub Release 说明。
 
+## 2026-11-08 排序跟随资源管理器（v1.10.0）
+
+[#5](https://github.com/Lianzy-Baimiao/LiteView/issues/5) 要翻图顺序跟随资源管理器。先看了别的看图软件（源码、官方页面、官方论坛）：ImageGlass 默认跟随，读打开它的那个窗口（`SVGIO_FLAG_VIEWORDER`），BandiView 的排序里有「As File Explorer does」，读不到都按自己的排序；IrfanView、XnView MP、JPEGView、qView、nomacs、qimgv 只有一个全局排序；没有一家跟随打开对话框的顺序，也没有一家给每个文件夹记排序。用户据此定了简化方案：排序里加一项、设为默认，不另加开关；不做 Ctrl+O 对话框的顺序、右键排序菜单和窗口拿回焦点时重读。
+
+- [x] `platform::explorer::view_order`：`IShellWindows` → `SID_STopLevelBrowser` → `IShellBrowser::QueryActiveShellView` → `IFolderView2`，找显示同一路径的窗口（几个都是时先用焦点项是这张图的），`Items(SVGIO_ALLVIEW | SVGIO_FLAG_VIEWORDER)` 按显示顺序取文件名（本地 `IShellFolder::GetDisplayNameOf(SHGDN_INFOLDER | SHGDN_FORPARSING)`）。单独的 STA 线程，和读目录同时开始，读完目录后最多再等 1 秒。目录里有、窗口里没有的（筛选掉的）按文件名接在后面；重新扫描时找不到窗口，保留上次的先后、新文件接在后面。
+- [x] 排序加「跟随资源管理器」，放在最前、默认选中（只有 Windows），选它时不看 sort / sort_desc。存成单独的 `sort_explorer`，不是 `SortKey` 的新值：退回旧版本时 sort 仍认得，不会被重置。旧设置文件没有这一项：文件名升序的换成跟随，选过别的照旧。同一文件夹里从外面再打开一张（单实例转交）也重新读。设置窗口加宽到 780，放得下五个选项和说明。
+- [x] 真机检查 `examples/explorer_order.rs`（最小化、不激活的资源管理器窗口，只关自己开的，开始前开着的窗口结束时还在）：修改时间降序、大小升序、按类型分组、名称升序，直接读和经过浏览列表都与按文件信息算出来的一致；5000 个文件直接读 8.6 ms、经过浏览列表 12.5 ms；没有窗口时按文件名。
+- [x] 整个程序 `dist/explorer-20261108/app_check.py`（隔离桌面）：跟随、窗口按修改时间降序时 c → a 2 → b；资源管理器改成按大小后第二个进程转交 e.png，e → c → a 2；不跟随、没有窗口时都是 c → d → e。读完目录后等资源管理器第一次 21 ms、之后 4 ms；同一时刻专用工作集 30.3 / 30.0 / 30.6 MB。
+- [x] Release 测试 238 项、Windows 与 Linux 目标 Clippy、打包测试、运行库导入检查（22 个 DLL，没有未审核的）通过；设置页中英文截图都放得下。回归一轮 11/13：帧数两项超出阈值（D3D11 drag-idle 42 帧、zoomanim 26 帧，WARP 拖动 53 fps），1.9.0 在同一台机器上两次重跑数字完全相同，是这台机器的环境，不是这次改动。
+
 ## 2026-11-06 GIF 复制到 QQ 保留动画（v1.9.1）
 
 - [x] 修复查看 GIF 时右键复制 / Ctrl+C 只把当前帧写成 PNG 和位图的问题。GIF 动图现在把原文件交给剪贴板（Windows：CF_HDROP），保留全部帧、延时与循环次数；暂停、逐帧、旋转仅改变查看状态。静态图片仍复制显示像素。

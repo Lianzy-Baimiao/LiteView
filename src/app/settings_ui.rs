@@ -32,6 +32,35 @@ fn row(ui: &mut Ui, label: &str, add: impl FnOnce(&mut Ui)) {
     ui.add_space(4.0);
 }
 
+/// 排序：「跟随资源管理器」（只有 Windows）放在最前；选了它就不看「降序」，换成一行说明
+fn sort_rows(ui: &mut Ui, s: &mut Settings) {
+    let t = tr();
+    let explorer = cfg!(windows);
+    // None = 跟随资源管理器
+    let mut choice = if explorer && s.sort_explorer { None } else { Some(s.sort) };
+    let mut items = Vec::with_capacity(5);
+    if explorer {
+        items.push((None, t.s_sort_explorer));
+    }
+    items.extend([(Some(SortKey::Name), t.s_sort_name), (Some(SortKey::Modified), t.s_sort_time), (Some(SortKey::Size), t.s_sort_size), (Some(SortKey::Type), t.s_sort_type)]);
+    row(ui, t.s_sort, |ui| choose(ui, &mut choice, &items));
+    match choice {
+        None => {
+            s.sort_explorer = true;
+            // 和「省电模式」的说明一样：整页宽、自动换行
+            ui.label(RichText::new(t.s_sort_explorer_hint).size(12.0).color(theme::palette(ui.ctx()).text_weak));
+            ui.add_space(6.0);
+        }
+        Some(key) => {
+            s.sort_explorer = false;
+            s.sort = key;
+            row(ui, "", |ui| {
+                widgets::checkbox(ui, &mut s.sort_desc, t.s_sort_desc);
+            });
+        }
+    }
+}
+
 /// 分段按钮选枚举值
 pub(super) fn choose<T: Copy + PartialEq>(ui: &mut Ui, value: &mut T, items: &[(T, &str)]) {
     let names: Vec<&str> = items.iter().map(|(_, n)| *n).collect();
@@ -89,7 +118,7 @@ impl App {
         let frame = egui::Frame::popup(&ctx.global_style()).inner_margin(egui::Margin::same(0)).corner_radius(egui::CornerRadius::same(8));
         // 窗口小时设置窗口跟着缩小（右边内容可滚动）
         let screen = ctx.content_rect().size();
-        let (w, h) = ((screen.x - 24.0).clamp(480.0, 700.0), (screen.y - 24.0).clamp(300.0, 460.0));
+        let (w, h) = ((screen.x - 24.0).clamp(480.0, 780.0), (screen.y - 24.0).clamp(300.0, 460.0));
         let modal = self.modal(egui::Id::new("settings"), ctx).frame(frame).show(ctx, |ui| self.settings_body(ui, &mut page, w, h));
         self.settings_page = Some(page);
         if modal.should_close() && !ctx.any_popup_open() {
@@ -208,12 +237,7 @@ impl App {
                 row(ui, t.s_background, |ui| {
                     choose(ui, &mut s.background, &[(Background::Theme, t.s_bg_theme), (Background::Black, t.s_bg_black), (Background::White, t.s_bg_white), (Background::Checker, t.s_bg_checker)])
                 });
-                row(ui, t.s_sort, |ui| {
-                    choose(ui, &mut s.sort, &[(SortKey::Name, t.s_sort_name), (SortKey::Modified, t.s_sort_time), (SortKey::Size, t.s_sort_size), (SortKey::Type, t.s_sort_type)])
-                });
-                row(ui, "", |ui| {
-                    widgets::checkbox(ui, &mut s.sort_desc, t.s_sort_desc);
-                });
+                sort_rows(ui, s);
                 row(ui, t.s_preload, |ui| number(ui, &mut s.preload, 0.0..=3.0));
                 row(ui, t.s_cache, |ui| number(ui, &mut s.cache_mb, 128.0..=4096.0));
                 row(ui, t.s_nearest, |ui| number(ui, &mut s.nearest_above, 100.0..=1600.0));
@@ -338,14 +362,13 @@ impl App {
         if s.anim_cache_mb != before.anim_cache_mb {
             self.loader.set_options(super::decode_options(s));
         }
-        if (s.sort, s.sort_desc) != (before.sort, before.sort_desc) && self.folder.len() > 1 {
-            let cur = self.folder.current().map(std::path::PathBuf::from);
-            crate::viewer::folder::sort_files(&mut self.folder.files, s.sort);
-            if s.sort_desc {
-                self.folder.files.reverse();
-            }
-            if let Some(i) = cur.and_then(|c| self.folder.files.iter().position(|p| *p == c)) {
-                self.folder.index = i;
+        let order = s.order();
+        if order != before.order() && self.folder.len() > 1 {
+            // 换成跟随资源管理器：重新问它；换成固定的排序：就地重排
+            if order.explorer {
+                self.folder.rescan(order, Some(ctx.clone()));
+            } else {
+                self.folder.resort(order);
             }
         }
     }

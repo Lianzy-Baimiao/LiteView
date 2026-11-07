@@ -88,7 +88,7 @@ pub(crate) const DIALOG_ROOM: egui::Vec2 = egui::vec2(460.0, 300.0);
 /// 打印对话框：窗口小时它跟着缩小，最小 480 × 320，再小就要变大窗口
 pub(crate) const PRINT_ROOM: egui::Vec2 = egui::vec2(1004.0, 704.0);
 /// 设置（只在单独的设置窗口建不起来时画在图片窗口里）
-pub(crate) const SETTINGS_ROOM: egui::Vec2 = egui::vec2(724.0, 484.0);
+pub(crate) const SETTINGS_ROOM: egui::Vec2 = egui::vec2(804.0, 484.0);
 /// 图片信息面板：宽、放得下常见各行的高
 #[cfg_attr(not(windows), allow(dead_code))]
 const INFO_ROOM: egui::Vec2 = egui::vec2(300.0, 560.0);

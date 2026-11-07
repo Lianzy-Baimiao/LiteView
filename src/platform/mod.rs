@@ -3,6 +3,8 @@
 pub mod assoc;
 #[cfg(windows)]
 pub mod d3d11;
+#[cfg(windows)]
+pub mod explorer;
 pub mod package;
 #[cfg(windows)]
 pub mod print;
@@ -92,6 +94,19 @@ pub fn show_in_folder(path: &Path) {
         if let Some(dir) = path.parent() {
             let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
         }
+    }
+}
+
+/// 资源管理器里正开着 `dir` 的窗口按显示先后的各项名字（见 `explorer::view_order`）；没有这样的窗口、读不到、或不是 Windows 时 None
+pub fn explorer_order(dir: &Path, prefer: Option<&Path>) -> Option<Vec<std::ffi::OsString>> {
+    #[cfg(windows)]
+    {
+        explorer::view_order(dir, prefer)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = (dir, prefer);
+        None
     }
 }
 

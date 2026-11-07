@@ -179,8 +179,8 @@ struct SettingsWin {
     look: Option<(bool, Option<[u8; 3]>)>,
 }
 
-/// 设置窗口的大小（点）
-const SETTINGS_SIZE: egui::Vec2 = egui::vec2(720.0, 500.0);
+/// 设置窗口的大小（点）。宽 780：排序一行有五个选项（跟随资源管理器、文件名、修改时间、大小、类型），中英文都要放得下
+const SETTINGS_SIZE: egui::Vec2 = egui::vec2(780.0, 500.0);
 const SETTINGS_MIN: egui::Vec2 = egui::vec2(520.0, 360.0);
 
 impl SettingsWin {

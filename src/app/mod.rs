@@ -750,7 +750,7 @@ impl eframe::App for EframeApp {
 impl App {
     /// 每帧交给 egui 之前（开发脚本注入输入）
     pub(crate) fn inject_input(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
-        self.script.inject(ctx, raw);
+        self.script.inject(ctx, raw, self.cur.as_ref().filter(|c| !c.clipboard).map(|c| c.path.as_path()));
     }
 
     /// 开发脚本要的设置窗口截图（窗口循环取走、截下来存）

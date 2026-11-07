@@ -1,7 +1,8 @@
 //! 开发用：按脚本回放操作并截图，用来检查界面（环境变量 `LITEVIEW_SCRIPT`，内容或文件路径）。
 //! 每行一条：`wait 300`、`waitimage`、`waitloaded`（当前图片显示或报错）、`key ctrl+r`、`keydown right` / `keyup right`（按住期间
 //! 像系统一样 500 ms 后每 33 ms 重复一次）、`move 100 200`、`click 100 200`、`rclick x y`、`dclick x y`、`down x y`、`up`、
-//! `drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`shotsettings out.png`（单独的设置窗口，Windows）、`quit`。坐标是逻辑像素。
+//! `drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`shotsettings out.png`（单独的设置窗口，Windows）、
+//! `trace 标记`（日志里记下时间、内存、帧数和当前图的文件名）、`quit`。坐标是逻辑像素。
 
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
@@ -79,7 +80,8 @@ impl Script {
         Self { steps: parse(&text), ..Self::default() }
     }
 
-    pub fn inject(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+    /// current：当前显示的图（`trace` 记下它的文件名）
+    pub fn inject(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput, current: Option<&std::path::Path>) {
         // 按住的键：与系统的按键重复一样（winit 送的是 pressed + repeat）
         if let Some((m, key, at)) = &mut self.held {
             let now = Instant::now();
@@ -158,10 +160,11 @@ impl Script {
             }
             Step::ShotSettings(path) => self.settings_shot = Some(path),
             Step::Trace(label) => log::info!(
-                "trace {label}：{:.0} ms，内存 {:.0} MB，第 {} 帧",
+                "trace {label}：{:.0} ms，内存 {:.0} MB，第 {} 帧，当前 {}",
                 crate::platform::ms_since_process_start(),
                 crate::platform::memory_mb(),
-                ctx.cumulative_frame_nr()
+                ctx.cumulative_frame_nr(),
+                current.map(crate::natsort::file_name).unwrap_or_default()
             ),
             Step::Quit => ctx.send_viewport_cmd(egui::ViewportCommand::Close),
         }
@@ -298,10 +301,10 @@ mod tests {
             let mut input = egui::RawInput::default();
             // A previous image having painted is not completion of the current load.
             script.after_frame(&ctx, true, LoadState::Pending);
-            script.inject(&ctx, &mut input);
+            script.inject(&ctx, &mut input, None);
             assert_eq!(script.steps.len(), 2);
             script.after_frame(&ctx, true, state);
-            script.inject(&ctx, &mut input);
+            script.inject(&ctx, &mut input, None);
             assert_eq!(script.steps.len(), 1);
             assert!(matches!(script.steps.front(), Some(Step::Trace(_))));
         }

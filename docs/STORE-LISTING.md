@@ -2,13 +2,14 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
-## 1.9.1.0 更新（2026-11-06 提交认证）
+## 1.9.1.0 更新（2026-11-06 提交认证，2026-11-08 核实已上架）
 
 - 包：`LiteView-store-1.9.1.0-x64.msix`，SHA-256 `e103e33b96bd74dfbc29fb537f47df66a1147b1fde5f74e4c06cb4d3ef94447a`，取自 [Release 运行 42183555737](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42183555737)（标签 v1.9.1）的 `Store-submission-x64` artifact。该发布运行的 Windows GIF 剪贴板专项、安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过。
 - 本地核对：身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.9.1.0 / x64，没有测试签名。包内 EXE 的 SHA-256 是 `cb55e28372913759d6a5b69228cca5f1e09d7612db13481eb919d331dc2e507e`，与 [GitHub v1.9.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.9.1) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `ee6396692fcc743816b6e77cd203680cb17bdd8a4d6ac59aae595db87e24e1dd` 已与公开 `SHA256SUMS.txt` 核对。未签名 MSIX 只用于商店提交。
 - 提交：使用 Codex 内置浏览器进入已登录的 Partner Center。开始时 Submission 13（1.9.0.0）已上架，没有进行中的更新。新建 Submission 14 **1152921505702331710**：上传本包并保存后显示 `Validated`，保留既有 runFullTrust 受限能力警告；1.9.0.0 随保存从草稿中移除。设备仍只勾选 Windows 10/11 Desktop，未开启逐步推出或强制更新。
 - 文案与送审：中英文“此版本的新增功能”更新为 1.9.1 GIF 复制修复（161 / 464 字符），保存后重新打开逐字核对一致。提交选项沿用“通过认证后立即发布”和原有 runFullTrust 用途说明。北京时间 2026-11-06 18:11 提交，后台显示**“正在认证更新”**、Submission 14 正在认证，提交步骤完成、预处理进行中，并明确显示“产品在通过认证后立即开始发布”。此时商店仍为 Submission 13；本记录不表示 1.9.1.0 已通过审核或已上架。
 - 证据保存于忽略目录 `dist/store-1.9.1-submission/`：`SUBMISSION.md`、`submission-receipt.json`、`submitted.jpg`、`submitted-state.txt`、提交前及发布选项截图、两种语言的文案和 `verified-artifacts.json`。本次已完成送审，不要重复上传、取消认证或重建 Submission 14。
+- 上架：2026-11-08 提交 1.10.0.0 前，displaycatalog 在 CN、US、JP 三个市场都返回 `ice.LiteView_1.9.1.0_x64__rz8m2sa64m4em`。
 
 ## 1.9.0.0 更新（2026-11-05 提交认证，2026-11-06 核实已上架）
 

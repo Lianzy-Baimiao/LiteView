@@ -152,7 +152,7 @@ impl App {
         if ed.src.clipboard || done.dest != ed.src.path {
             ed.src.path = done.dest.clone();
             ed.src.clipboard = false;
-            self.folder = crate::viewer::folder::Folder::open(&done.dest, self.settings.sort, self.settings.sort_desc, Some(self.ctx.clone()));
+            self.folder = crate::viewer::folder::Folder::open(&done.dest, self.settings.order(), Some(self.ctx.clone()));
         }
         // Preserve the canvas and its color/alpha semantics, including undo history.
         // cur.loaded stores the actual flattened/quantized file and its metadata.
