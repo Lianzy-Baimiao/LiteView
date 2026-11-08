@@ -2,6 +2,14 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
+## 1.10.0.0 更新（2026-11-08 提交认证）
+
+- 包：`LiteView-store-1.10.0.0-x64.msix`，SHA-256 `049727482b76cae39e23199db51de376ad7824519362aed614256c6fe4fce74e`，取自 [Release 运行 42428442511](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42428442511)（标签 v1.10.0）的 `Store-submission-x64` artifact。该运行的 Windows 安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过；第一次运行时 macOS x64 下载 licenses artifact 遇到 GitHub 接口超时，只重跑了这一项和发布，Windows 产物没有重新构建。
+- 本地核对：身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.10.0.0 / x64，没有测试签名。包内 EXE 的 SHA-256 是 `8e276d9c17267560ef0f46e0df99bb923b59b1c6921a300a5de9dd1ff50960f1`，与 [GitHub v1.10.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.10.0) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `85f1000233da71eef3f0df0de662f029150593873588a411197684542287c3f6` 已与公开 `SHA256SUMS.txt` 核对。未签名 MSIX 只用于商店提交。
+- 提交：临时 Edge 开在隐藏桌面上，屏幕上什么都没出现（这次会话不是管理员，直接以当前的中完整性启动，不经 `medium.ps1`），Windows 账号自动登录 Partner Center。开始时 Submission 14（1.9.1.0）已上架，没有进行中的更新。新建 Submission 15 **1152921505702343593**：上传本包后显示 runFullTrust 受限能力警告（预期），保存后总览显示 `Validated`，1.9.1.0 随保存移除。设备仍只勾选 Windows 10/11 Desktop，未开启逐步推出或强制更新。
+- 文案与送审：中英文“此版本的新增功能”改成 1.10.0 跟随资源管理器排序的四行（211 / 613 字符），保存后重新加载逐字一致。说明、功能、关键词、截图都没改。提交选项沿用“通过认证后立即发布”，runFullTrust 用途说明沿用原文（458 字符）。北京时间 2026-11-08 09:08 提交，总览显示**“正在认证更新”**、Submission 15 正在认证，并写着“产品在通过认证后立即开始发布”。此时商店仍为 Submission 14；本记录不表示 1.10.0.0 已通过审核或已上架。
+- 证据在忽略目录 `dist/store-1.10.0-submission/` 里：`SUBMISSION.md`、`submission-receipt.json`、截图 `00-start.png` 到 `16-submitted.png`、两种语言的文案和 `verified-artifacts.json`。本次已完成送审，不要重复上传、取消认证或重建 Submission 15。
+
 ## 1.9.1.0 更新（2026-11-06 提交认证，2026-11-08 核实已上架）
 
 - 包：`LiteView-store-1.9.1.0-x64.msix`，SHA-256 `e103e33b96bd74dfbc29fb537f47df66a1147b1fde5f74e4c06cb4d3ef94447a`，取自 [Release 运行 42183555737](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42183555737)（标签 v1.9.1）的 `Store-submission-x64` artifact。该发布运行的 Windows GIF 剪贴板专项、安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过。

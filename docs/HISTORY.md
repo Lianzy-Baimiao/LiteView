@@ -11,6 +11,9 @@
 - [x] 真机检查 `examples/explorer_order.rs`（最小化、不激活的资源管理器窗口，只关自己开的，开始前开着的窗口结束时还在）：修改时间降序、大小升序、按类型分组、名称升序，直接读和经过浏览列表都与按文件信息算出来的一致；5000 个文件直接读 8.6 ms、经过浏览列表 12.5 ms；没有窗口时按文件名。
 - [x] 整个程序 `dist/explorer-20261108/app_check.py`（隔离桌面）：跟随、窗口按修改时间降序时 c → a 2 → b；资源管理器改成按大小后第二个进程转交 e.png，e → c → a 2；不跟随、没有窗口时都是 c → d → e。读完目录后等资源管理器第一次 21 ms、之后 4 ms；同一时刻专用工作集 30.3 / 30.0 / 30.6 MB。
 - [x] Release 测试 238 项、Windows 与 Linux 目标 Clippy、打包测试、运行库导入检查（22 个 DLL，没有未审核的）通过；设置页中英文截图都放得下。回归一轮 11/13：帧数两项超出阈值（D3D11 drag-idle 42 帧、zoomanim 26 帧，WARP 拖动 53 fps），1.9.0 在同一台机器上两次重跑数字完全相同，是这台机器的环境，不是这次改动。
+- [x] [v1.10.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.10.0) 已发布为 GitHub Latest（北京时间 2026-11-08 09:00），发布提交 `e82afbf`。[三平台 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42426162791)、发布前在 main 上的 [Release 演练](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42426216301) 和 [四平台 Release](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42428442511) 全部通过，包括 Windows 安装包与 MSIX 生命周期检查；Release 第一次时 macOS x64 在编译、测试通过后下载 licenses artifact 遇到 GitHub 接口超时，只重跑了这一项和发布。五个公开成品包均已下载，SHA-256 与 `SHA256SUMS.txt` 及 GitHub 附件摘要一致；校验记录在忽略目录 `dist/release-1.10.0/`，Windows 安装包另放在 `dist/` 下供手动分发。
+- [x] 微软商店 1.10.0.0 已于同日 09:08 提交认证，Submission 15（`1152921505702343593`）显示“正在认证更新”，审核通过后自动发布。MSIX 来自同次正式 Release，包内 EXE 与公开 Windows 绿色版一致；中英文“此版本的新增功能”已保存并重新读取核对。提交前确认 1.9.1.0 已上架，详见 [商店记录](STORE-LISTING.md)。
+- [x] 在 [#5](https://github.com/Lianzy-Baimiao/LiteView/issues/5) 回复了这次的改动和别的看图软件的对照（附来源），并关闭。
 
 ## 2026-11-06 GIF 复制到 QQ 保留动画（v1.9.1）
 
