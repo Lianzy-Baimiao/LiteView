@@ -14,6 +14,10 @@ fn main() {
     if !target.contains("windows") {
         return;
     }
+    // 图标指纹：登记文件关联时记下它，图标换了才需要让资源管理器重新取图标（platform::assoc）
+    let ico = std::fs::read("assets/app.ico").expect("read assets/app.ico");
+    let stamp = ico.iter().fold(0xcbf2_9ce4_8422_2325_u64, |h, &b| (h ^ u64::from(b)).wrapping_mul(0x0000_0100_0000_01b3));
+    println!("cargo:rustc-env=LITEVIEW_ICON_STAMP={stamp:016x}");
     let out = PathBuf::from(std::env::var("OUT_DIR").expect("OUT_DIR"));
     for f in ["app.ico", "app.manifest"] {
         std::fs::copy(PathBuf::from("assets").join(f), out.join(f)).unwrap_or_else(|e| panic!("copy required Windows resource assets/{f}: {e}"));

@@ -157,21 +157,24 @@ mod imp {
         }
     }
 
-    fn create(path: &str) -> Result<Key, String> {
+    fn create(root: HKEY, path: &str) -> Result<Key, String> {
         let p = wstr(path);
         let mut k = HKEY::default();
-        let r = unsafe { RegCreateKeyExW(HKEY_CURRENT_USER, PCWSTR(p.as_ptr()), None, PCWSTR::null(), REG_OPTION_NON_VOLATILE, KEY_WRITE, None, &mut k, None) };
+        let r = unsafe { RegCreateKeyExW(root, PCWSTR(p.as_ptr()), None, PCWSTR::null(), REG_OPTION_NON_VOLATILE, KEY_WRITE, None, &mut k, None) };
         if r == ERROR_SUCCESS { Ok(Key(k)) } else { Err(format!("HKCU\\{path}: {}", r.0)) }
     }
 
-    /// 写字符串值（name 为空 = 默认值）
-    fn set(path: &str, name: &str, value: &str) -> Result<(), String> {
-        let k = create(path)?;
+    /// 写字符串值（name 为空 = 默认值）。已经是这个值就不写、返回 false；写了返回 true
+    fn set_value(root: HKEY, path: &str, name: &str, value: &str) -> Result<bool, String> {
+        if get(root, path, name).as_deref() == Some(value) {
+            return Ok(false);
+        }
+        let k = create(root, path)?;
         let (n, v) = (wstr(name), wstr(value));
         let bytes = unsafe { std::slice::from_raw_parts(v.as_ptr().cast::<u8>(), v.len() * 2) };
         let name_ptr = if name.is_empty() { PCWSTR::null() } else { PCWSTR(n.as_ptr()) };
         let r = unsafe { RegSetValueExW(k.0, name_ptr, None, REG_SZ, Some(bytes)) };
-        if r == ERROR_SUCCESS { Ok(()) } else { Err(format!("HKCU\\{path}\\{name}: {}", r.0)) }
+        if r == ERROR_SUCCESS { Ok(true) } else { Err(format!("HKCU\\{path}\\{name}: {}", r.0)) }
     }
 
     fn get(root: HKEY, path: &str, name: &str) -> Option<String> {
@@ -228,16 +231,36 @@ mod imp {
             return Ok(());
         }
         let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-        let exe = exe.to_string_lossy();
-        let t = crate::i18n::tr();
+        // 只在登记的内容真的变了时通知资源管理器：收到通知它会丢掉图标缓存、把所有图标（连同任务栏）重画一遍。
+        // 升级覆盖安装时路径、文字、图标都没变，就不去惊动它
+        if write_registration(HKEY_CURRENT_USER, exts, &exe.to_string_lossy(), ICON_STAMP, crate::i18n::tr())? {
+            log::info!("文件关联有变化，通知资源管理器刷新图标 [assoc changed]");
+            notify();
+        } else {
+            log::info!("文件关联没有变化，不通知资源管理器 [assoc unchanged]");
+        }
+        Ok(())
+    }
+
+    /// 编译时 assets/app.ico 的指纹（build.rs）。记在注册表里：图标换了，即使路径没变也要让资源管理器重新取图标
+    const ICON_STAMP: &str = env!("LITEVIEW_ICON_STAMP");
+
+    /// 把关联写到 root 下（正式使用时是 HKCU）。返回有没有任何一项和原来不同；都相同时什么也不写
+    fn write_registration(root: HKEY, exts: &[String], exe: &str, icon_stamp: &str, t: &crate::i18n::Strings) -> Result<bool, String> {
+        let mut changed = false;
+        let mut set = |path: &str, name: &str, value: &str| -> Result<(), String> {
+            changed |= set_value(root, path, name, value)?;
+            Ok(())
+        };
         let caps = format!(r"Software\{APP}\Capabilities");
         set(&caps, "ApplicationName", APP)?;
         set(&caps, "ApplicationDescription", t.assoc_desc)?;
         set(r"Software\RegisteredApplications", APP, &caps)?;
         set(&format!(r"{APP_KEY}\shell\open\command"), "", &format!("\"{exe}\" \"%1\""))?;
         set(&format!(r"{APP_KEY}\DefaultIcon"), "", &format!("\"{exe}\",0"))?;
+        set(&format!(r"Software\{APP}"), "IconStamp", icon_stamp)?;
         // 注册是增量操作；保留已有格式，并更新它们的路径以支持移动绿色版或升级。
-        let registered = super::all_exts().into_iter().filter(|ext| exts.contains(ext) || exists(&format!(r"Software\Classes\{}", prog_id(ext))));
+        let registered = super::all_exts().into_iter().filter(|ext| exts.contains(ext) || exists(root, &format!(r"Software\Classes\{}", prog_id(ext))));
         for ext in registered {
             let id = prog_id(&ext);
             let base = format!(r"Software\Classes\{id}");
@@ -257,14 +280,13 @@ mod imp {
             set(&base, "Icon", &format!("\"{exe}\",0"))?;
             set(&format!(r"{base}\command"), "", &format!("\"{exe}\" {flag} \"%1\""))?;
         }
-        notify();
-        Ok(())
+        Ok(changed)
     }
 
-    fn exists(path: &str) -> bool {
+    fn exists(root: HKEY, path: &str) -> bool {
         let p = wstr(path);
         let mut k = HKEY::default();
-        let ok = unsafe { RegOpenKeyExW(HKEY_CURRENT_USER, PCWSTR(p.as_ptr()), None, KEY_READ, &mut k) } == ERROR_SUCCESS;
+        let ok = unsafe { RegOpenKeyExW(root, PCWSTR(p.as_ptr()), None, KEY_READ, &mut k) } == ERROR_SUCCESS;
         if ok {
             drop(Key(k));
         }
@@ -275,7 +297,7 @@ mod imp {
     fn remove_ext(ext: &str) {
         let id = prog_id(ext);
         let owp = format!(r"Software\Classes\.{ext}\OpenWithProgids");
-        if !exists(&format!(r"Software\Classes\{id}")) && get(HKEY_CURRENT_USER, &owp, &id).is_none() {
+        if !exists(HKEY_CURRENT_USER, &format!(r"Software\Classes\{id}")) && get(HKEY_CURRENT_USER, &owp, &id).is_none() {
             return;
         }
         delete_tree(&format!(r"Software\Classes\{id}"));
@@ -338,5 +360,57 @@ mod imp {
 
     fn notify() {
         unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, None, None) }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        /// HKCU 下的临时键：不在 Software\Classes 下，资源管理器看不到；write_registration 也不发通知
+        struct TempRoot(HKEY, String);
+
+        impl TempRoot {
+            fn new(tag: &str) -> Self {
+                let path = format!(r"Software\LiteView-assoc-test-{}-{tag}", std::process::id());
+                delete_tree(&path);
+                let p = wstr(&path);
+                let mut k = HKEY::default();
+                let r = unsafe { RegCreateKeyExW(HKEY_CURRENT_USER, PCWSTR(p.as_ptr()), None, PCWSTR::null(), REG_OPTION_NON_VOLATILE, KEY_ALL_ACCESS, None, &mut k, None) };
+                assert_eq!(r, ERROR_SUCCESS, "create HKCU\\{path}");
+                Self(k, path)
+            }
+        }
+
+        impl Drop for TempRoot {
+            fn drop(&mut self) {
+                unsafe {
+                    let _ = RegCloseKey(self.0);
+                }
+                delete_tree(&self.1);
+            }
+        }
+
+        #[test]
+        fn registering_the_same_again_does_not_bother_explorer() {
+            let root = TempRoot::new("same");
+            let t = crate::i18n::tr();
+            let exts = ["png".to_owned(), "jpg".to_owned()];
+            let installed = r"C:\Users\me\AppData\Local\Programs\LiteView\LiteView.exe";
+            assert!(write_registration(root.0, &exts, installed, "a1", t).unwrap(), "first registration writes everything");
+            // 覆盖安装同一个版本或只是版本号变了：路径、文字、图标都一样
+            assert!(!write_registration(root.0, &exts, installed, "a1", t).unwrap());
+            // 少选几种格式不算变化（已登记的格式保留、只更新路径）
+            assert!(!write_registration(root.0, &exts[..1], installed, "a1", t).unwrap());
+            // 新版本换了图标：路径没变也要通知
+            assert!(write_registration(root.0, &exts, installed, "b2", t).unwrap());
+            // 绿色版换了位置：要通知，已登记的格式都改指向新位置
+            let portable = r"D:\Tools\LiteView\LiteView.exe";
+            assert!(write_registration(root.0, &exts[..1], portable, "b2", t).unwrap());
+            assert!(!write_registration(root.0, &exts, portable, "b2", t).unwrap());
+            for ext in ["png", "jpg"] {
+                let command = get(root.0, &format!(r"Software\Classes\LiteView.{ext}\shell\open\command"), "");
+                assert_eq!(command.as_deref(), Some(r#""D:\Tools\LiteView\LiteView.exe" "%1""#), "{ext}");
+            }
+        }
     }
 }

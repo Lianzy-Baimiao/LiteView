@@ -47,6 +47,22 @@ $seq = 0
 function Assert-True([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
 }
+$appLog = $env:LITEVIEW_LOG
+function Get-LogLength {
+    if (Test-Path -LiteralPath $appLog) { return (Get-Item -LiteralPath $appLog).Length }
+    return 0
+}
+# LiteView appends to LITEVIEW_LOG, so read only what one step added. --register logs whether it told
+# Explorer to refresh file-type icons ([assoc changed]) or left Explorer alone ([assoc unchanged]).
+function Assert-AssocNotice([long]$Mark, [string]$Expected, [string]$Message) {
+    $added = ''
+    if (Test-Path -LiteralPath $appLog) {
+        $bytes = [IO.File]::ReadAllBytes($appLog)
+        if ($bytes.Length -gt $Mark) { $added = [Text.Encoding]::UTF8.GetString($bytes, [int]$Mark, $bytes.Length - [int]$Mark) }
+    }
+    $other = if ($Expected -eq 'changed') { 'unchanged' } else { 'changed' }
+    Assert-True ($added.Contains("[assoc $Expected]") -and -not $added.Contains("[assoc $other]")) "$Message Log: $added"
+}
 function Get-OpenCommand {
     if (Test-Path -LiteralPath $commandKey) { return (Get-Item -LiteralPath $commandKey).GetValue('') }
     return $null
@@ -90,12 +106,17 @@ function Assert-Preserved {
 
 try {
     # A synthetic prior installer version exercises the same AppId's upgrade path.
+    $mark = Get-LogLength
     Install-Test $PreviousInstaller $true
+    Assert-AssocNotice $mark 'changed' 'First install did not tell Explorer about the new file types.'
     Assert-True ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -eq '0.0.0') 'Prior fixture version not installed.'
     Assert-True ((Get-OpenCommand) -eq ('"' + (Join-Path $app 'LiteView.exe') + '" "%1"')) 'Installed association not registered.'
     Copy-Item -LiteralPath (Join-Path $PSScriptRoot '../tests/fixtures/animation.png') -Destination (Join-Path $app 'user-image.png')
     $photoHash = (Get-FileHash -LiteralPath (Join-Path $app 'user-image.png')).Hash
+    # The fixture holds this same build, so the upgrade changes no registration and must leave Explorer alone.
+    $mark = Get-LogLength
     Install-Test $Installer $true
+    Assert-AssocNotice $mark 'unchanged' 'Upgrading over the same build made Explorer refresh its icons.'
     Assert-True ((Get-ItemProperty -LiteralPath $uninstallKey).DisplayVersion -eq $Version) 'Upgrade did not update installer version.'
     Assert-Preserved
     Uninstall-Test
@@ -104,12 +125,16 @@ try {
     Assert-Preserved
 
     # A portable copy owns the association; opting out of association must preserve it.
+    $mark = Get-LogLength
     Invoke-Checked $portableExe @('--register')
+    Assert-AssocNotice $mark 'changed' 'Portable registration did not tell Explorer.'
     $portableCommand = Get-OpenCommand
     Assert-True ($portableCommand -eq ('"' + $portableExe + '" "%1"')) 'Portable registration failed.'
     # Selecting a smaller set is not an instruction to delete existing ProgIDs.
     Set-Content -LiteralPath (Join-Path $config 'settings.json') -Encoding ascii -Value '{"single_instance":false,"ask_default_app":false,"assoc_exts":["png"]}'
+    $mark = Get-LogLength
     Invoke-Checked $portableExe @('--register')
+    Assert-AssocNotice $mark 'unchanged' 'Registering a smaller set changed the registration.'
     foreach ($ext in @('jpg', 'png', 'avif')) {
         $progCommand = "HKCU:\Software\Classes\LiteView.$ext\shell\open\command"
         Assert-True ((Get-Item -LiteralPath $progCommand).GetValue('') -eq $portableCommand) "Subset registration broke .$ext handler."

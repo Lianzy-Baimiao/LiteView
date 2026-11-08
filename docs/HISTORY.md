@@ -2,6 +2,14 @@
 
 从 `TODO.md` 移出来的已完成事项，按时间从新到旧。里面的数字和结论都是当时的版本与环境（例如 M0 时 Windows 还用 wgpu，v1.2.0 起改用 Direct3D 11），不代表现状。用户能看到的变化见 [更新日志](CHANGELOG.md) 与各版本的 GitHub Release 说明。
 
+## 2026-11-08 升级安装不再让资源管理器重画所有图标（未发版）
+
+用户 09:30 装 v1.10.0 后资源管理器崩了一次。Windows 只留下 Winlogon「外壳程序意外停止」（这台机器关了错误报告，没有转储）：安装程序检查占用文件时没有关闭任何程序，崩在安装结尾通知资源管理器「文件类型变了」、它重画所有图标的那一刻；当时资源管理器里加载着用户另一个开发中的程序 LiteTray 的任务栏适配器，近两天的十几次重启也都和 LiteTray 的部署对得上。09:34 第二次安装做了同样的通知，没有崩。
+
+- [x] 登记文件关联（安装程序的 `--register`、设置里的「文件关联」）先和注册表里现有的比较，一样就不写；有任何一项变了才通知资源管理器，日志写 `[assoc changed]` / `[assoc unchanged]`。另记一个编译时的图标指纹（`build.rs` 算 `assets/app.ico`，存 `HKCU\Software\LiteView\IconStamp`）：新版本换了图标，路径没变也会通知。升级到含这项改动的版本时因为第一次写指纹，还会通知一次。
+- [x] 安装脚本去掉 `ChangesAssociations=yes`：它在安装、卸载结尾再发一次同样的通知，和 `--register` / `--unregister` 自己的通知重复。
+- [x] 单元测试在 HKCU 下的临时键里登记（不在 `Software\Classes` 下、不发通知）：同样内容再登记不算变化，少选格式不算变化，换图标、换位置算变化。Release 工作流的安装包生命周期检查加了断言：首次安装通知；用同一构建升级不通知；绿色版接管时通知；少选格式不通知。
+
 ## 2026-11-08 排序跟随资源管理器（v1.10.0）
 
 [#5](https://github.com/Lianzy-Baimiao/LiteView/issues/5) 要翻图顺序跟随资源管理器。先看了别的看图软件（源码、官方页面、官方论坛）：ImageGlass 默认跟随，读打开它的那个窗口（`SVGIO_FLAG_VIEWORDER`），BandiView 的排序里有「As File Explorer does」，读不到都按自己的排序；IrfanView、XnView MP、JPEGView、qView、nomacs、qimgv 只有一个全局排序；没有一家跟随打开对话框的顺序，也没有一家给每个文件夹记排序。用户据此定了简化方案：排序里加一项、设为默认，不另加开关；不做 Ctrl+O 对话框的顺序、右键排序菜单和窗口拿回焦点时重读。

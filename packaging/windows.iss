@@ -25,7 +25,8 @@ Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
 CloseApplications=yes
-ChangesAssociations=yes
+; No ChangesAssociations: LiteView.exe --register / --unregister notify Explorer themselves, and only when the
+; registration actually changed. An upgrade over the same build then leaves Explorer and its icon cache alone.
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
