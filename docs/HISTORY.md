@@ -11,6 +11,9 @@
 - [x] `app::popup_open`：egui 记着开着的（`Popup::is_any_open`，上一帧开着、还没关）或这一帧已经画了的，有一个就算开着。工具栏的显示、看图时的 Esc、编辑的 `popup_was_open` 改用它；Esc 先看有没有菜单，有就不吃掉这个键，留给菜单自己关。设置窗口、打印对话框都在画完之后才看，照旧。
 - [x] 单元测试（改之前三项都不通过）：按真实顺序点开播放条的速度按钮、把鼠标移进菜单停一会儿，菜单和工具栏都在，菜单关了才收起；菜单开着按 Esc 只关菜单，再按才关窗口；编辑时菜单开着按下鼠标不画，菜单关了照常画。
 - [x] 隔离桌面上与 1.10.0 对照（`dist/speed-20261108/`）：播放中的 GIF 移到菜单上还在，点 0.25× 后每帧从 40 ms 变成 160 ms（1.10.0 同样操作时菜单已经没了，还是 40 ms）；Esc 关速度菜单、比例菜单（1.10.0 两种都直接退出）；静态图的比例菜单移到最上面的预设还在；右键菜单按 Esc 两版都只关菜单；编辑时刷子点图片关旋转菜单，1.10.0 留下一个点，新版没有，正常点击和拖动照常画。Release 测试 242 项、Clippy、回归一轮 13/13 通过。
+- [x] [v1.10.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.10.1) 已发布为 GitHub Latest（北京时间 2026-11-09 05:15），发布提交 `80d14c6`。[三平台 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42520625385)、发布前在 main 上的 [Release 演练](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42520802898) 和 [四平台 Release](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42522791310) 一次通过，包括 Windows 安装包与 MSIX 生命周期检查。五个公开成品包均已下载，SHA-256 与 `SHA256SUMS.txt` 及 GitHub 附件摘要一致；校验记录在忽略目录 `dist/release-1.10.1/`，Windows 安装包另放在 `dist/` 下供手动分发。
+- [x] 微软商店 1.10.1.0 已于同日 05:50 提交认证，Submission 16（`1152921505702347883`）显示“正在认证更新”，审核通过后自动发布。MSIX 来自同次正式 Release，包内 EXE 与公开 Windows 绿色版一致；中英文“此版本的新增功能”已保存并重新读取核对。提交前确认 1.10.0.0 已上架，详见 [商店记录](STORE-LISTING.md)。
+- [x] 在 [#7](https://github.com/Lianzy-Baimiao/LiteView/issues/7) 回复了修复内容并关闭。
 
 ## 2026-11-08 升级安装不再让资源管理器重画所有图标（v1.10.1）
 
