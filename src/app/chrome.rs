@@ -44,7 +44,8 @@ impl App {
             self.dock_seen = Some(std::time::Instant::now());
         }
         let on_dock = self.docked && (self.dock_hover || self.dock_popup || self.dock_seen.is_some_and(|t| t.elapsed() < DOCK_GRACE));
-        let show = self.cur.is_some() && !blocked && (near || on_dock || (self.bar_shown && ctx.any_popup_open()));
+        // 菜单这时还没画：`ctx.any_popup_open()` 算不上它（见 `popup_open`）
+        let show = self.cur.is_some() && !blocked && (near || on_dock || (self.bar_shown && super::popup_open(ctx)));
         self.bar_shown = show;
         if self.docked {
             if show {
@@ -515,6 +516,82 @@ mod tests {
         assert!(!hover_bottom(&mut app, &ctx));
         app.menu_open = false;
         assert!(hover_bottom(&mut app, &ctx));
+    }
+
+    /// 一张三帧的动图在播放
+    fn play_gif(app: &mut App) {
+        let info = crate::decode::Info { format: "GIF", width: 400, height: 300, bits: 8, channels: 4, has_alpha: false, translucent: false, file_size: 0, jpeg_quality: None, exif: None, icc: None };
+        let content = crate::decode::Content::Animation { frames: Vec::new(), delays: vec![Duration::from_millis(40); 3], plays: None, source: None };
+        let decoded = std::sync::Arc::new(crate::decode::Decoded { info, content });
+        app.cur = Some(crate::app::Current { path: "a.gif".into(), loaded: Some(Ok(decoded)), preview: None, since: std::time::Instant::now(), clipboard: false });
+        app.play = Some(crate::viewer::playback::Playback::new(3, None, true, false));
+    }
+
+    /// 窗口里的一帧，过 50 ms；和 `App::frame` 一样先处理按键、再画工具栏。返回这一帧的窗口命令
+    fn pass(app: &mut App, ctx: &egui::Context, t: &mut f64, events: Vec<egui::Event>) -> Vec<egui::ViewportCommand> {
+        *t += 0.05;
+        let input = egui::RawInput { screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1000.0, 700.0))), time: Some(*t), events, ..Default::default() };
+        let mut out = ctx.run_ui(input, |ui| {
+            app.canvas = ui.max_rect();
+            app.keyboard(ui.ctx());
+            app.chrome(ui.ctx());
+        });
+        out.viewport_output.remove(&egui::ViewportId::ROOT).map(|v| v.commands).unwrap_or_default()
+    }
+
+    /// 鼠标移到窗口底部、等播放条出来，点它最右边的播放速度按钮；返回按钮的位置
+    fn open_speed_menu(app: &mut App, ctx: &egui::Context, t: &mut f64) -> egui::Pos2 {
+        for _ in 0..6 {
+            pass(app, ctx, t, vec![egui::Event::PointerMoved(pos2(500.0, 690.0))]);
+        }
+        let bar = ctx.memory(|m| m.area_rect(Id::new("animbar"))).expect("play bar shown");
+        // 边框 1、内边距 6，按钮宽 48
+        let at = pos2(bar.right() - 31.0, bar.center().y);
+        let button = |pressed| egui::Event::PointerButton { pos: at, button: egui::PointerButton::Primary, pressed, modifiers: egui::Modifiers::NONE };
+        pass(app, ctx, t, vec![egui::Event::PointerMoved(at)]);
+        pass(app, ctx, t, vec![button(true)]);
+        pass(app, ctx, t, vec![button(false)]);
+        assert!(egui::Popup::is_any_open(ctx), "speed menu open");
+        at
+    }
+
+    /// 问题 #7：播放时点开播放速度菜单，鼠标往上移到菜单项上（离开了底部的感应区），菜单和工具栏都还在
+    #[test]
+    fn the_speed_menu_of_a_playing_gif_stays_open_while_the_pointer_moves_up_into_it() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        play_gif(&mut app);
+        let mut t = 0.0;
+        let at = open_speed_menu(&mut app, &ctx, &mut t);
+        // 菜单在按钮上面；停在那儿比工具栏淡出（0.15 秒）久
+        for y in [at.y - 40.0, at.y - 80.0, 300.0, 300.0, 300.0, 300.0, 300.0, 300.0] {
+            pass(&mut app, &ctx, &mut t, vec![egui::Event::PointerMoved(pos2(at.x, y))]);
+        }
+        assert!(egui::Popup::is_any_open(&ctx), "menu still open");
+        assert!(app.bar_shown);
+        assert!(app.play.as_ref().is_some_and(|p| p.playing));
+        // 菜单关了（选了一项），鼠标不在底部：收起
+        egui::Popup::close_all(&ctx);
+        pass(&mut app, &ctx, &mut t, vec![egui::Event::PointerMoved(pos2(at.x, 300.0))]);
+        assert!(!app.bar_shown);
+    }
+
+    /// 工具栏上的菜单开着按 Esc：只关菜单，不关程序（按键在工具栏画出来之前处理）
+    #[test]
+    fn esc_closes_an_open_toolbar_menu_and_not_the_window() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        play_gif(&mut app);
+        let mut t = 0.0;
+        open_speed_menu(&mut app, &ctx, &mut t);
+        let esc = |pressed| egui::Event::Key { key: egui::Key::Escape, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE };
+        let cmds = pass(&mut app, &ctx, &mut t, vec![esc(true), esc(false)]);
+        assert!(!cmds.contains(&egui::ViewportCommand::Close));
+        assert!(!egui::Popup::is_any_open(&ctx), "Esc closed the menu");
+        // 没有菜单开着：Esc 照旧关程序
+        assert!(pass(&mut app, &ctx, &mut t, vec![esc(true), esc(false)]).contains(&egui::ViewportCommand::Close));
     }
 
     /// 先显示一条短提示，再显示一条长的：长的按自己的宽度排，不按上一条的宽度换行

@@ -124,7 +124,8 @@ impl App {
                 self.show_toast(crate::i18n::tr().rotate_cannot_save);
             }
         }
-        if k(none, Key::Escape) && !ctx.any_popup_open() {
+        // 菜单开着时 Esc 留给菜单（工具栏上的菜单在这之后才画，先吃掉这个键它就关不掉了）
+        if !super::popup_open(ctx) && k(none, Key::Escape) {
             if self.settings_page.is_some() {
                 // 设置在单独的窗口里、图片窗口在最前面时：先关设置，不关程序
                 self.close_settings();

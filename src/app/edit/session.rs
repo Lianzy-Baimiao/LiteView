@@ -94,6 +94,8 @@ impl App {
     pub(crate) fn edit_frame(&mut self, ui: &mut egui::Ui) {
         let Some(mut ed) = self.editor.take() else { return };
         let ctx = ui.ctx().clone();
+        // 什么都还没画：看 egui 记着的
+        ed.popup_was_open = crate::app::popup_open(&ctx);
         let p = theme::palette(&ctx);
         let bar = Frame::new().fill(p.surface).inner_margin(egui::Margin::symmetric(8, 0));
         egui::Panel::top("edit-toolbar").exact_size(48.0).resizable(false).frame(bar).show(ui, |ui| {
@@ -165,5 +167,46 @@ impl App {
         } else {
             self.dialog = Some(Dialog::ExitEdit { after });
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use egui::{Event, Modifiers, PointerButton, Pos2, RawInput, Rect, pos2, vec2};
+    use image::RgbaImage;
+
+    use super::{Doc, Editor, Source, Tool};
+    use crate::app::App;
+    use crate::settings::Settings;
+    use crate::viewer::loader::Loader;
+
+    /// 编辑模式的一帧；`menu` 时最后再画一个开着的菜单（像工具栏上的旋转、颜色菜单）。返回这一帧过后是不是在画
+    fn pass(app: &mut App, ctx: &egui::Context, events: Vec<Event>, menu: bool) -> bool {
+        let input = RawInput { screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1000.0, 700.0))), events, ..Default::default() };
+        let _ = ctx.run_ui(input, |ui| {
+            app.edit_frame(ui);
+            if menu {
+                egui::Popup::new(egui::Id::new("menu"), ui.ctx().clone(), pos2(20.0, 60.0), egui::LayerId::background()).open_memory(None).show(|ui| ui.label("…"));
+            }
+        });
+        app.editor.as_ref().is_some_and(|ed| ed.drag.is_some())
+    }
+
+    #[test]
+    fn the_click_that_closes_a_menu_does_not_draw_on_the_image() {
+        let ctx = egui::Context::default();
+        let settings = Settings { ask_default_app: false, ..Default::default() };
+        let mut app = App::new(settings, Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx);
+        let src = Source { path: "a.png".into(), clipboard: false, format: "PNG", file_size: 0, jpeg_quality: None, exif: None, canvas_icc: None, canvas_alpha: false };
+        app.editor = Some(Box::new(Editor::new(Doc::new(RgbaImage::new(400, 300), 100, 1 << 20), src, Tool::Pencil, Default::default())));
+        let at = pos2(500.0, 400.0);
+        let button = |pressed| Event::PointerButton { pos: at, button: PointerButton::Primary, pressed, modifiers: Modifiers::NONE };
+        egui::Popup::open_id(&ctx, egui::Id::new("menu"));
+        pass(&mut app, &ctx, vec![Event::PointerMoved(at)], true);
+        assert!(!pass(&mut app, &ctx, vec![button(true)], true), "the press only closes the menu");
+        pass(&mut app, &ctx, vec![button(false)], true);
+        assert!(!egui::Popup::is_any_open(&ctx), "closed by the click");
+        // 没有菜单开着：照常画
+        assert!(pass(&mut app, &ctx, vec![button(true)], false));
     }
 }

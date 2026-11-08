@@ -695,6 +695,13 @@ impl App {
     }
 }
 
+/// 有弹出菜单开着：egui 记着开着的（上一帧开着、还没关），或这一帧已经画出来的。
+/// 只看 `ctx.any_popup_open()` 不够：它只算这一帧已经画过的，在工具栏画出来之前问，工具栏上开着的比例、
+/// 播放速度菜单都算没开（鼠标往上移进菜单，工具栏就收起、菜单跟着没了；按 Esc 关菜单却关了程序）
+pub(crate) fn popup_open(ctx: &egui::Context) -> bool {
+    ctx.any_popup_open() || egui::Popup::is_any_open(ctx)
+}
+
 /// 窗口所在显示器的刷新率（只有 Windows 取得到）
 #[allow(unused_variables)]
 fn refresh_hz(hwnd: Option<isize>) -> Option<f32> {
@@ -786,9 +793,6 @@ impl App {
         self.start_pending_edit();
         self.start_pending_action();
         if self.editor.is_some() {
-            if let Some(ed) = &mut self.editor {
-                ed.popup_was_open = ctx.any_popup_open();
-            }
             self.edit_frame(ui);
         } else {
             self.canvas_ui(ui);
