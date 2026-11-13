@@ -287,12 +287,12 @@ impl App {
             (Dialog::AskDefault, Choice::Primary) => {
                 self.settings.ask_default_app = false;
                 self.open_settings(Some(super::settings_ui::Page::Assoc));
-                self.settings.save();
+                self.save_settings();
             }
             #[cfg(windows)]
             (Dialog::AskDefault, Choice::Secondary) => {
                 self.settings.ask_default_app = false;
-                self.settings.save();
+                self.save_settings();
             }
         }
     }

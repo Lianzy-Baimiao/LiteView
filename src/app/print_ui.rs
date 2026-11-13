@@ -264,7 +264,7 @@ impl App {
             Next::Close(toast) => {
                 if self.settings.print != d.s {
                     self.settings.print = d.s.clone();
-                    self.settings.save();
+                    self.save_settings();
                 }
                 if let Some(t) = toast {
                     self.show_toast(t);

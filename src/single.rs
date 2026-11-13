@@ -8,6 +8,8 @@
 //! - 管道一次只接一个连接，服务端接上一个就马上建下一个，客户端遇到「忙」就再试。
 //!
 //! 以前客户端只试一次：管道正忙（另一个进程刚连上）或先到的还没开好管道时，就自己再开一个窗口。
+//!
+//! 「设置 → 常规 → 多窗口模式」开着时（`single_instance` = false）不占标记、不开管道，每次都开新窗口。
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -34,7 +36,9 @@ fn decode(s: &str) -> Option<Request> {
 }
 
 fn user() -> String {
-    std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default().chars().filter(|c| c.is_alphanumeric()).collect()
+    let user: String = std::env::var("USERNAME").or_else(|_| std::env::var("USER")).unwrap_or_default().chars().filter(|c| c.is_alphanumeric()).collect();
+    // 单元测试用自己的管道和标记，碰不到正在运行的 LiteView
+    if cfg!(test) { format!("{user}test{}", std::process::id()) } else { user }
 }
 
 #[cfg(windows)]
@@ -94,6 +98,47 @@ fn claim_lock(path: &Path) -> bool {
         Err(_) => false,
     }
 }
+
+/// 运行中从多窗口换回单窗口：没有别的实例占着「在运行」的标记，就由这个进程占上、接收以后打开的图，返回 true。
+/// 别的实例占着时不留句柄：它关掉以后标记就没了，后来的进程不会空等这个不接收的窗口
+pub fn claim_if_free() -> bool {
+    #[cfg(windows)]
+    {
+        claim_mutex_if_free(&format!(r"Local\{}-running", instance()))
+    }
+    #[cfg(not(windows))]
+    {
+        claim_lock_if_free(&name().with_extension("lock"))
+    }
+}
+
+#[cfg(windows)]
+fn claim_mutex_if_free(name: &str) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, NO_ERROR, SetLastError};
+    use windows::Win32::System::Threading::CreateMutexW;
+    let n = crate::platform::windows::wide(std::ffi::OsStr::new(name));
+    unsafe {
+        SetLastError(NO_ERROR);
+        let Ok(h) = CreateMutexW(None, false, windows::core::PCWSTR(n.as_ptr())) else { return false };
+        if GetLastError() == ERROR_ALREADY_EXISTS {
+            let _ = CloseHandle(h);
+            return false;
+        }
+        // 和启动时占的一样，句柄留到进程退出
+        true
+    }
+}
+
+#[cfg(not(windows))]
+fn claim_lock_if_free(path: &Path) -> bool {
+    let Ok(f) = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(path) else { return false };
+    if f.try_lock().is_err() {
+        return false;
+    }
+    std::mem::forget(f);
+    true
+}
+
 /// 交给已经开着的实例；成功时本进程应直接退出。wait：管道还没开好、正忙时最多等多久（0 = 只试一次）
 pub fn send(r: &Request, wait: Duration) -> bool {
     send_to(&name(), r, wait)
@@ -321,5 +366,26 @@ mod tests {
         let claim = || claim_lock(&std::env::temp_dir().join(format!("lv-test-{}.lock", std::process::id())));
         assert!(!claim(), "first one runs");
         assert!(claim(), "the next one sees it");
+    }
+
+    #[test]
+    fn switching_back_to_one_window_only_claims_a_free_mark() {
+        #[cfg(windows)]
+        let (startup, later) = {
+            let name = format!(r"Local\liteview-test-{}-later", std::process::id());
+            let n2 = name.clone();
+            (move || claim_mutex(&name), move || claim_mutex_if_free(&n2))
+        };
+        #[cfg(not(windows))]
+        let (startup, later) = {
+            let path = std::env::temp_dir().join(format!("lv-test-{}-later.lock", std::process::id()));
+            let p2 = path.clone();
+            (move || claim_lock(&path), move || claim_lock_if_free(&p2))
+        };
+        // 没人占着：占上；再来一次（另一个窗口也换回单窗口）：已经有人占着，不占
+        assert!(later(), "free mark is taken");
+        assert!(!later(), "a taken mark is left alone");
+        // 之后启动的进程看得到它
+        assert!(startup());
     }
 }

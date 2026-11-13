@@ -2,7 +2,7 @@
 //! 位置：Windows `%APPDATA%\LiteView\`、macOS `~/Library/Application Support/LiteView/`、
 //! Linux `~/.config/liteview/`；绿色版存程序旁 `config`，MSIX 使用包的 LocalFolder。
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
@@ -368,16 +368,29 @@ impl Settings {
         }
     }
 
-    pub fn save(&self) {
-        let p = file();
+    /// 存设置。多窗口时几个 LiteView 共用这个文件：只把这个窗口改过的项（和 `base`，也就是上次读进来或存过的比）
+    /// 写进文件现在的内容，别的窗口存过的照留。以前整个覆盖：后关的窗口把先关的窗口改的设置（包括关掉多窗口）又改了回去。
+    /// 文件读不出来时整个写
+    pub fn save(&self, base: &Settings) {
+        self.save_to(&file(), base);
+    }
+
+    fn save_to(&self, p: &Path, base: &Settings) {
         if let Some(d) = p.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        let Ok(text) = serde_json::to_string_pretty(self) else { return };
+        // 读、合并、写回之间别的窗口不插进来
+        let _lock = save_lock(p);
+        let on_disk = std::fs::read_to_string(p).ok().and_then(|t| Self::parse(&t).ok()).map(|(s, _)| s);
+        let out = match on_disk {
+            Some(disk) if disk != *base => merge(&disk, base, self),
+            _ => self.clone(),
+        };
+        let Ok(text) = serde_json::to_string_pretty(&out) else { return };
         if p.exists() {
-            let _ = std::fs::copy(&p, p.with_extension("json.bak"));
+            let _ = std::fs::copy(p, p.with_extension("json.bak"));
         }
-        if let Err(e) = crate::fsutil::atomic_write(&p, |w| w.write_all(text.as_bytes())) {
+        if let Err(e) = crate::fsutil::atomic_write(p, |w| w.write_all(text.as_bytes())) {
             log::warn!("保存设置失败：{e}");
         }
     }
@@ -385,6 +398,55 @@ impl Settings {
 
 fn file() -> PathBuf {
     config_dir().join("settings.json")
+}
+
+/// 文件里现在的 disk 加上这个窗口改过的项（mine 和 base 不一样的）。对象一层层比，`window.pos` 和 `window.borderless`
+/// 各算一项；数组、数值整个算一项
+fn merge(disk: &Settings, base: &Settings, mine: &Settings) -> Settings {
+    let (Ok(mut d), Ok(b), Ok(m)) = (serde_json::to_value(disk), serde_json::to_value(base), serde_json::to_value(mine)) else { return mine.clone() };
+    apply_changes(&mut d, &b, &m);
+    serde_json::from_value(d).unwrap_or_else(|_| mine.clone())
+}
+
+fn apply_changes(disk: &mut serde_json::Value, base: &serde_json::Value, mine: &serde_json::Value) {
+    if base == mine {
+        return;
+    }
+    match (disk.as_object_mut(), base.as_object(), mine.as_object()) {
+        (Some(d), Some(b), Some(m)) => {
+            for (key, value) in m {
+                if let (Some(dv), Some(bv)) = (d.get_mut(key), b.get(key)) {
+                    apply_changes(dv, bv, value);
+                }
+            }
+        }
+        _ => *disk = mine.clone(),
+    }
+}
+
+/// 几个 LiteView 同时存设置时一个一个来（多窗口时一起关掉）。最多等 2 秒，等不到照样存
+#[cfg(windows)]
+fn save_lock(p: &Path) -> impl Sized {
+    // 按文件路径起名（FNV-1a，各版本算出来一样）：绿色版、安装版、商店版、测试各锁各的文件
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for b in p.to_string_lossy().to_lowercase().bytes() {
+        h = (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3);
+    }
+    crate::platform::windows::NamedLock::take(&format!("LiteView-settings-{h:016x}"), std::time::Duration::from_secs(2))
+}
+
+#[cfg(not(windows))]
+fn save_lock(p: &Path) -> Option<std::fs::File> {
+    let f = std::fs::OpenOptions::new().create(true).write(true).truncate(false).open(p.with_file_name(".settings.lock")).ok()?;
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        match f.try_lock() {
+            // 文件关掉时锁就放了
+            Ok(()) => return Some(f),
+            Err(std::fs::TryLockError::WouldBlock) if std::time::Instant::now() < deadline => std::thread::sleep(std::time::Duration::from_millis(10)),
+            Err(_) => return None,
+        }
+    }
 }
 
 /// 把用户的各项逐个放进默认设置（JSON 指针 `at` 处），放进去整个设置还能读才留下；对象往里一层层放（`window` 里一项错了，
@@ -512,5 +574,54 @@ mod tests {
         assert_eq!((o.key, o.desc), if cfg!(windows) { (SortKey::Name, false) } else { (SortKey::Size, true) });
         let fixed = Settings { sort_explorer: false, ..s }.order();
         assert_eq!((fixed.key, fixed.desc, fixed.explorer), (SortKey::Size, true, false));
+    }
+
+    /// 测试用的设置文件（每个测试一个目录）
+    fn temp_file(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("liteview-settings-{}-{name}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d.join("settings.json")
+    }
+
+    fn read(p: &Path) -> Settings {
+        Settings::parse(&std::fs::read_to_string(p).unwrap()).unwrap().0
+    }
+
+    #[test]
+    fn each_window_only_writes_what_it_changed() {
+        let p = temp_file("merge");
+        // 还没有文件：整个写
+        let start = Settings { single_instance: false, ..Settings::default() };
+        start.save_to(&p, &Settings::default());
+        assert_eq!(read(&p), start);
+        // 两个窗口都从这份设置开始。B 关掉多窗口、换成深色、开了无边框，先关
+        let b = Settings { single_instance: true, theme: ThemeMode::Dark, window: WindowState { borderless: true, ..start.window }, ..start.clone() };
+        b.save_to(&p, &start);
+        // A 只挪了窗口，后关：B 改的都还在，窗口位置和大小用 A 的
+        let a = Settings { window: WindowState { pos: Some([40.0, 30.0]), size: Some([900.0, 600.0]), ..start.window }, ..start.clone() };
+        a.save_to(&p, &start);
+        let saved = read(&p);
+        assert!(saved.single_instance);
+        assert_eq!(saved.theme, ThemeMode::Dark);
+        assert_eq!(saved.window, WindowState { pos: Some([40.0, 30.0]), size: Some([900.0, 600.0]), borderless: true, ..start.window });
+        // 两个窗口改了同一项：后存的算；A 上次存过的不再算 A 改的
+        let a2 = Settings { theme: ThemeMode::Light, ..a.clone() };
+        a2.save_to(&p, &a);
+        let saved = read(&p);
+        assert_eq!(saved.theme, ThemeMode::Light);
+        assert!(saved.single_instance && saved.window.borderless);
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
+    }
+
+    #[test]
+    fn an_unreadable_file_is_written_whole() {
+        let p = temp_file("broken");
+        std::fs::write(&p, "{ not json").unwrap();
+        let mine = Settings { jpeg_quality: 70, theme: ThemeMode::Dark, ..Settings::default() };
+        // 和 base 只差主题，但文件读不出来：整个写，JPEG 质量也在
+        mine.save_to(&p, &Settings { theme: ThemeMode::Light, ..mine.clone() });
+        assert_eq!(read(&p), mine);
+        let _ = std::fs::remove_dir_all(p.parent().unwrap());
     }
 }

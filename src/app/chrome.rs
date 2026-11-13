@@ -213,7 +213,7 @@ impl App {
         // 锁定缩放：窗口窄时也留着（没有快捷键）
         if widgets::icon_button_ex(ui, Icon::Lock, t.lock_zoom, "", true, self.settings.lock_zoom, None).clicked() {
             self.settings.lock_zoom = !self.settings.lock_zoom;
-            self.settings.save();
+            self.save_settings();
         }
         widgets::separator(ui);
         if widgets::icon_button(ui, Icon::RotateCw, t.rotate_cw, "Ctrl+R", has).clicked() {

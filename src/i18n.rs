@@ -165,6 +165,8 @@ strings! {
     s_frame_cap_off: "不限", "Off";
     s_frame_cap_hint: "只影响拖动、缩放、动图等连续画面，静止时不画。自动：高刷新率屏降到不低于 60 帧的均匀帧率（144 Hz → 72）", "Only affects continuous motion (drag, zoom, animations); nothing is drawn while idle. Auto: high-refresh screens use an even rate of at least 60 fps (144 Hz → 72)";
     s_wrap: "到最后一张后回到第一张", "Wrap around at the end of the folder";
+    s_multi_window: "多窗口模式", "Multiple windows";
+    s_multi_window_hint: "打开图片文件时每次开一个新窗口，可以同时看几张；关掉时都在已经开着的窗口里打开", "Each image file you open gets its own window, so you can view several at once. When off, they open in the window that's already open.";
     s_fit: "打开时", "When opening";
     s_fit_fit: "适应窗口", "Fit to window";
     s_fit_actual: "原始大小", "Actual size";

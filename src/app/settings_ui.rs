@@ -149,7 +149,7 @@ impl App {
     /// 关掉设置：存一次
     pub(crate) fn close_settings(&mut self) {
         self.settings_page = None;
-        self.settings.save();
+        self.save_settings();
     }
 
     /// 左边分类、右边内容（可滚动），w × h 点
@@ -227,6 +227,10 @@ impl App {
                 ui.add_space(6.0);
                 widgets::checkbox(ui, &mut s.confirm_delete, t.s_confirm_delete);
                 widgets::checkbox(ui, &mut s.wrap_around, t.s_wrap);
+                let mut multi = !s.single_instance;
+                widgets::checkbox(ui, &mut multi, t.s_multi_window);
+                s.single_instance = !multi;
+                ui.label(RichText::new(t.s_multi_window_hint).size(12.0).color(theme::palette(ui.ctx()).text_weak));
             }
             Page::View => {
                 row(ui, t.s_fit, |ui| choose(ui, &mut s.fit_mode, &[(FitMode::Fit, t.s_fit_fit), (FitMode::Actual, t.s_fit_actual), (FitMode::FitWidth, t.s_fit_width)]));
@@ -369,6 +373,14 @@ impl App {
                 self.folder.rescan(order, Some(ctx.clone()));
             } else {
                 self.folder.resort(order);
+            }
+        }
+        if self.settings.single_instance != before.single_instance {
+            // 之后打开的图片是新进程按文件里的设置决定开不开新窗口：马上存，不等关掉设置
+            self.save_settings();
+            // 换回单窗口：没有别的窗口在接收，就由这个窗口接收
+            if self.settings.single_instance {
+                self.serve_others(ctx, true);
             }
         }
     }

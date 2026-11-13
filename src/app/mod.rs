@@ -111,6 +111,10 @@ pub(crate) enum Dialog {
 
 pub struct App {
     pub(crate) settings: Settings,
+    /// 上次读进来或存过的设置：存的时候只写和它不一样的项（多窗口时别的窗口存过的照留）
+    saved_settings: Settings,
+    /// 在接收别的实例转来的图片（单窗口模式）
+    serving: bool,
     pub(crate) loader: Loader,
     pub(crate) folder: Folder,
     pub(crate) cur: Option<Current>,
@@ -304,9 +308,14 @@ fn run_windows(mut parts: Option<(Settings, Loader, crate::cli::Args)>, guard: &
         None => crate::startup::order(crate::gpu::preferred(), guard.failed()),
     };
     let Some((settings, ..)) = parts.as_ref() else { return Ok(()) };
-    let (builder, centered) = (viewport(settings), settings.window.pos.is_none());
+    let place = host::Place {
+        centered: settings.window.pos.is_none(),
+        // 多窗口：和别的 LiteView 窗口错开（最大化的本来就叠在一起）
+        cascade: !settings.single_instance && !settings.window.maximized,
+    };
+    let builder = viewport(settings);
     log::info!("启动 {:.0} ms：创建窗口", crate::platform::ms_since_process_start());
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host::run(builder, centered, renderers, guard, |ctx| create(&mut parts, ctx))));
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| host::run(builder, place, renderers, guard, |ctx| create(&mut parts, ctx))));
     let created = parts.is_none();
     let error = match result {
         Ok(host::Outcome::Closed) => return Ok(()),
@@ -452,6 +461,8 @@ impl App {
         let (tx, rx) = channel();
         let window = settings.window;
         let mut app = Self {
+            saved_settings: settings.clone(),
+            serving: false,
             settings,
             loader,
             folder: Folder::empty(),
@@ -552,16 +563,32 @@ impl App {
             1 => ctx.request_repaint(),
             2 => {
                 crate::startup::confirm();
+                // 「在运行」的标记启动时已经占了
                 if self.settings.single_instance {
-                    let (tx, ctx2) = (self.tx.clone(), ctx.clone());
-                    crate::single::serve(move |r| {
-                        let _ = tx.send(Notice::Remote(r));
-                        ctx2.request_repaint();
-                    });
+                    self.serve_others(ctx, false);
                 }
             }
             _ => {}
         }
+    }
+
+    /// 接收别的实例转来的图片。claim：运行中从多窗口换回单窗口时，没有别的窗口在接收才由这个窗口接收
+    pub(crate) fn serve_others(&mut self, ctx: &egui::Context, claim: bool) {
+        if self.serving || (claim && !crate::single::claim_if_free()) {
+            return;
+        }
+        self.serving = true;
+        let (tx, ctx2) = (self.tx.clone(), ctx.clone());
+        crate::single::serve(move |r| {
+            let _ = tx.send(Notice::Remote(r));
+            ctx2.request_repaint();
+        });
+    }
+
+    /// 存设置：只写这个窗口改过的项
+    pub(crate) fn save_settings(&mut self) {
+        self.settings.save(&self.saved_settings);
+        self.saved_settings = self.settings.clone();
     }
 
     fn poll_notices(&mut self, ctx: &egui::Context) {
@@ -841,7 +868,7 @@ impl App {
     /// 窗口关闭：存设置
     pub(crate) fn exit(&mut self) {
         log::debug!("退出：共画了 {} 帧", self.ctx.cumulative_frame_nr());
-        self.settings.save();
+        self.save_settings();
     }
 
     /// 清屏颜色（gamma 空间）
@@ -871,5 +898,39 @@ mod tests {
         for key in [egui::Key::Equals, egui::Key::Plus, egui::Key::Minus, egui::Key::Num0] {
             assert_eq!(zoom_after(&ctx, key), 1.0, "{key:?}");
         }
+    }
+
+    /// 开着几个窗口时关掉多窗口：之后打开的图交给关掉它的这个窗口；已经有窗口在接收时，后关掉的窗口不抢
+    /// （单元测试的管道和标记带进程号，碰不到正在运行的 LiteView）
+    #[test]
+    fn turning_multiple_windows_off_makes_this_window_take_the_next_images() {
+        use std::time::{Duration, Instant};
+        let ctx = egui::Context::default();
+        let new_app = || {
+            let s = crate::settings::Settings { single_instance: false, ask_default_app: false, ..Default::default() };
+            super::App::new(s, crate::viewer::loader::Loader::new(0, crate::decode::Options::default(), 1 << 20), Default::default(), &ctx)
+        };
+        let switch_off = |app: &mut super::App| {
+            let before = app.settings.clone();
+            app.settings.single_instance = true;
+            app.apply_settings(&ctx, &before);
+        };
+        let mut a = new_app();
+        switch_off(&mut a);
+        assert!(a.serving);
+        let path = std::path::Path::new("/d/next.png");
+        assert!(crate::single::send(&crate::single::request(path, false, false), Duration::from_secs(3)));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        let got = loop {
+            match a.rx.try_recv() {
+                Ok(super::Notice::Remote(r)) => break Some(r.path),
+                _ if Instant::now() < deadline => std::thread::sleep(Duration::from_millis(10)),
+                _ => break None,
+            }
+        };
+        assert_eq!(got.as_deref(), Some(path));
+        let mut b = new_app();
+        switch_off(&mut b);
+        assert!(!b.serving, "the first window already takes the images");
     }
 }

@@ -280,6 +280,107 @@ pub fn set_window_rect(hwnd: isize, r: (i32, i32, i32, i32)) {
     let _ = unsafe { SetWindowPos(HWND(hwnd as *mut core::ffi::c_void), None, r.0, r.1, r.2 - r.0, r.3 - r.1, SWP_NOZORDER | SWP_NOACTIVATE) };
 }
 
+/// 几个进程之间的锁（`Local\name` 命名互斥体，同一登录会话里按名字认）。拿到了或等过 wait 才返回，Drop 时放掉
+pub struct NamedLock(Option<windows::Win32::Foundation::HANDLE>);
+
+impl NamedLock {
+    pub fn take(name: &str, wait: std::time::Duration) -> Self {
+        use windows::Win32::Foundation::{CloseHandle, WAIT_ABANDONED, WAIT_OBJECT_0};
+        use windows::Win32::System::Threading::{CreateMutexW, WaitForSingleObject};
+        let n = wide(std::ffi::OsStr::new(&format!(r"Local\{name}")));
+        let Ok(h) = (unsafe { CreateMutexW(None, false, PCWSTR(n.as_ptr())) }) else { return Self(None) };
+        // 拿着它的进程没放就退出了（WAIT_ABANDONED）：也算拿到
+        let got = unsafe { WaitForSingleObject(h, u32::try_from(wait.as_millis()).unwrap_or(u32::MAX)) };
+        if got == WAIT_OBJECT_0 || got == WAIT_ABANDONED {
+            return Self(Some(h));
+        }
+        let _ = unsafe { CloseHandle(h) };
+        Self(None)
+    }
+}
+
+impl Drop for NamedLock {
+    fn drop(&mut self) {
+        use windows::Win32::Foundation::CloseHandle;
+        use windows::Win32::System::Threading::ReleaseMutex;
+        if let Some(h) = self.0.take() {
+            unsafe {
+                let _ = ReleaseMutex(h);
+                let _ = CloseHandle(h);
+            }
+        }
+    }
+}
+
+/// 多窗口时新开的窗口（还没显示）：左上角和另一个 LiteView 图片窗口挨着（横竖都差不到半步）就往右下错开 step 物理像素，
+/// 免得正好盖住它、看着像没开新窗口。另一个窗口 = 别的进程的、窗口类相同、标题以 suffix 结尾、没最小化的窗口；
+/// 还没显示的也算（同时打开几张时，别的进程刚建好的窗口也占着位置）。几个进程一个一个来，前一个挪好了下一个才看
+pub fn cascade(hwnd: isize, suffix: &str, step: i32) {
+    let me = std::process::id();
+    cascade_among(hwnd, suffix, step, |_, pid| pid != me);
+}
+
+fn cascade_among(hwnd: isize, suffix: &str, step: i32, other: impl Fn(HWND, u32) -> bool) {
+    use windows::Win32::Foundation::LPARAM;
+    use windows::Win32::UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsIconic, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SetWindowPos};
+    struct Find<'a> {
+        class: Vec<u16>,
+        suffix: &'a str,
+        other: &'a dyn Fn(HWND, u32) -> bool,
+        found: Vec<(i32, i32)>,
+    }
+    fn class_of(h: HWND) -> Vec<u16> {
+        let mut buf = [0u16; 256];
+        let n = unsafe { GetClassNameW(h, &mut buf) };
+        buf[..n.max(0) as usize].to_vec()
+    }
+    unsafe extern "system" fn each(h: HWND, lp: LPARAM) -> windows::core::BOOL {
+        let f = unsafe { &mut *(lp.0 as *mut Find) };
+        let mut pid = 0u32;
+        unsafe { GetWindowThreadProcessId(h, Some(&raw mut pid)) };
+        if !(f.other)(h, pid) || unsafe { IsIconic(h) }.as_bool() {
+            return true.into();
+        }
+        // 别的进程的窗口：系统直接给标题，不往那个窗口发消息（卡住的窗口也不会把这里卡住）
+        let mut title = [0u16; 512];
+        let n = unsafe { GetWindowTextW(h, &mut title) };
+        if String::from_utf16_lossy(&title[..n.max(0) as usize]).ends_with(f.suffix)
+            && class_of(h) == f.class
+            && let Some(r) = window_rect(h.0 as isize)
+        {
+            f.found.push((r.0, r.1));
+        }
+        true.into()
+    }
+    let h = HWND(hwnd as *mut core::ffi::c_void);
+    let _lock = NamedLock::take("LiteView-cascade", std::time::Duration::from_secs(1));
+    let (Some(r), Some(work)) = (window_rect(hwnd), work_area(hwnd)) else { return };
+    let mut find = Find { class: class_of(h), suffix, other: &other, found: Vec::new() };
+    let _ = unsafe { EnumWindows(Some(each), LPARAM(&raw mut find as isize)) };
+    let at = cascade_pos((r.0, r.1), (r.2 - r.0, r.3 - r.1), &find.found, work, step);
+    if at != (r.0, r.1) {
+        let _ = unsafe { SetWindowPos(h, None, at.0, at.1, 0, 0, SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE) };
+    }
+}
+
+/// 新窗口的左上角：从 at 开始，跟 others 里哪个左上角横竖都差不到半步，就往右下错开一步；右边或下边出了工作区
+/// （左上右下）就回到工作区左上角接着排。最多排 64 次，都占满了就放在最后试的位置
+pub(crate) fn cascade_pos(at: (i32, i32), size: (i32, i32), others: &[(i32, i32)], work: (i32, i32, i32, i32), step: i32) -> (i32, i32) {
+    let step = step.max(2);
+    let taken = |p: (i32, i32)| others.iter().any(|o| (o.0 - p.0).abs() * 2 < step && (o.1 - p.1).abs() * 2 < step);
+    let mut p = at;
+    for _ in 0..64 {
+        if !taken(p) {
+            break;
+        }
+        p = (p.0 + step, p.1 + step);
+        if p.0 + size.0 > work.2 || p.1 + size.1 > work.3 {
+            p = (work.0, work.1);
+        }
+    }
+    p
+}
+
 /// 拖窗口边缘改大小时保持这个宽高比（0 = 不管）。无边框、窗口跟着图片时用
 pub fn set_resize_aspect(aspect: f32) {
     aspect::RATIO.store(aspect.to_bits(), std::sync::atomic::Ordering::Relaxed);
@@ -445,6 +546,10 @@ mod tests {
         assert_eq!(fit_aspect((0, 0, 800, 300), 5, 2.0), (0, -100, 800, 300));
     }
 
+    /// 建真窗口的测试一个一个来：建 winit 的事件循环时整个进程换成按每个显示器缩放，别的测试读窗口位置读到一半，
+    /// 坐标就从 96 DPI 的变成实际像素
+    static REAL_WINDOWS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     /// 真的 winit 窗口收 WM_DPICHANGED（换成另一个缩放）：没接时 winit 用自己算的矩形，接上后用系统给的
     #[test]
     fn dpi_change_takes_the_rect_windows_suggests() {
@@ -456,6 +561,7 @@ mod tests {
         use winit::event_loop::{ActiveEventLoop, EventLoop};
         use winit::platform::windows::EventLoopBuilderExtWindows;
         use winit::window::{Window, WindowId};
+        let _one_at_a_time = REAL_WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
 
         // 故意和「保持逻辑大小」算出来的不一样
         const S1: RECT = RECT { left: 130, top: 120, right: 907, bottom: 675 };
@@ -507,5 +613,54 @@ mod tests {
         assert_eq!(hooked, S2);
         // 这条失败 = winit 自己已经用系统给的矩形了，可以删掉 use_system_dpi_rect
         assert_ne!(unhooked, S1, "winit now applies the suggested rect itself");
+    }
+
+    #[test]
+    fn a_new_window_steps_off_the_ones_already_there() {
+        use super::cascade_pos;
+        let (work, size) = ((0, 0, 1920, 1040), (800, 600));
+        // 没有别的窗口、别的窗口离得远：不动
+        assert_eq!(cascade_pos((100, 100), size, &[], work, 32), (100, 100));
+        assert_eq!(cascade_pos((100, 100), size, &[(500, 300)], work, 32), (100, 100));
+        // 正好盖住、只差几个像素：错开一步；前两个位置都有窗口：错开两步
+        assert_eq!(cascade_pos((100, 100), size, &[(100, 100)], work, 32), (132, 132));
+        assert_eq!(cascade_pos((100, 100), size, &[(110, 95)], work, 32), (132, 132));
+        assert_eq!(cascade_pos((100, 100), size, &[(132, 132), (100, 100)], work, 32), (164, 164));
+        // 再错开就出了工作区：回到左上角接着排
+        assert_eq!(cascade_pos((1100, 420), size, &[(1100, 420)], work, 32), (0, 0));
+        assert_eq!(cascade_pos((1100, 420), size, &[(1100, 420), (0, 0)], work, 32), (32, 32));
+        // 窗口比工作区还大、到处都有窗口：排一阵就停
+        let everywhere: Vec<_> = (0..80).map(|i| (i * 32, i * 32)).collect();
+        assert_eq!(cascade_pos((0, 0), (3000, 2000), &[(0, 0)], work, 32), (0, 0));
+        let _ = cascade_pos((0, 0), size, &everywhere, work, 32);
+    }
+
+    /// 真的窗口（都没显示）：新窗口建在另一个窗口的位置上，错开到空着的位置；标题结尾或窗口类不一样的不算
+    #[test]
+    fn cascade_moves_a_hidden_window_off_the_others() {
+        use windows::Win32::Foundation::HWND;
+        use windows::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, WINDOW_EX_STYLE, WS_OVERLAPPEDWINDOW};
+        use windows::core::{PCWSTR, w};
+        let _one_at_a_time = REAL_WINDOWS.lock().unwrap_or_else(|e| e.into_inner());
+        let suffix = format!("LiteViewTest{}", std::process::id());
+        let make = |class: PCWSTR, title: &str, x: i32, y: i32| {
+            let t = super::wide(std::ffi::OsStr::new(title));
+            unsafe { CreateWindowExW(WINDOW_EX_STYLE(0), class, PCWSTR(t.as_ptr()), WS_OVERLAPPEDWINDOW, x, y, 320, 240, None, None, None, None) }.unwrap()
+        };
+        let windows: Vec<HWND> = vec![
+            make(w!("STATIC"), &format!("a - {suffix}"), 100, 100),
+            make(w!("STATIC"), &format!("b - {suffix}"), 132, 132),
+            make(w!("STATIC"), "other program", 164, 164),
+            make(w!("BUTTON"), &format!("d - {suffix}"), 164, 164),
+            make(w!("STATIC"), &format!("new - {suffix}"), 100, 100),
+        ];
+        let new = windows[4];
+        let me = std::process::id();
+        super::cascade_among(new.0 as isize, &suffix, 32, |h, pid| pid == me && h != new);
+        let r = super::window_rect(new.0 as isize).unwrap();
+        for h in windows {
+            let _ = unsafe { DestroyWindow(h) };
+        }
+        assert_eq!((r.0, r.1), (164, 164));
     }
 }

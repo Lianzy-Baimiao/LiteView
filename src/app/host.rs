@@ -18,6 +18,8 @@ use crate::platform::d3d11::{Driver, Painter};
 
 /// 最小化时连续重绘的间隔（看不见，只让逻辑往前走）
 const HIDDEN_REPAINT: Duration = Duration::from_millis(100);
+/// 多窗口时新窗口和别的窗口错开多少（点，约一个标题栏高）
+const CASCADE_STEP: f64 = 32.0;
 
 #[derive(Debug)]
 pub enum UserEvent {
@@ -274,9 +276,18 @@ fn settings_title() -> String {
     format!("{} {}", t.app_name, t.settings)
 }
 
+/// 窗口放在哪
+#[derive(Clone, Copy)]
+pub struct Place {
+    /// 没有记下的位置：放在主屏中间
+    pub centered: bool,
+    /// 和别的 LiteView 窗口错开（多窗口）
+    pub cascade: bool,
+}
+
 struct Host<'a, F: FnOnce(&egui::Context) -> App> {
     builder: ViewportBuilder,
-    centered: bool,
+    place: Place,
     renderers: Vec<&'static str>,
     guard: &'a mut crate::startup::Guard,
     create: Option<F>,
@@ -288,13 +299,13 @@ struct Host<'a, F: FnOnce(&egui::Context) -> App> {
 }
 
 /// 建窗口、按顺序试 renderers（"d3d11" / "warp"），然后跑到窗口关闭
-pub fn run(builder: ViewportBuilder, centered: bool, renderers: Vec<&'static str>, guard: &mut crate::startup::Guard, create: impl FnOnce(&egui::Context) -> App) -> Outcome {
+pub fn run(builder: ViewportBuilder, place: Place, renderers: Vec<&'static str>, guard: &mut crate::startup::Guard, create: impl FnOnce(&egui::Context) -> App) -> Outcome {
     let event_loop = match EventLoop::<UserEvent>::with_user_event().build() {
         Ok(l) => l,
         Err(e) => return Outcome::NoRenderer(format!("event loop: {e}")),
     };
     let proxy = event_loop.create_proxy();
-    let mut host = Host { builder, centered, renderers, guard, create: Some(create), proxy, running: None, next_repaint: None, close: false, outcome: None };
+    let mut host = Host { builder, place, renderers, guard, create: Some(create), proxy, running: None, next_repaint: None, close: false, outcome: None };
     if let Err(e) = event_loop.run_app(&mut host) {
         return host.outcome.unwrap_or(Outcome::Failed(format!("event loop: {e}")));
     }
@@ -346,7 +357,7 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         if let Some(size) = builder.inner_size {
             builder = builder.with_inner_size(size.min(largest_monitor_points(event_loop)));
         }
-        if self.centered
+        if self.place.centered
             && let Some(mon) = event_loop.primary_monitor().or_else(|| event_loop.available_monitors().next())
         {
             let m = mon.size().to_logical::<f32>(mon.scale_factor());
@@ -361,6 +372,10 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         let composited = borderless && crate::platform::d3d11::composition_available();
         let window = Arc::new(create_window(&ctx, event_loop, &builder, composited).map_err(|e| format!("create window: {e}"))?);
         let hwnd = hwnd(&window).ok_or("no HWND")?;
+        // 窗口还没显示，看不到挪动
+        if self.place.cascade {
+            crate::platform::windows::cascade(hwnd.0 as isize, crate::i18n::tr().app_name, (CASCADE_STEP * window.scale_factor()).round() as i32);
+        }
         crate::platform::windows::use_system_dpi_rect(hwnd.0 as isize);
         crate::platform::windows::keep_resize_aspect(hwnd.0 as isize);
         let mut last = String::new();
