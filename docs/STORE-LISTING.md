@@ -2,6 +2,14 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
+## 1.11.0.0 更新（2026-11-14 提交认证）
+
+- 包：`LiteView-store-1.11.0.0-x64.msix`，SHA-256 `ea6c33fb39fd4a16a770280eb48f390ab045f5eeaf82cc893df8c100b8d81453`，取自 [Release 运行 43487138673](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/43487138673)（标签 v1.11.0）的 `Store-submission-x64` artifact。该运行的四平台构建、Windows 安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过。
+- 本地核对：身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.11.0.0 / x64，没有测试签名。包内 EXE 的 SHA-256 是 `3d380248f19f8ef2cc449d80c042888a0d16a37823641bf8a7a0beb10cb136ac`，与 [GitHub v1.11.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.11.0) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `19862e6cee990541e5f9d0980638af27ed47d273dde471761f0cfdec52db5ecc` 已与公开 `SHA256SUMS.txt` 核对。
+- 提交：Submission 17 **1152921505702400119** 的新包已上传、保存并显示 `Validated`，1.10.1.0 随保存从草稿中移除；设备仍只勾选 Windows 10/11 Desktop，未开启逐步推出或强制更新。使用 Codex 内置浏览器接续这个草稿，补齐英文说明；中英文“此版本的新增功能”均重新打开逐字核对一致（143 / 497 字符）。
+- 送审：提交选项沿用“通过认证后立即发布”和原有 runFullTrust 用途说明（458 字符）。北京时间 2026-11-14 04:35 提交，后台显示**“正在认证更新”**、Submission 17 正在认证，提交步骤完成、预处理进行中，并写明“产品在通过认证后立即开始发布”。此时商店仍为 Submission 16（1.10.1.0）；1.11.0.0 尚未核实通过认证或上架。
+- 证据保存在忽略目录 `dist/store-1.11.0-submission/`：`SUBMISSION.md`、`submission-receipt.json`、`submitted.jpg`、`submitted-state.txt`、原有上传及保存截图、两种语言的文案和 `verified-artifacts.json`。本次已完成送审，不要重复上传、取消认证或重建 Submission 17。
+
 ## 1.10.1.0 更新（2026-11-09 提交认证，2026-11-14 核实已上架）
 
 - 包：`LiteView-store-1.10.1.0-x64.msix`，SHA-256 `4d339360b0069e7baaf63fb7b94ded7d862beda41a0823438b633b8aa3efac98`，取自 [Release 运行 42522791310](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/42522791310)（标签 v1.10.1）的 `Store-submission-x64` artifact。该运行一次通过，Windows 安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过。
