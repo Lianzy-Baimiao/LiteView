@@ -2,7 +2,7 @@
 
 从 `TODO.md` 移出来的已完成事项，按时间从新到旧。里面的数字和结论都是当时的版本与环境（例如 M0 时 Windows 还用 wgpu，v1.2.0 起改用 Direct3D 11），不代表现状。用户能看到的变化见 [更新日志](CHANGELOG.md) 与各版本的 GitHub Release 说明。
 
-## 2026-11-14 多窗口模式
+## 2026-11-14 多窗口模式（v1.11.0）
 
 [#8](https://github.com/Lianzy-Baimiao/LiteView/issues/8)：希望设置里加「多窗口模式」，打开后能运行多个实例，每张图片在自己的窗口里看。
 

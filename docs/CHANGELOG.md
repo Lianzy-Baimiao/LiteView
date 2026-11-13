@@ -2,6 +2,12 @@
 
 各版本用户能看到的变化，新的在前。完整的发布说明（下载、校验、已知限制）见各版本的 [GitHub Release](https://github.com/Lianzy-Baimiao/LiteView/releases)。发新版时加到这里最上面；README 只放这个文件的链接。
 
+## [v1.11.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.11.0)（2026-11-14）
+
+- 「设置 → 常规」新增「多窗口模式」（默认关）：打开后每打开一个图片文件都开一个新窗口，可以同时看几张（[#8](https://github.com/Lianzy-Baimiao/LiteView/issues/8)）；关着时照旧都在已经开着的窗口里打开。改了马上生效；开着几个窗口时在其中一个里关掉，之后打开的图交给这个窗口。
+- 多窗口时新窗口往右下错开一点（Windows），不会正好盖住前一个；在资源管理器里多选几张回车也一样。
+- 开着几个窗口时，各个窗口改的设置都会保留：关窗口时只存这个窗口改过的项，不再把别的窗口改的设置（包括关掉多窗口）改回去。
+
 ## [v1.10.1](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.10.1)（2026-11-09）
 
 - 修复动图播放时点开播放速度菜单，鼠标一移上去菜单就消失的问题（[#7](https://github.com/Lianzy-Baimiao/LiteView/issues/7)）。工具栏的比例菜单也一样：往上移到 25% 这些预设上，不再连工具栏一起收起。
