@@ -820,6 +820,11 @@ mod tests {
 
     /// 真桌面上看得见的置顶窗口（不抢焦点、不进任务栏），没有背景画刷（与 winit 的窗口类一样）
     fn shown_window(x: i32, y: i32, w: i32, h: i32) -> HWND {
+        shown_window_ex(x, y, w, h, false)
+    }
+
+    /// no_gdi_layer = 没有 GDI 那层（WS_EX_NOREDIRECTIONBITMAP，程序里能透明的窗口都这样建）
+    fn shown_window_ex(x: i32, y: i32, w: i32, h: i32, no_gdi_layer: bool) -> HWND {
         use windows::Win32::Foundation::{LPARAM, LRESULT, WPARAM};
         use windows::Win32::UI::WindowsAndMessaging::*;
         unsafe extern "system" fn proc(h: HWND, m: u32, w: WPARAM, l: LPARAM) -> LRESULT {
@@ -828,7 +833,7 @@ mod tests {
         let class = windows::core::w!("LiteViewSeeThroughTest");
         let wc = WNDCLASSW { lpfnWndProc: Some(proc), lpszClassName: class, ..Default::default() };
         unsafe { RegisterClassW(&wc) };
-        let ex = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW;
+        let ex = WS_EX_TOPMOST | WS_EX_NOACTIVATE | WS_EX_TOOLWINDOW | if no_gdi_layer { WS_EX_NOREDIRECTIONBITMAP } else { WINDOW_EX_STYLE(0) };
         let hwnd = unsafe { CreateWindowExW(ex, class, windows::core::PCWSTR::null(), WS_POPUP, x, y, w, h, None, None, None, None) }.unwrap();
         unsafe {
             let _ = SetWindowPos(hwnd, Some(HWND_TOPMOST), x, y, w, h, SWP_NOACTIVATE | SWP_SHOWWINDOW);
@@ -848,6 +853,12 @@ mod tests {
     }
 
     /// 屏幕上（DWM 合成之后）的颜色；CAPTUREBLT 才包括分层窗口
+    /// 坐标按真实像素算，每块屏幕各算各的（屏幕缩放不一样时，只按主屏算的进程在别的屏幕上坐标是换算过的，读不到自己的窗口）
+    fn real_pixels() {
+        use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
+        let _ = unsafe { SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+    }
+
     fn screen_pixel(x: i32, y: i32) -> [u8; 3] {
         use windows::Win32::Graphics::Gdi::*;
         unsafe {
@@ -883,10 +894,8 @@ mod tests {
     #[test]
     #[ignore]
     fn see_through_window_shows_what_is_behind() {
-        use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, SetProcessDPIAware};
-        unsafe {
-            let _ = SetProcessDPIAware();
-        }
+        use windows::Win32::UI::WindowsAndMessaging::DestroyWindow;
+        real_pixels();
         let at = std::env::var("LITEVIEW_TEST_AT").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))));
         let ((x, y), s) = (at.unwrap_or((200, 200)), 120);
         let settle = || {
@@ -918,6 +927,81 @@ mod tests {
                 println!("{driver:?} step {step}: back {outside:?} corner {corner:?} (want {want_corner:?}) center {center:?} (want {want:?})");
                 if outside != [255, 0, 255] || corner != want_corner || center != want {
                     failures.push(format!("{driver:?} step {step}: corner {corner:?} center {center:?}"));
+                }
+            }
+            drop(front);
+            drop(back);
+            unsafe {
+                let _ = DestroyWindow(front_hwnd);
+                let _ = DestroyWindow(back_hwnd);
+            }
+        }
+        assert!(failures.is_empty(), "{failures:?}");
+    }
+
+    /// 浮动工具栏的小窗口靠这个：能透明的窗口（`new_composited`）设了窗口区域（`set_window_region`）以后，区域里照常画、
+    /// 照常透明，区域外不属于它（屏幕上是后面的窗口，鼠标点过去也落在后面的窗口上）；换区域、再画都跟得上。
+    /// 要真桌面，平时不跑，用法同上：`cargo test --release --lib window_region -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn a_window_region_cuts_a_composited_window() {
+        use windows::Win32::Foundation::POINT;
+        use windows::Win32::UI::WindowsAndMessaging::{DestroyWindow, WindowFromPoint};
+        real_pixels();
+        let at = std::env::var("LITEVIEW_TEST_AT").ok().and_then(|v| v.split_once(',').and_then(|(x, y)| Some((x.trim().parse().ok()?, y.trim().parse().ok()?))));
+        let ((x, y), s) = (at.unwrap_or((200, 200)), 120);
+        let settle = || {
+            for _ in 0..20 {
+                pump();
+                let _ = unsafe { windows::Win32::Graphics::Dwm::DwmFlush() };
+            }
+            std::thread::sleep(std::time::Duration::from_millis(120));
+        };
+        let mut failures = Vec::new();
+        for driver in [Driver::Hardware, Driver::Warp] {
+            let back_hwnd = shown_window(x - 20, y - 20, s + 40, s + 40);
+            let front_hwnd = shown_window_ex(x, y, s, s, true);
+            let mut back = Painter::new(back_hwnd, driver, [(s + 40) as u32; 2]).unwrap();
+            let mut front = Painter::new_composited(front_hwnd, driver, [s as u32; 2]).unwrap();
+            assert!(front.composited(), "{driver:?}: system composition unavailable");
+            crate::platform::windows::set_see_through(front_hwnd.0 as isize, true);
+            let at_point = |px: i32, py: i32| unsafe { WindowFromPoint(POINT { x: px, y: py }) };
+            // 方块占中间一半（30..90）。三个点：左半的方块里、右半的方块里、左上角（方块外，透明）
+            let (left, right, corner) = ((x + 45, y + 60), (x + 75, y + 60), (x + 5, y + 5));
+            // (区域, 方块的颜色, 右半那个点在不在区域里)
+            let whole = (0, 0, s, s);
+            let left_half = (0, 0, s / 2, s);
+            let two = [(0, 0, s / 2, s / 2), (s / 2, s / 2, s, s)];
+            type Px = (i32, i32, i32, i32);
+            let steps: [(&[Px], Color32, bool, bool); 5] = [
+                (&[], Color32::GREEN, true, true),
+                (std::slice::from_ref(&left_half), Color32::BLUE, true, false),
+                (&two, Color32::YELLOW, false, true),
+                (std::slice::from_ref(&whole), Color32::RED, true, true),
+                (std::slice::from_ref(&left_half), Color32::GREEN, true, false),
+            ];
+            for (step, (region, color, left_in, right_in)) in steps.into_iter().enumerate() {
+                back.paint([1.0, 0.0, 1.0, 1.0], 1.0, &[], &TexturesDelta::default(), false).unwrap();
+                let (mut delta, prims) = square(s, color);
+                front.paint([0.0; 4], 1.0, &prims, &delta, false).unwrap();
+                delta.clear();
+                crate::platform::windows::set_window_region(front_hwnd.0 as isize, region);
+                settle();
+                let want = [color.r(), color.g(), color.b()];
+                let magenta = [255, 0, 255];
+                for (name, p, inside) in [("left", left, left_in), ("right", right, right_in)] {
+                    let (pixel, hit) = (screen_pixel(p.0, p.1), at_point(p.0, p.1));
+                    let (want_pixel, want_hit) = if inside { (want, front_hwnd) } else { (magenta, back_hwnd) };
+                    println!("{driver:?} step {step} {name}: pixel {pixel:?} (want {want_pixel:?}) hit front {} (want {})", hit == front_hwnd, want_hit == front_hwnd);
+                    if pixel != want_pixel || hit != want_hit {
+                        failures.push(format!("{driver:?} step {step} {name}: pixel {pixel:?} hit front {}", hit == front_hwnd));
+                    }
+                }
+                // 透明的角：看得见后面；在区域里时点击还是落在它上面
+                let pixel = screen_pixel(corner.0, corner.1);
+                println!("{driver:?} step {step} corner: pixel {pixel:?} hit front {}", at_point(corner.0, corner.1) == front_hwnd);
+                if pixel != magenta {
+                    failures.push(format!("{driver:?} step {step} corner: pixel {pixel:?}"));
                 }
             }
             drop(front);

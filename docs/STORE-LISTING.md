@@ -2,7 +2,9 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
-## 1.11.0.0 更新（2026-11-14 提交认证）
+## 1.11.0.0 更新（2026-11-14 提交认证，2026-11-19 核实已上架）
+
+- 上架：2026-11-19 displaycatalog 在 CN、US 两个市场都返回 `ice.LiteView_1.11.0.0_x64__rz8m2sa64m4em`。
 
 - 包：`LiteView-store-1.11.0.0-x64.msix`，SHA-256 `ea6c33fb39fd4a16a770280eb48f390ab045f5eeaf82cc893df8c100b8d81453`，取自 [Release 运行 43487138673](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/43487138673)（标签 v1.11.0）的 `Store-submission-x64` artifact。该运行的四平台构建、Windows 安装包与 MSIX 安装、真实包身份启动、升级、卸载检查全部通过。
 - 本地核对：身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.11.0.0 / x64，没有测试签名。包内 EXE 的 SHA-256 是 `3d380248f19f8ef2cc449d80c042888a0d16a37823641bf8a7a0beb10cb136ac`，与 [GitHub v1.11.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.11.0) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `19862e6cee990541e5f9d0980638af27ed47d273dde471761f0cfdec52db5ecc` 已与公开 `SHA256SUMS.txt` 核对。

@@ -150,7 +150,7 @@ impl Default for PrintSettings {
     }
 }
 
-#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, PartialEq, Debug)]
 pub struct WindowState {
     pub pos: Option<[f32; 2]>,
     pub size: Option<[f32; 2]>,
@@ -161,9 +161,21 @@ pub struct WindowState {
     /// 窗口置顶
     #[serde(default)]
     pub always_on_top: bool,
-    /// 无边框、窗口比工具栏窄时把工具栏放到图片下面的小窗口里（默认关：多一个窗口和显卡设备）
-    #[serde(default)]
+    /// 无边框、窗口比工具栏窄时把工具栏放到图片下面的小窗口里。默认开（1.11.0 及以前默认关）。
+    /// 文件里叫 `toolbar_below`：以前叫 `toolbar_outside`，每次存设置都会写上 false，分不出是用户关的还是从没动过，
+    /// 所以换个名字，旧的那项不再读，大家都从默认开起
+    #[serde(rename = "toolbar_below", default = "yes")]
     pub toolbar_outside: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for WindowState {
+    fn default() -> Self {
+        Self { pos: None, size: None, maximized: false, borderless: false, always_on_top: false, toolbar_outside: true }
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, PartialEq, Debug)]
@@ -517,7 +529,15 @@ mod tests {
     fn tolerant_parse() {
         // 1.5.1 及以前的窗口设置没有无边框、置顶：照常读进来，按关
         let old: Settings = serde_json::from_str(r#"{"window": {"pos": [10.0, 20.0], "size": [800.0, 600.0], "maximized": true}}"#).unwrap();
-        assert_eq!(old.window, WindowState { pos: Some([10.0, 20.0]), size: Some([800.0, 600.0]), maximized: true, borderless: false, always_on_top: false, toolbar_outside: false });
+        assert_eq!(old.window, WindowState { pos: Some([10.0, 20.0]), size: Some([800.0, 600.0]), maximized: true, borderless: false, always_on_top: false, toolbar_outside: true });
+        // 1.11.0 及以前「工具栏放不下时放到图片下面」默认关、存成 toolbar_outside：不再读，都按新的默认（开）；之后关掉的记得住
+        let old: Settings = serde_json::from_str(r#"{"window": {"pos": null, "size": null, "maximized": false, "borderless": true, "toolbar_outside": false}}"#).unwrap();
+        assert!(old.window.toolbar_outside);
+        let off = Settings { window: WindowState { toolbar_outside: false, ..old.window }, ..old };
+        let text = serde_json::to_string(&off).unwrap();
+        assert!(text.contains(r#""toolbar_below":false"#) && !text.contains("toolbar_outside"));
+        assert!(!Settings::parse(&text).unwrap().0.window.toolbar_outside);
+        assert!(Settings::default().window.toolbar_outside);
         let s: Settings = serde_json::from_str(r#"{"wrap_around": false, "unknown": 1}"#).unwrap();
         assert!(!s.wrap_around);
         assert_eq!(s.jpeg_quality, 90);
@@ -539,7 +559,7 @@ mod tests {
         assert!(!s.wrap_around);
         assert_eq!(s.double_click, d.double_click);
         assert_eq!(s.jpeg_quality, d.jpeg_quality);
-        assert_eq!(s.window, WindowState { pos: Some([10.0, 20.0]), size: None, maximized: true, borderless: true, always_on_top: false, toolbar_outside: false });
+        assert_eq!(s.window, WindowState { pos: Some([10.0, 20.0]), size: None, maximized: true, borderless: true, always_on_top: false, toolbar_outside: true });
         assert_eq!((s.print.printer.as_str(), s.print.orientation), ("PDF", d.print.orientation));
         dropped.sort();
         assert_eq!(dropped, ["double_click", "jpeg_quality", "print.orientation", "window.size"]);

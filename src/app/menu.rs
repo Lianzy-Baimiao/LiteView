@@ -159,7 +159,6 @@ impl App {
                     ui.close();
                     self.toggle_borderless();
                 }
-                // 默认关：要多建一个小窗口（多一份显卡设备和界面）
                 if ui.checkbox(&mut self.settings.window.toolbar_outside, t.toolbar_outside).on_hover_text(t.toolbar_outside_tip).clicked() {
                     ui.close();
                 }

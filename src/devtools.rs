@@ -2,6 +2,7 @@
 //! 每行一条：`wait 300`、`waitimage`、`waitloaded`（当前图片显示或报错）、`key ctrl+r`、`keydown right` / `keyup right`（按住期间
 //! 像系统一样 500 ms 后每 33 ms 重复一次）、`move 100 200`、`click 100 200`、`rclick x y`、`dclick x y`、`down x y`、`up`、
 //! `drag x1 y1 x2 y2 步数`、`wheel -3`、`text 要输入的文字`、`shot out.png`、`shotsettings out.png`（单独的设置窗口，Windows）、
+//! `shotdock out.png`（浮动工具栏的小窗口，Windows；透明的地方透明，日志里记下它在哪、算它的是哪几块）、
 //! `trace 标记`（日志里记下时间、内存、帧数和当前图的文件名）、`quit`。坐标是逻辑像素。
 
 use std::collections::VecDeque;
@@ -45,6 +46,7 @@ enum Step {
     Shot(String),
     /// 单独的设置窗口截图（窗口循环去截）
     ShotSettings(String),
+    ShotDock(String),
     Trace(String),
     Quit,
 }
@@ -66,6 +68,9 @@ pub struct Script {
     /// 要截的设置窗口截图（窗口循环取走）
     #[cfg_attr(not(windows), allow(dead_code))]
     pub(crate) settings_shot: Option<String>,
+    /// 要截的浮动工具栏小窗口截图（窗口循环取走）
+    #[cfg_attr(not(windows), allow(dead_code))]
+    pub(crate) dock_shot: Option<String>,
     image_ready: bool,
     load_state: LoadState,
     first_frame: bool,
@@ -159,6 +164,7 @@ impl Script {
                 self.shot = Some(path);
             }
             Step::ShotSettings(path) => self.settings_shot = Some(path),
+            Step::ShotDock(path) => self.dock_shot = Some(path),
             Step::Trace(label) => log::info!(
                 "trace {label}：{:.0} ms，内存 {:.0} MB，第 {} 帧，当前 {}",
                 crate::platform::ms_since_process_start(),
@@ -236,6 +242,7 @@ fn parse(text: &str) -> VecDeque<Step> {
             Some("text") => out.push_back(Step::Text(line.trim_start().strip_prefix("text").unwrap_or("").trim_start().to_string())),
             Some("shot") => out.push_back(Step::Shot(w.get(1).unwrap_or(&"shot.png").to_string())),
             Some("shotsettings") => out.push_back(Step::ShotSettings(w.get(1).unwrap_or(&"settings.png").to_string())),
+            Some("shotdock") => out.push_back(Step::ShotDock(w.get(1).unwrap_or(&"dock.png").to_string())),
             Some("trace") => out.push_back(Step::Trace(w.get(1).unwrap_or(&"").to_string())),
             Some("quit") => out.push_back(Step::Quit),
             _ => {}

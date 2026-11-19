@@ -29,7 +29,7 @@ impl App {
         let inside = !blocked && ctx.input(|i| i.pointer.has_pointer());
         // 无边框、窗口比工具栏还窄时，工具栏和播放条放到图片下面的小窗口里（`dock_ui`，窗口循环去画），不在窗口里截断
         // 按这个窗口宽度下会画的那种工具栏（窄时没有「适应窗口」「原始大小」，动图另有播放条）比，放得下就留在窗口里
-        // 右键菜单「窗口 → 工具栏放不下时放到图片下面」开着才这样（默认关）
+        // 右键菜单「窗口 → 工具栏放不下时放到图片下面」开着才这样（默认开）
         self.docked = self.frameless() && self.settings.window.toolbar_outside && self.canvas.width() < self.toolbar_w[self.bar_kind()] + DOCK_ROOM;
         if !self.docked && !ctx.input(|i| i.pointer.primary_down()) {
             self.flip.button = None;
@@ -92,16 +92,24 @@ impl App {
     }
 
     /// 浮动工具栏的小窗口里画什么（窗口循环在它自己的 egui 里调）：动图的播放条和工具栏。返回工具栏占的地方
-    /// （提示、弹出菜单另外占的不算：小窗口按工具栏放，它们只让窗口往右、往下变大，工具栏不跟着跑）
+    /// （提示、弹出菜单另外占的不算：小窗口按工具栏放，工具栏不跟着它们跑）。
+    /// `float` = 小窗口是透明的：工具栏画成和窗口里一样的圆角条，放在给的位置（位置指的是工具栏的哪个角），四周留给
+    /// 提示和弹出菜单。没有（系统合成用不了）= 小窗口不透明、只有画出来的那么大，工具栏铺在左上角
     #[cfg(windows)]
-    pub(crate) fn dock_ui(&mut self, ctx: &egui::Context) -> egui::Rect {
+    pub(crate) fn dock_ui(&mut self, ctx: &egui::Context, float: Option<(egui::Pos2, Align2)>) -> egui::Rect {
         if !ctx.input(|i| i.pointer.primary_down()) {
             self.flip.button = None;
         }
         let p = theme::palette(ctx);
         let kind = self.bar_kind();
-        let area = Area::new(Id::new("dock")).order(Order::Foreground).fixed_pos(egui::Pos2::ZERO).show(ctx, |ui| {
-            egui::Frame::new().fill(p.floating).inner_margin(egui::Margin::symmetric(6, 6)).show(ui, |ui| {
+        let (pos, pivot) = float.unwrap_or((egui::Pos2::ZERO, Align2::LEFT_TOP));
+        let frame = match float {
+            // 不要阴影：阴影也算小窗口的地方，会盖住图片窗口底边那一圈、挡住从那里拖动改大小
+            Some(_) => widgets::floating_frame(p).shadow(egui::Shadow::NONE),
+            None => egui::Frame::new().fill(p.floating).inner_margin(egui::Margin::symmetric(6, 6)),
+        };
+        let area = Area::new(Id::new("dock")).order(Order::Foreground).pivot(pivot).fixed_pos(pos).show(ctx, |ui| {
+            frame.show(ui, |ui| {
                 ui.vertical(|ui| {
                     if self.is_animated() {
                         ui.horizontal(|ui| {
@@ -116,8 +124,8 @@ impl App {
                 });
             });
         });
-        // 和窗口里那条比：那条多 1 点的边框
-        self.toolbar_w[kind] = area.response.rect.width() + 2.0;
+        // 和窗口里那条比：不透明的小窗口里那条没有 1 点的边框
+        self.toolbar_w[kind] = area.response.rect.width() + if float.is_some() { 0.0 } else { 2.0 };
         self.dock_popup = ctx.any_popup_open();
         area.response.rect
     }

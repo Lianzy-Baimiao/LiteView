@@ -1,6 +1,6 @@
 [package]
 name = "liteview"
-version = "1.11.0"
+version = "1.12.0"
 edition = "2024"
 rust-version = "1.95"
 description = "LiteView 轻量看图：看图、编辑、打码"
@@ -50,7 +50,7 @@ winit = { version = "=0.30.13", default-features = false, features = ["rwh_06"] 
 [target.'cfg(windows)'.dev-dependencies.windows]
 version = "=0.62.2"
 # examples/compile_shaders.rs（运行时不依赖 d3dcompiler）；打印测试用系统的 PDF 渲染核对输出
-features = ["Win32_Graphics_Direct3D_Fxc", "Data_Pdf", "Storage", "Storage_Streams"]
+features = ["Win32_Graphics_Direct3D_Fxc", "Data_Pdf", "Storage", "Storage_Streams", "Win32_UI_HiDpi"]
 
 [target.'cfg(windows)'.dependencies.windows]
 version = "=0.62.2"

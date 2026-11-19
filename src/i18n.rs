@@ -225,7 +225,7 @@ strings! {
     file_menu: "文件", "File";
     window_menu: "窗口", "Window";
     toolbar_outside: "工具栏放不下时放到图片下面", "Toolbar below the image when it doesn't fit";
-    toolbar_outside_tip: "无边框、窗口比底部工具栏还窄时，把工具栏放到图片下面单独的小窗口里，不再被截断。这个小窗口要多占一些内存，所以默认不开", "When borderless and the window is narrower than the bottom toolbar, the toolbar goes in a small window of its own under the image instead of being cut off. That window takes some extra memory, so this is off by default";
+    toolbar_outside_tip: "无边框、窗口比底部工具栏还窄时，把工具栏放到图片下面单独的小窗口里，不再被截断", "When borderless and the window is narrower than the bottom toolbar, the toolbar goes in a small window of its own under the image instead of being cut off";
     minimize: "最小化", "Minimize";
     maximize: "最大化", "Maximize";
     restore_window: "还原", "Restore";

@@ -793,6 +793,12 @@ impl App {
         self.script.settings_shot.take()
     }
 
+    /// 开发脚本要的浮动工具栏小窗口截图（窗口循环取走、截下来存）
+    #[cfg(windows)]
+    pub(crate) fn dock_shot(&mut self) -> &mut Option<String> {
+        &mut self.script.dock_shot
+    }
+
     #[cfg(windows)]
     pub(crate) fn settings_shot_pending(&self) -> bool {
         self.script.settings_shot.is_some()

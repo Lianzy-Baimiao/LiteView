@@ -84,10 +84,18 @@ struct Dock {
     state: egui_winit::State,
     ctx: egui::Context,
     hwnd: isize,
-    /// 工具栏的大小、连同提示 / 弹出菜单的大小（物理像素），上次放的位置
-    bar: (i32, i32),
+    /// 透明的（系统合成能用）：窗口一直是排版用的那么大，工具栏在里面留了边的地方，画出来的几块之外不算它的
+    /// （窗口区域：看得见后面，点击也落到后面的窗口上）。不透明时窗口只有画出来的那么大，提示、弹出菜单让它往右、往下变大
+    float: bool,
+    /// 透明时：弹出菜单往上开（工具栏下面离屏幕底边太近）。工具栏放在排版区的底部，上面留给菜单
+    up: bool,
+    /// 工具栏在小窗口里的位置、小窗口的大小（物理像素），上次放的位置
+    bar: (i32, i32, i32, i32),
     size: (i32, i32),
     rect: Option<(i32, i32, i32, i32)>,
+    /// 透明时：这一帧画出来的几块（窗口坐标，物理像素），已经设成窗口区域的那几块
+    parts: Vec<(i32, i32, i32, i32)>,
+    region: Vec<(i32, i32, i32, i32)>,
     dirty: bool,
     next: Option<Instant>,
     /// 还没交给显卡的纹理变化（egui 第一帧量大小时什么都不画，字体纹理也在那一帧，不能丢）
@@ -99,8 +107,10 @@ struct Dock {
     stray_since: Option<Instant>,
 }
 
-/// 小窗口里排版用的大小（点）：工具栏和它的弹出菜单都放得下；实际窗口只有画出来的那么大
+/// 小窗口里排版用的大小（点）：工具栏和它的弹出菜单都放得下。透明的小窗口就这么大，不透明的只有画出来的那么大
 const DOCK_LAYOUT: egui::Vec2 = egui::vec2(900.0, 420.0);
+/// 透明的小窗口里工具栏离排版区边上这么远（点）：弹出菜单、提示的阴影不被切掉
+const DOCK_PAD: f32 = 16.0;
 /// 小窗口离图片窗口的距离（物理像素）
 const DOCK_GAP: i32 = 6;
 /// 小窗口在最前面、却没有在打字这么久，就把最前面还给图片窗口
@@ -111,6 +121,8 @@ impl Dock {
         use winit::platform::windows::WindowAttributesExtWindows;
         let owner_hwnd = hwnd(owner).ok_or("no HWND")?;
         let pos = owner.outer_position().unwrap_or_default();
+        // 能透明的窗口不能有 GDI 那层，建的时候就要定（和无边框的图片窗口一样）
+        let composited = crate::platform::d3d11::composition_available();
         let attrs = Window::default_attributes()
             .with_title("")
             .with_decorations(false)
@@ -120,18 +132,43 @@ impl Dock {
             .with_inner_size(winit::dpi::PhysicalSize::new(400u32, 60u32))
             .with_skip_taskbar(true)
             .with_undecorated_shadow(false)
+            .with_no_redirection_bitmap(composited)
             .with_owner_window(owner_hwnd.0 as isize);
         let window = event_loop.create_window(attrs).map_err(|e| e.to_string())?;
         let h = hwnd(&window).ok_or("no HWND")?;
         crate::platform::windows::style_dock(h.0 as isize);
-        let painter = Painter::new(h, driver, [400, 60]).map_err(|e| e.to_string())?;
+        let make: fn(_, _, _) -> _ = if composited { Painter::new_composited } else { Painter::new };
+        let painter = make(h, driver, [400, 60]).map_err(|e| e.to_string())?;
+        let float = painter.composited();
+        if float {
+            // 圆角、边线自己画，系统的那圈不要
+            crate::platform::windows::set_see_through(h.0 as isize, true);
+        }
         let ctx = egui::Context::default();
         ctx.options_mut(|o| o.zoom_with_keyboard = false);
         crate::ui::fonts::install(&ctx);
         crate::ui::theme::install(&ctx);
         ctx.set_theme(main.theme());
         let state = egui_winit::State::new(ctx.clone(), ViewportId::ROOT, event_loop, Some(window.scale_factor() as f32), event_loop.system_theme(), Some(painter.max_texture_side));
-        Ok(Self { window, painter, state, ctx, hwnd: h.0 as isize, bar: (0, 0), size: (0, 0), rect: None, dirty: true, next: None, pending: Default::default(), typing: false, stray_since: None })
+        Ok(Self {
+            window,
+            painter,
+            state,
+            ctx,
+            hwnd: h.0 as isize,
+            float,
+            up: false,
+            bar: (0, 0, 0, 0),
+            size: (0, 0),
+            rect: None,
+            parts: Vec::new(),
+            region: Vec::new(),
+            dirty: true,
+            next: None,
+            pending: Default::default(),
+            typing: false,
+            stray_since: None,
+        })
     }
 
     /// 画一帧；返回这一帧有没有鼠标 / 键盘输入（有的话图片窗口也要跟着重画）
@@ -142,22 +179,43 @@ impl Dock {
         self.ctx.set_theme(app.ctx.theme());
         let ctx = self.ctx.clone();
         let mut bar = egui::Rect::NOTHING;
-        let out = self.ctx.run_ui(raw, |_| bar = app.dock_ui(&ctx));
+        let float = self.float.then(|| match self.up {
+            true => (egui::pos2(DOCK_PAD, DOCK_LAYOUT.y - DOCK_PAD), egui::Align2::LEFT_BOTTOM),
+            false => (egui::pos2(DOCK_PAD, DOCK_PAD), egui::Align2::LEFT_TOP),
+        });
+        let out = self.ctx.run_ui(raw, |_| bar = app.dock_ui(&ctx, float));
         // 有输入框有焦点时 egui 给出输入法的位置
         self.typing = out.platform_output.ime.is_some();
         self.state.handle_platform_output(&self.window, out.platform_output);
         self.pending.append(out.textures_delta);
-        let used = out.shapes.iter().map(|s| s.shape.visual_bounding_rect().intersect(s.clip_rect)).filter(|r| r.is_positive()).fold(egui::Rect::NOTHING, |a, b| a.union(b));
         let ppp = out.pixels_per_point;
-        self.bar = if bar.is_positive() { ((bar.max.x * ppp).ceil() as i32, (bar.max.y * ppp).ceil() as i32) } else { (0, 0) };
-        self.size = if used.is_positive() { ((used.max.x * ppp).ceil() as i32, (used.max.y * ppp).ceil() as i32) } else { (0, 0) };
+        let px = |r: egui::Rect| ((r.min.x * ppp).floor() as i32, (r.min.y * ppp).floor() as i32, (r.max.x * ppp).ceil() as i32, (r.max.y * ppp).ceil() as i32);
+        let screen = egui::Rect::from_min_size(egui::Pos2::ZERO, DOCK_LAYOUT);
+        let drawn: Vec<egui::Rect> = out.shapes.iter().map(|s| s.shape.visual_bounding_rect().intersect(s.clip_rect).intersect(screen)).filter(|r| r.is_positive()).collect();
+        self.bar = if bar.is_positive() { px(bar) } else { (0, 0, 0, 0) };
+        if self.float {
+            self.parts = super::frameless::dock_parts(drawn.iter().map(|r| px(*r)).collect());
+            let full = px(screen);
+            self.size = if self.parts.is_empty() { (0, 0) } else { (full.2, full.3) };
+        } else {
+            // 不透明：窗口从工具栏的左上角起，到画出来的最右、最下
+            let used = drawn.iter().fold(egui::Rect::NOTHING, |a, b| a.union(*b));
+            self.bar = (0, 0, self.bar.2, self.bar.3);
+            self.size = if used.is_positive() { ((used.max.x * ppp).ceil() as i32, (used.max.y * ppp).ceil() as i32) } else { (0, 0) };
+        }
         self.next = out.viewport_output.get(&ViewportId::ROOT).and_then(|v| Instant::now().checked_add(v.repaint_delay));
         if self.size.0 > 0 && self.size.1 > 0 {
             self.painter.resize([self.size.0 as u32, self.size.1 as u32]).map_err(|e| e.0)?;
             let prims = self.ctx.tessellate(out.shapes, ppp);
             let p = crate::ui::theme::palette(&self.ctx);
             let delta = std::mem::take(&mut self.pending);
-            self.painter.paint(p.floating.to_normalized_gamma_f32(), ppp, &prims, &delta, false).map_err(|e| e.0)?;
+            let clear = if self.float { [0.0; 4] } else { p.floating.to_normalized_gamma_f32() };
+            let shot = app.dock_shot().take();
+            let image = self.painter.paint(clear, ppp, &prims, &delta, shot.is_some()).map_err(|e| e.0)?;
+            if let (Some(path), Some(img)) = (shot, image) {
+                crate::devtools::save_shot(&path, &img);
+                log::info!("小窗口 {path}：透明 {}，菜单往上 {}，工具栏 {:?}，大小 {:?}，上次放在 {:?}，几块 {:?}", self.float, self.up, self.bar, self.size, self.rect, self.parts);
+            }
         }
         self.dirty = false;
         Ok(input)
@@ -589,18 +647,32 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
             }
         }
         let Some(d) = &mut r.dock else { return };
-        if d.dirty || d.next.is_some_and(|t| Instant::now() >= t) {
-            match d.paint(&mut r.app) {
-                Ok(true) => r.window.request_redraw(),
-                Ok(false) => {}
-                Err(e) => log::warn!("浮动工具栏画不出来：{e}"),
+        use crate::platform::windows as win;
+        let main = hwnd(&r.window).map(|h| h.0 as isize);
+        let around = main.and_then(|m| Some((win::window_rect(m)?, win::work_area(m)?)));
+        // 画；透明时画完看弹出菜单该往哪边开，变了（图片窗口挪到了屏幕底边附近 / 挪开了）就按新的再画一次才显示
+        for _ in 0..2 {
+            if d.dirty || r.app.dock_shot().is_some() || d.next.is_some_and(|t| Instant::now() >= t) {
+                match d.paint(&mut r.app) {
+                    Ok(true) => r.window.request_redraw(),
+                    Ok(false) => {}
+                    Err(e) => log::warn!("浮动工具栏画不出来：{e}"),
+                }
             }
+            let (Some((mr, work)), true) = (around, d.float && d.bar.2 > d.bar.0) else { break };
+            let bar = (d.bar.2 - d.bar.0, d.bar.3 - d.bar.1);
+            // 往下开时工具栏下面留着的地方：排版区的高减掉上面留的边和工具栏
+            let room = d.size.1 - bar.1 - if d.up { d.size.1 - d.bar.3 } else { d.bar.1 };
+            let up = super::frameless::dock_opens_up(super::frameless::dock_rect(mr, bar, work, DOCK_GAP), room, work);
+            if up == d.up {
+                break;
+            }
+            d.up = up;
+            d.dirty = true;
         }
         if let Some(t) = d.next {
             self.next_repaint = Some(self.next_repaint.map_or(t, |n| n.min(t)));
         }
-        use crate::platform::windows as win;
-        let main = hwnd(&r.window).map(|h| h.0 as isize);
         // 点输入框时它被放到了最前面（WS_EX_NOACTIVATE 也挡不住）。打完（回车、选了预设、点了外面）还在最前面：
         // 等一小会儿（点的那一下先画完）再把最前面还给图片窗口，不然快捷键都到了它这里
         if !d.typing && win::is_foreground(d.hwnd) {
@@ -617,17 +689,24 @@ impl<F: FnOnce(&egui::Context) -> App> Host<'_, F> {
         } else {
             d.stray_since = None;
         }
-        if let (Some(m), true) = (main, d.bar.0 > 0 && d.size.0 > 0)
-            && let (Some(mr), Some(work)) = (win::window_rect(m), win::work_area(m))
-        {
-            // 按工具栏放；提示、弹出菜单只让窗口往右、往下变大
-            let at = super::frameless::dock_rect(mr, d.bar, work, DOCK_GAP);
-            let rect = (at.0, at.1, at.0 + d.size.0.max(d.bar.0), at.1 + d.size.1.max(d.bar.1));
+        if let (Some((mr, work)), true) = (around, d.bar.2 > d.bar.0 && d.size.0 > 0) {
+            // 按工具栏放。不透明时提示、弹出菜单只让窗口往右、往下变大；透明时窗口大小不变，工具栏在里面留了边的地方
+            let at = super::frameless::dock_rect(mr, (d.bar.2 - d.bar.0, d.bar.3 - d.bar.1), work, DOCK_GAP);
+            let (l, t) = (at.0 - d.bar.0, at.1 - d.bar.1);
+            let rect = (l, t, l + d.size.0.max(d.bar.2), t + d.size.1.max(d.bar.3));
+            if d.float && d.region != d.parts {
+                win::set_window_region(d.hwnd, &d.parts);
+                d.region.clone_from(&d.parts);
+            }
             if d.rect != Some(rect) {
                 win::show_at(d.hwnd, rect);
                 d.rect = Some(rect);
             }
-            let on = win::cursor_pos().is_some_and(|(x, y)| x >= rect.0 && x < rect.2 && y >= rect.1 && y < rect.3);
+            let on = win::cursor_pos().is_some_and(|(x, y)| {
+                let inside = |q: &(i32, i32, i32, i32)| x >= q.0 && x < q.2 && y >= q.1 && y < q.3;
+                // 透明时只有画出来的几块算
+                if d.float { d.parts.iter().any(|q| inside(&(q.0 + l, q.1 + t, q.2 + l, q.3 + t))) } else { inside(&rect) }
+            });
             r.app.set_dock_hover(on);
         }
     }
@@ -735,6 +814,13 @@ impl<F: FnOnce(&egui::Context) -> App> ApplicationHandler<UserEvent> for Host<'_
         let Some(r) = &mut self.running else { return };
         // 小窗口的输入框有焦点：按键、输入法转给它，图片窗口不处理（否则打的字会变成快捷键：Delete 删文件、方向键翻页）。
         // 修饰键两边都要知道
+        // 在图片窗口上按了鼠标：小窗口里开着的弹出菜单关掉（它自己收不到这一下，以前要回去点工具栏才关）
+        if let (WindowEvent::MouseInput { state: winit::event::ElementState::Pressed, .. }, Some(d)) = (&event, r.dock.as_mut())
+            && egui::Popup::is_any_open(&d.ctx)
+        {
+            egui::Popup::close_all(&d.ctx);
+            d.dirty = true;
+        }
         if let Some(d) = r.dock.as_mut().filter(|d| d.typing) {
             let modifiers = matches!(event, WindowEvent::ModifiersChanged(_));
             if modifiers || matches!(event, WindowEvent::KeyboardInput { .. } | WindowEvent::Ime(_)) {

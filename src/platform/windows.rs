@@ -229,6 +229,29 @@ pub fn set_see_through(hwnd: isize, on: bool) {
     }
 }
 
+/// 窗口只剩这些矩形（窗口坐标，物理像素）：别的地方不属于它，不画，鼠标点上去落到后面的窗口上。
+/// 空 = 整个窗口都算
+pub fn set_window_region(hwnd: isize, rects: &[(i32, i32, i32, i32)]) {
+    use windows::Win32::Graphics::Gdi::{CombineRgn, CreateRectRgn, DeleteObject, RGN_OR, SetWindowRgn};
+    let h = HWND(hwnd as *mut core::ffi::c_void);
+    unsafe {
+        if rects.is_empty() {
+            SetWindowRgn(h, None, true);
+            return;
+        }
+        let all = CreateRectRgn(0, 0, 0, 0);
+        for r in rects {
+            let one = CreateRectRgn(r.0, r.1, r.2, r.3);
+            CombineRgn(Some(all), Some(all), Some(one), RGN_OR);
+            let _ = DeleteObject(one.into());
+        }
+        // 交给系统后归系统管，不能再删；没交成才自己删
+        if SetWindowRgn(h, Some(all), true) == 0 {
+            let _ = DeleteObject(all.into());
+        }
+    }
+}
+
 /// 显示在 r（物理像素，左上右下），不激活
 pub fn show_at(hwnd: isize, r: (i32, i32, i32, i32)) {
     use windows::Win32::UI::WindowsAndMessaging::{SWP_NOACTIVATE, SWP_SHOWWINDOW, SetWindowPos};

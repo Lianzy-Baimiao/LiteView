@@ -47,6 +47,23 @@ pub(crate) fn dock_rect(main: (i32, i32, i32, i32), size: (i32, i32), work: (i32
     (l, t, l + w, t + h)
 }
 
+/// 透明的小窗口里弹出菜单往哪边开：工具栏（`bar`，屏幕上）下面到工作区底边够放 `room` 就往下，不够就往上
+#[cfg(windows)]
+pub(crate) fn dock_opens_up(bar: (i32, i32, i32, i32), room: i32, work: (i32, i32, i32, i32)) -> bool {
+    bar.3 + room > work.3
+}
+
+/// 透明的小窗口算在哪些地方（窗口区域，别处点击落到后面的窗口上）：画出来的每一块，被别的块整个盖住的不用算。
+/// 排好序：两帧画的一样时结果也一样，不用重设
+#[cfg(windows)]
+pub(crate) fn dock_parts(mut rects: Vec<(i32, i32, i32, i32)>) -> Vec<(i32, i32, i32, i32)> {
+    rects.retain(|r| r.2 > r.0 && r.3 > r.1);
+    rects.sort_unstable();
+    rects.dedup();
+    let inside = |a: &(i32, i32, i32, i32), b: &(i32, i32, i32, i32)| a.0 >= b.0 && a.1 >= b.1 && a.2 <= b.2 && a.3 <= b.3;
+    (0..rects.len()).filter(|&i| !(0..rects.len()).any(|j| j != i && inside(&rects[i], &rects[j]))).map(|i| rects[i]).collect()
+}
+
 /// 屏幕上的矩形，物理像素 (左, 上, 右, 下)
 #[cfg_attr(not(windows), allow(dead_code))]
 pub(crate) type Px = (i32, i32, i32, i32);
@@ -659,6 +676,20 @@ mod tests {
         assert_eq!(dock_rect((800, 900, 1100, 1030), (600, 56), work, 6), (650, 838, 1250, 894));
         // 左边会出工作区：贴着左边
         assert_eq!(dock_rect((0, 300, 200, 433), (600, 56), work, 6), (0, 439, 600, 495));
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn the_toolbar_window_counts_only_what_is_drawn_and_opens_menus_where_there_is_room() {
+        // 工具栏、里面的按钮（整个在工具栏里，不用算）、伸出去的弹出菜单、空的
+        let bar = (24, 24, 600, 80);
+        let popup = (300, 76, 420, 260);
+        assert_eq!(dock_parts(vec![popup, (30, 30, 70, 70), bar, (0, 0, 0, 10), bar, (100, 30, 140, 70)]), vec![bar, popup]);
+        assert_eq!(dock_parts(Vec::new()), Vec::new());
+        // 下面够放菜单就往下开，贴近屏幕底边时往上
+        let work = (0, 0, 1920, 1040);
+        assert!(!dock_opens_up((650, 506, 1250, 562), 400, work));
+        assert!(dock_opens_up((650, 900, 1250, 956), 400, work));
     }
 
     #[test]
