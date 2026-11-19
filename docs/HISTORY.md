@@ -14,6 +14,10 @@
 - [x] 默认开：设置文件里改叫 `window.toolbar_below`（旧的 `toolbar_outside` 不再读），菜单提示去掉「默认不开」。
 - [x] 开发脚本加 `shotdock`（截小窗口，透明处透明，日志记位置和窗口区域）。私有桌面核对（`dist/dock-20261119/dock_float.py`）：只有工具栏时图里 94 % 透明、窗口区域就是工具栏；点比例后区域是工具栏和菜单两块，菜单旁边、下面都透明；贴近屏幕底边时菜单往上；点图片后区域变回工具栏；深色、浅色都看过。内存比 1.11.0 多约 3 MB、显存多约 5 MB。
 
+- [x] [v1.12.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.12.0) 已发布为 GitHub Latest（2026-11-19），发布提交 `adc164b`。[三平台 CI](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/44458709075)、发布前在 main 上的 [Release 演练](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/44458722471) 和 [四平台 Release](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/44461513071) 全部通过，包括 Windows 安装包与 MSIX 生命周期检查。五个公开成品包均已下载，SHA-256 与 `SHA256SUMS.txt` 及 GitHub 附件摘要一致；校验记录在忽略目录 `dist/release-1.12.0/`，Windows 安装包另放在 `dist/` 顶层。发布前本地的隔离桌面回归 13 项里 11 项通过，两项帧数检查（硬件和 WARP）只有拖动空闲一项超出上限（42 帧，上限 8）；1.10.0 和 1.9.0 在这台机器上也是 42，不是这一版带来的。
+- [x] 微软商店 1.12.0.0 已于同日提交认证，Submission 18（`1152921505702446560`）显示“正在认证更新”，审核通过后自动发布。MSIX 来自同次正式 Release，包内 EXE 与公开 Windows 绿色版一致；中英文“此版本的新增功能”已保存并重新读取核对（179 / 634 字符）。提交时商店为已上架的 1.11.0.0，详见 [商店记录](STORE-LISTING.md)。
+- [x] 本机日常使用的副本已更新为正式 v1.12.0，EXE 与公开绿色版及商店候选一致；原 1.11.0 保留为 `LiteView-1.11.0.exe.bak`。图标、版本、DPI 和长路径资源检查通过，21 个系统 DLL、328 个导入符号均能解析。
+
 ## 2026-11-14 多窗口模式（v1.11.0）
 
 [#8](https://github.com/Lianzy-Baimiao/LiteView/issues/8)：希望设置里加「多窗口模式」，打开后能运行多个实例，每张图片在自己的窗口里看。

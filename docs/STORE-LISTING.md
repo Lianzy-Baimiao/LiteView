@@ -2,6 +2,14 @@
 
 状态：2026-10-18 已核实 LiteView **通过微软认证**，用户随后自行点击“立即发布”。2026-10-22 经用户同意，已从 Microsoft Store 实际安装 **1.0.0.0 / SignatureKind=Store**，确认本机所在市场已能交付；完成测试后已卸载。不重复送审或点击发布，不据此宣称所有市场搜索收录均已完成。IARC 正式证书/ID 仍待独立核对。2026-10-30：1.7.0.0 已上架，CN、US、JP、DE、GB 五个市场都能查到、能搜到，年龄分级已显示（见 1.7.0.0 一节）；IARC 证书编号仍要在 Partner Center 核对。
 
+## 1.12.0.0 更新（2026-11-19 提交认证）
+
+- 包：`LiteView-store-1.12.0.0-x64.msix`，SHA-256 `ca8bde62a7d7154c0d12b798b81e7b5d6618f6f74d33f6bb5cfc1b9dadb9cf87`，取自 [Release 运行 44461513071](https://github.com/Lianzy-Baimiao/LiteView/actions/runs/44461513071)（标签 v1.12.0）的 `Store-submission-x64` artifact。该运行的四平台构建、Windows 安装包与 MSIX 生命周期检查全部通过。
+- 本地核对：身份 `ice.LiteView` / `CN=56079E3F-5861-4D9C-B9C3-93F76224C42E` / 1.12.0.0 / x64，没有测试签名。包内 EXE 的 SHA-256 是 `b83d07c110004d78e38354617d6ab96f35d436366d3d8530a98dc135ef7041cd`，与 [GitHub v1.12.0](https://github.com/Lianzy-Baimiao/LiteView/releases/tag/v1.12.0) 正式 Windows 绿色版完全相同；该 ZIP 的 SHA-256 `869ade2eb2707529f93f21b5c0d9308c5e6fc0a6d89ae3af718bdf3ef45f2a07` 已与公开 `SHA256SUMS.txt` 核对。
+- 提交：Submission 18 **1152921505702446560** 的新包已上传、保存并显示 `Validated`，1.11.0.0 随保存从草稿中移除；设备仍只勾选 Windows 10/11 Desktop，未开启逐步推出或强制更新。中英文“此版本的新增功能”保存后重新打开逐字核对一致（179 / 634 字符）。
+- 送审：提交选项沿用“通过认证后立即发布”和原有 runFullTrust 用途说明（458 字符）。2026-11-19 提交，后台显示**“正在认证更新”**、Submission 18 正在认证，并写明“产品在通过认证后立即开始发布”。此时商店仍为 Submission 17（1.11.0.0）；1.12.0.0 尚未核实通过认证或上架。
+- 用保留登录的专用 Edge 配置在隐藏桌面上完成。证据保存在忽略目录 `dist/store-1.12.0-submission/`：各步截图、`submitted-state.txt`、两种语言的文案和核对脚本。本次已完成送审，不要重复上传、取消认证或重建 Submission 18。
+
 ## 1.11.0.0 更新（2026-11-14 提交认证，2026-11-19 核实已上架）
 
 - 上架：2026-11-19 displaycatalog 在 CN、US 两个市场都返回 `ice.LiteView_1.11.0.0_x64__rz8m2sa64m4em`。
